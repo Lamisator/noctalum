@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ContestLog</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<!-- Setup screen (first run) -->
+<div id="setup-screen" class="screen login-screen hidden">
+  <div class="login-card wide">
+    <h1>Welcome to ContestLog</h1>
+    <p class="muted">Create the initial administrator account.</p>
+    <form id="setup-form" autocomplete="off">
+      <label>Username</label>
+      <input id="setup-username" type="text" autocomplete="off" required />
+      <label>Password (min 8 chars)</label>
+      <input id="setup-password" type="password" minlength="8" autocomplete="new-password" required />
+      <label>Operator callsign</label>
+      <input id="setup-callsign" type="text" autocapitalize="characters" spellcheck="false" required />
+      <button type="submit">Create admin and sign in</button>
+      <div id="setup-error" class="error"></div>
+    </form>
+  </div>
+</div>
+
+<!-- Login screen -->
+<div id="login-screen" class="screen login-screen hidden">
+  <div class="login-card">
+    <h1>ContestLog</h1>
+    <p class="muted">Sign in</p>
+    <form id="login-form" autocomplete="on">
+      <label>Username</label>
+      <input id="login-username" type="text" autocomplete="username" required />
+      <label>Password</label>
+      <input id="login-password" type="password" autocomplete="current-password" required />
+      <button type="submit">Sign in</button>
+      <div id="login-error" class="error"></div>
+    </form>
+    <div id="passkey-divider" class="passkey-divider"><span>or</span></div>
+    <button id="passkey-login-btn" class="passkey-btn">&#128273; Sign in with passkey</button>
+    <div id="passkey-login-error" class="error"></div>
+  </div>
+</div>
+
+<!-- Contest selection screen -->
+<div id="contest-screen" class="screen login-screen hidden">
+  <div class="login-card wide">
+    <h1>Select Contest</h1>
+    <p class="muted">Choose a contest to participate in.</p>
+    <div id="contest-picker-list" class="contest-picker-list"></div>
+    <div id="contest-create-section" class="hidden" style="margin-top:16px">
+      <button id="create-contest-btn" class="primary" style="width:100%">+ New Contest</button>
+    </div>
+    <div id="contest-pick-error" class="error" style="margin-top:10px"></div>
+    <div style="margin-top:16px;text-align:right">
+      <button id="contest-logout-btn" class="ghost" style="font-size:12px">Sign out</button>
+    </div>
+  </div>
+</div>
+
+<!-- App shell -->
+<div id="app" class="screen app-screen hidden">
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="brand">ContestLog</div>
+      <span class="op-badge">Logged in as <strong id="current-op"></strong></span>
+    </div>
+
+    <div class="station-pill" id="station-pill" title="Click to change contest">
+      <span class="station-call" id="station-call">—</span>
+      <span class="station-contest-name" id="station-contest-name"></span>
+    </div>
+
+    <div class="topbar-right">
+      <nav class="tabs">
+        <button class="tab active" data-tab="log">Logging</button>
+        <button class="tab" data-tab="settings">Settings</button>
+        <button class="tab tab-perm" data-tab="contests" data-perm="contests.manage">Contests</button>
+        <button class="tab tab-perm" data-tab="users" data-perm="users.manage">Users</button>
+        <button class="tab tab-perm" data-tab="export" data-perm="qso.export">Export</button>
+        <button class="tab tab-perm" data-tab="audit" data-perm="audit.log">Audit Log</button>
+      </nav>
+      <div class="rig-status" id="rig-status" title="Selected transceiver">
+        <span class="rig-dot"></span>
+        <span class="rig-label">RIG</span>
+        <span class="rig-detail">no rig selected</span>
+      </div>
+      <button id="logout-btn" class="ghost">Logout</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Logging tab -->
+    <section id="tab-log" class="tab-pane active">
+      <div id="contest-readonly-banner" class="contest-readonly-banner hidden">
+        Contest is finished — log is read-only.
+      </div>
+      <div class="layout-grid">
+        <div class="entry-panel card">
+          <div class="rig-bar">
+            <label>Rig:
+              <select id="rig-select">
+                <option value="">— none (manual entry) —</option>
+              </select>
+            </label>
+            <span class="muted small" id="rig-bar-detail"></span>
+          </div>
+          <h2>New QSO</h2>
+          <form id="qso-form" autocomplete="off">
+            <div class="row">
+              <label>Callsign
+                <input id="q-call" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
+              </label>
+              <label>Mode
+                <select id="q-mode" required></select>
+              </label>
+              <label>Band
+                <select id="q-band" required></select>
+              </label>
+              <label>Frequency (kHz)
+                <input id="q-freq" type="number" step="0.01" min="0" />
+              </label>
+            </div>
+            <div class="row">
+              <label>RST sent
+                <input id="q-rst-sent" type="text" maxlength="6" required />
+              </label>
+              <label>RST rcvd
+                <input id="q-rst-rcvd" type="text" maxlength="6" required />
+              </label>
+              <label>Locator
+                <input id="q-loc" type="text" maxlength="6" autocapitalize="characters" />
+              </label>
+              <label>ITU
+                <input id="q-itu" type="text" maxlength="2" />
+              </label>
+              <label>CQ
+                <input id="q-cq" type="text" maxlength="2" />
+              </label>
+            </div>
+            <div class="row">
+              <label class="grow">Notes
+                <input id="q-notes" type="text" />
+              </label>
+              <label>Lighthouse
+                <input id="q-lh" type="text" />
+              </label>
+              <label>UTC time (optional)
+                <input id="q-time" type="datetime-local" step="1" />
+              </label>
+            </div>
+            <div class="entry-actions">
+              <span id="qso-error" class="error"></span>
+              <button type="submit" class="primary" id="log-qso-btn">Log QSO <span class="kbd">Enter</span></button>
+            </div>
+          </form>
+        </div>
+
+        <div class="history-panel card">
+          <div class="history-header">
+            <h2>QSO history</h2>
+            <input id="history-filter" type="search" placeholder="Filter by call, band, mode, op…" />
+          </div>
+          <div class="table-scroll">
+            <table id="qso-table">
+              <thead>
+                <tr>
+                  <th>Time UTC</th>
+                  <th>Call</th>
+                  <th>Band</th>
+                  <th>Freq</th>
+                  <th>Mode</th>
+                  <th>Snt</th>
+                  <th>Rcv</th>
+                  <th>Loc</th>
+                  <th>ITU/CQ</th>
+                  <th>Op</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="qso-tbody"></tbody>
+            </table>
+          </div>
+          <div class="history-footer muted">
+            <span id="qso-count">0 QSOs</span>
+          </div>
+        </div>
+
+        <aside class="ops-panel card">
+          <div class="ops-header">
+            <div class="muted">Operating as</div>
+            <div class="ops-station" id="ops-station-call">—</div>
+          </div>
+          <h3>Connected operators</h3>
+          <ul id="ops-list" class="ops-list"></ul>
+
+          <h3 style="margin-top:18px">Available rigs</h3>
+          <ul id="rig-list" class="rig-list"></ul>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Settings tab -->
+    <section id="tab-settings" class="tab-pane">
+      <div class="card settings-card">
+        <h2>Settings</h2>
+        <form id="settings-form">
+          <fieldset>
+            <legend>Defaults</legend>
+            <label>Default mode
+              <select id="s-mode"></select>
+            </label>
+            <label>Default band
+              <select id="s-band"></select>
+            </label>
+          </fieldset>
+          <div class="entry-actions">
+            <span id="settings-error" class="error"></span>
+            <button type="submit" class="primary perm-required" data-perm="settings.write">
+              Save settings
+            </button>
+          </div>
+        </form>
+
+        <fieldset id="helper-fieldset" class="perm-required" data-perm="settings.write">
+          <legend>Helper token</legend>
+          <p class="muted small">
+            Give this token to operators along with the
+            <code>contestlog-helper</code> binary.  Each helper presents the
+            token and a rig name (e.g. <code>IC-7300</code>) at startup.
+          </p>
+          <div class="row">
+            <input id="s-token" type="text" readonly />
+            <button type="button" id="copy-token" class="ghost">Copy</button>
+            <button type="button" id="regen-token" class="ghost">Regenerate</button>
+          </div>
+          <pre class="snippet">contestlog-helper \
+  -server <span id="hint-server">http://this-server:8080</span> \
+  -name "IC-7300" \
+  -token <span id="hint-token">...</span></pre>
+        </fieldset>
+      </div>
+
+      <div class="card settings-card" style="margin-top:14px">
+        <h2>Change own password</h2>
+        <form id="own-pwd-form">
+          <label>Current password
+            <input id="op-old" type="password" autocomplete="current-password" required />
+          </label>
+          <label>New password (min 8 chars)
+            <input id="op-new" type="password" minlength="8" autocomplete="new-password" required />
+          </label>
+          <div class="entry-actions">
+            <span id="op-error" class="error"></span>
+            <button type="submit" class="primary">Change password</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card settings-card" style="margin-top:14px">
+        <h2>Passkeys</h2>
+        <p class="muted small">Passkeys let you sign in without a password using your device's biometrics or PIN.</p>
+        <div id="passkey-list" class="passkey-list"></div>
+        <div class="entry-actions" style="margin-top:10px">
+          <span id="passkey-error" class="error"></span>
+          <div class="row" style="gap:8px;align-items:center">
+            <input id="passkey-name" type="text" placeholder="Passkey name (e.g. MacBook)" style="max-width:220px" />
+            <button type="button" id="register-passkey-btn" class="primary">&#128273; Register passkey</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Contests tab -->
+    <section id="tab-contests" class="tab-pane">
+      <div class="card">
+        <div class="history-header">
+          <h2>Contests</h2>
+          <button id="new-contest-btn" class="primary">New contest</button>
+        </div>
+        <table id="contests-table">
+          <thead>
+            <tr>
+              <th>Name</th><th>Station call</th><th>Status</th><th>Created</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="contests-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Users tab -->
+    <section id="tab-users" class="tab-pane">
+      <div class="card">
+        <div class="history-header">
+          <h2>Users</h2>
+          <button id="new-user-btn" class="primary">New user</button>
+        </div>
+        <table id="users-table">
+          <thead>
+            <tr>
+              <th>Username</th><th>Callsign</th><th>Roles</th>
+              <th>Status</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="history-header">
+          <h2>Roles</h2>
+          <button id="new-role-btn" class="primary">New role</button>
+        </div>
+        <div id="roles-list"></div>
+      </div>
+    </section>
+
+    <!-- Export tab -->
+    <section id="tab-export" class="tab-pane">
+      <div class="card">
+        <h2>Export log</h2>
+        <p class="muted">Download the full shared log in standard formats.</p>
+        <div class="export-actions">
+          <a class="primary as-button" href="/api/export/adif" download>Download ADIF</a>
+          <a class="primary as-button" href="/api/export/cabrillo" download>Download Cabrillo</a>
+          <a class="primary as-button" href="/api/export/csv" download>Download CSV</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Audit Log tab -->
+    <section id="tab-audit" class="tab-pane">
+      <div class="card">
+        <div class="history-header">
+          <h2>Audit Log</h2>
+          <span class="muted small">365-day retention &middot; immutable</span>
+        </div>
+
+        <div class="audit-filters">
+          <label>Level
+            <select id="audit-level">
+              <option value="">All levels</option>
+              <option value="info">Info</option>
+              <option value="warn">Warn</option>
+              <option value="error">Error</option>
+            </select>
+          </label>
+          <label>Action
+            <select id="audit-action">
+              <option value="">All actions</option>
+            </select>
+          </label>
+          <label>Search
+            <input id="audit-search" type="search" placeholder="actor, target, details…" />
+          </label>
+          <label>Since
+            <input id="audit-since" type="datetime-local" />
+          </label>
+          <label>Until
+            <input id="audit-until" type="datetime-local" />
+          </label>
+          <button id="audit-apply" class="primary">Apply</button>
+          <button id="audit-reset" class="ghost">Reset</button>
+        </div>
+
+        <div class="audit-status muted small" id="audit-status">—</div>
+
+        <div class="table-scroll">
+          <table id="audit-table">
+            <thead>
+              <tr>
+                <th class="sortable" data-col="timestamp">Time UTC <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="level">Level <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="action">Action <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="actor">Actor <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="target">Target <span class="sort-arrow"></span></th>
+                <th>Details</th>
+                <th class="sortable" data-col="ip">IP <span class="sort-arrow"></span></th>
+              </tr>
+            </thead>
+            <tbody id="audit-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="history-footer">
+          <button id="audit-load-more" class="ghost hidden">Load more</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Modal container -->
+<div id="modal-root" class="modal-root hidden">
+  <div class="modal-card" id="modal-card"></div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
