@@ -93,22 +93,31 @@ func (h *Hub) remove(c *client) {
 	}
 }
 
+// OperatorInfo holds the display name and callsign of a connected operator.
+type OperatorInfo struct {
+	Username string `json:"username"`
+	Callsign string `json:"callsign"`
+}
+
 // Operators returns the de-duplicated, sorted list of currently logged-in
-// browser callsigns.
-func (h *Hub) Operators() []string {
+// browser operators.
+func (h *Hub) Operators() []OperatorInfo {
 	h.mu.Lock()
-	seen := map[string]struct{}{}
+	seen := map[string]OperatorInfo{}
 	for c := range h.clients {
 		if c.role == RoleBrowser && c.session != nil && c.session.Callsign != "" {
-			seen[c.session.Callsign] = struct{}{}
+			cs := c.session.Callsign
+			if _, ok := seen[cs]; !ok {
+				seen[cs] = OperatorInfo{Username: c.session.Username, Callsign: cs}
+			}
 		}
 	}
 	h.mu.Unlock()
-	out := make([]string, 0, len(seen))
-	for k := range seen {
-		out = append(out, k)
+	out := make([]OperatorInfo, 0, len(seen))
+	for _, v := range seen {
+		out = append(out, v)
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].Callsign < out[j].Callsign })
 	return out
 }
 

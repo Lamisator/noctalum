@@ -66,8 +66,8 @@ a { color: var(--accent); text-decoration: none; }
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 18px;
-  text-transform: uppercase;
 }
+#setup-callsign { text-transform: uppercase; }
 .login-card input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-dim); }
 .login-card button {
   margin-top: 20px;
@@ -259,6 +259,7 @@ a { color: var(--accent); text-decoration: none; }
 }
 #qso-form input[type="checkbox"] { width: auto; margin-top: 0; }
 #qso-form input[type="datetime-local"] { text-transform: none; }
+#qso-form input::placeholder { color: var(--text-muted); }
 #qso-form input:focus, #qso-form select:focus, .settings-card input:focus, .settings-card select:focus {
   border-color: var(--accent);
   outline: none;

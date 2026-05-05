@@ -32,14 +32,15 @@ var webFS embed.FS
 
 // Server bundles every collaborating component.
 type Server struct {
-	store    *store.Store
-	sessions *SessionStore
-	hub      *Hub
-	rigs     *RigRegistry
-	settings store.Settings
-	upgrader websocket.Upgrader
-	nrMu     sync.Mutex
-	nrNext   map[int64]int // per-contest next serial number to assign
+	store         *store.Store
+	sessions      *SessionStore
+	hub           *Hub
+	rigs          *RigRegistry
+	settings      store.Settings
+	upgrader      websocket.Upgrader
+	helperUpgrader websocket.Upgrader
+	nrMu          sync.Mutex
+	nrNext        map[int64]int // per-contest next serial number to assign
 }
 
 // New constructs and configures a Server, ensuring built-in roles + helper token.
@@ -50,6 +51,13 @@ func New(st *store.Store) (*Server, error) {
 		rigs:     NewRigRegistry(),
 		upgrader: websocket.Upgrader{
 			CheckOrigin:     checkSameOrigin,
+			ReadBufferSize:  1024,
+			WriteBufferSize: 4096,
+		},
+		// Helpers authenticate via token before the upgrade, so origin
+		// checking (a browser CSRF defence) is not needed here.
+		helperUpgrader: websocket.Upgrader{
+			CheckOrigin:     func(*http.Request) bool { return true },
 			ReadBufferSize:  1024,
 			WriteBufferSize: 4096,
 		},
@@ -558,6 +566,12 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 	if in.Mode == "" {
 		writeError(w, http.StatusBadRequest, "mode required")
 		return
+	}
+	if in.RSTSent == "" {
+		in.RSTSent = DefaultRST(in.Mode)
+	}
+	if in.RSTReceived == "" {
+		in.RSTReceived = DefaultRST(in.Mode)
 	}
 	if !ValidReport(in.RSTSent, in.Mode) {
 		writeError(w, http.StatusBadRequest, "RST sent invalid for mode "+in.Mode)
@@ -1238,7 +1252,7 @@ func (s *Server) handleWSHelper(w http.ResponseWriter, r *http.Request, q map[st
 		http.Error(w, "invalid helper token", http.StatusUnauthorized)
 		return
 	}
-	conn, err := s.upgrader.Upgrade(w, r, nil)
+	conn, err := s.helperUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("ws upgrade (helper): %v", err)
 		return

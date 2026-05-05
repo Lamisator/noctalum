@@ -65,6 +65,18 @@ func ClassifyMode(mode string) ModeKind {
 	return ModeUnknown
 }
 
+// DefaultRST returns the conventional default signal report for a mode:
+// "59" for voice, "599" for CW/digital, empty string for unknown modes.
+func DefaultRST(mode string) string {
+	switch ClassifyMode(mode) {
+	case ModeVoice:
+		return "59"
+	case ModeCW, ModeDigital:
+		return "599"
+	}
+	return ""
+}
+
 // ValidReport returns whether the report is well-formed for the given mode.
 func ValidReport(report, mode string) bool {
 	r := strings.TrimSpace(report)

@@ -243,17 +243,19 @@
     fillSelect($('q-band'), BANDS, settings?.default_band || '20m');
     fillSelect($('s-mode'), MODES, settings?.default_mode || 'SSB');
     fillSelect($('s-band'), BANDS, settings?.default_band || '20m');
+    applyRSTDefaults($('q-mode').value);
   }
-  $('q-mode').addEventListener('change', () => {
-    const m = $('q-mode').value;
-    if (m === 'CW' || m === 'RTTY') {
-      if (!$('q-rst-sent').value) $('q-rst-sent').value = '599';
-      if (!$('q-rst-rcvd').value) $('q-rst-rcvd').value = '599';
-    } else if (['SSB','USB','LSB','FM','AM'].includes(m)) {
-      if (!$('q-rst-sent').value || $('q-rst-sent').value.length === 3) $('q-rst-sent').value = '59';
-      if (!$('q-rst-rcvd').value || $('q-rst-rcvd').value.length === 3) $('q-rst-rcvd').value = '59';
-    }
-  });
+  function defaultRST(m) {
+    if (['SSB','USB','LSB','FM','AM'].includes(m)) return '59';
+    if (['CW','RTTY','FT8','FT4','PSK31','PSK63','JT65','JT9','MFSK','OLIVIA','DIGI'].includes(m)) return '599';
+    return '';
+  }
+  function applyRSTDefaults(m) {
+    const def = defaultRST(m);
+    $('q-rst-sent').placeholder = def;
+    $('q-rst-rcvd').placeholder = def;
+  }
+  $('q-mode').addEventListener('change', () => applyRSTDefaults($('q-mode').value));
 
   // Reserve a serial number the first time the operator starts typing a callsign.
   $('q-call').addEventListener('input', async () => {
@@ -278,8 +280,8 @@
       mode: $('q-mode').value,
       band: $('q-band').value,
       freq_hz: Math.round(parseFloat($('q-freq').value || '0') * 1000),
-      rst_sent: $('q-rst-sent').value.trim(),
-      rst_received: $('q-rst-rcvd').value.trim(),
+      rst_sent: $('q-rst-sent').value.trim() || $('q-rst-sent').placeholder,
+      rst_received: $('q-rst-rcvd').value.trim() || $('q-rst-rcvd').placeholder,
       dok: $('q-dok').value.trim().toUpperCase(),
       locator: $('q-loc').value.trim().toUpperCase(),
       itu_zone: $('q-itu').value.trim(),
@@ -411,8 +413,9 @@
     list.innerHTML = '';
     for (const op of operators) {
       const li = document.createElement('li');
-      li.textContent = fmtCall(op);
-      if (me && op === me.callsign) li.classList.add('me');
+      const rigForOp = rigs.find(r => Array.isArray(r.in_use_by) && r.in_use_by.includes(op.callsign));
+      li.textContent = fmtCall(op.callsign) + (rigForOp ? ' · ' + rigForOp.name : '');
+      if (me && op.callsign === me.callsign) li.classList.add('me');
       list.appendChild(li);
     }
   }
@@ -908,6 +911,7 @@
           rigs = msg.payload || [];
           renderRigSelect();
           renderRigList();
+          renderOperators();
           applySelectedRigToForm();
           break;
         case 'contest_updated':
