@@ -17,6 +17,7 @@
   let allContests = [];
   let ws = null;
   let wsRetry = 0;
+  let nrReserved = false; // true once a serial number has been reserved for the current QSO entry
 
   function hasPerm(p) {
     if (!me) return false;
@@ -167,6 +168,7 @@
     updateContestDisplay();
     applyContestReadonly();
     qsos = [];
+    nrReserved = false;
     const [qres, ores, rres] = await Promise.all([
       api('/api/qsos'), api('/api/operators'), api('/api/rigs')
     ]);
@@ -253,17 +255,32 @@
     }
   });
 
+  // Reserve a serial number the first time the operator starts typing a callsign.
+  $('q-call').addEventListener('input', async () => {
+    if (!nrReserved && contestIsOpen() && $('q-call').value.trim().length > 0) {
+      nrReserved = true;
+      const res = await api('/api/qsos/reserve-nr', { method: 'POST' });
+      if (res.ok) {
+        const j = await res.json();
+        $('q-nr-sent').value = j.nr;
+      }
+    }
+  });
+
   // ----- QSO entry -----
   $('qso-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!contestIsOpen()) return;
     const body = {
       callsign: $('q-call').value.trim().toUpperCase(),
+      nr_received: parseInt($('q-nr-rcvd').value || '0', 10) || 0,
+      nr_sent: parseInt($('q-nr-sent').value || '0', 10) || 0,
       mode: $('q-mode').value,
       band: $('q-band').value,
       freq_hz: Math.round(parseFloat($('q-freq').value || '0') * 1000),
       rst_sent: $('q-rst-sent').value.trim(),
       rst_received: $('q-rst-rcvd').value.trim(),
+      dok: $('q-dok').value.trim().toUpperCase(),
       locator: $('q-loc').value.trim().toUpperCase(),
       itu_zone: $('q-itu').value.trim(),
       cq_zone: $('q-cq').value.trim(),
@@ -284,7 +301,8 @@
       $('qso-error').textContent = j.error || 'Failed to save QSO';
       return;
     }
-    ['q-call','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
+    ['q-call','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
+    nrReserved = false;
     $('q-call').focus();
   });
 
@@ -408,7 +426,7 @@
     const canDelete = hasPerm('qso.write') && contestIsOpen();
     for (const q of qsos) {
       if (filter) {
-        const hay = `${q.callsign} ${q.band} ${q.mode} ${q.operator} ${q.locator}`.toLowerCase();
+        const hay = `${q.callsign} ${q.band} ${q.mode} ${q.operator} ${q.locator} ${q.dok || ''}`.toLowerCase();
         if (!hay.includes(filter)) continue;
       }
       const tr = document.createElement('tr');
@@ -420,6 +438,7 @@
       tr.innerHTML = `
         <td>${escHtml(utc)}</td>
         <td><strong>${escHtml(fmtCall(q.callsign))}</strong></td>
+        <td>${q.nr_sent ? escHtml(String(q.nr_sent)) : ''}</td>
         <td>${escHtml(q.band)}</td>
         <td>${escHtml(mhz)}</td>
         <td>${escHtml(q.mode)}</td>

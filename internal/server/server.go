@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/contestlog/contestlog/internal/store"
@@ -37,6 +38,8 @@ type Server struct {
 	rigs     *RigRegistry
 	settings store.Settings
 	upgrader websocket.Upgrader
+	nrMu     sync.Mutex
+	nrNext   map[int64]int // per-contest next serial number to assign
 }
 
 // New constructs and configures a Server, ensuring built-in roles + helper token.
@@ -96,6 +99,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/passkey/credentials", s.requireAuth(s.handlePasskeyCredentials))
 	mux.HandleFunc("/api/passkey/credentials/", s.requireAuth(s.handlePasskeyCredentials))
 	mux.HandleFunc("/api/qsos", s.requireAuth(s.handleQSOs))
+	mux.HandleFunc("/api/qsos/reserve-nr", s.requireAuth(s.handleReserveNr))
 	mux.HandleFunc("/api/qsos/", s.requireAuth(s.handleQSOByID))
 	mux.HandleFunc("/api/operators", s.requireAuth(s.handleOperators))
 	mux.HandleFunc("/api/rigs", s.requireAuth(s.handleRigs))
@@ -479,6 +483,46 @@ func (s *Server) handleQSOs(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func (s *Server) handleReserveNr(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	sess := sessionFor(s, r)
+	if !HasPermission(sess.Permissions, PermQSOWrite) {
+		writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
+		return
+	}
+	contestID, contestStatus, _, _ := sess.ContestInfo()
+	if contestID == 0 {
+		writeError(w, http.StatusBadRequest, "no contest selected")
+		return
+	}
+	if contestStatus == "finished" {
+		writeError(w, http.StatusForbidden, "contest is finished")
+		return
+	}
+
+	s.nrMu.Lock()
+	if s.nrNext == nil {
+		s.nrNext = make(map[int64]int)
+	}
+	if _, ok := s.nrNext[contestID]; !ok {
+		maxNr, err := s.store.MaxNrSent(contestID)
+		if err != nil {
+			s.nrMu.Unlock()
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.nrNext[contestID] = maxNr + 1
+	}
+	nr := s.nrNext[contestID]
+	s.nrNext[contestID]++
+	s.nrMu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]int{"nr": nr})
 }
 
 func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {

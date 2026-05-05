@@ -21,6 +21,9 @@ type QSO struct {
 	Mode        string    `json:"mode"`
 	RSTSent     string    `json:"rst_sent"`
 	RSTReceived string    `json:"rst_received"`
+	NrSent      int       `json:"nr_sent"`
+	NrReceived  int       `json:"nr_received"`
+	DOK         string    `json:"dok"`
 	Locator     string    `json:"locator"`
 	ITUZone     string    `json:"itu_zone"`
 	CQZone      string    `json:"cq_zone"`
@@ -104,6 +107,15 @@ func (s *Store) migrate() error {
 	if err := s.migrateAudit(); err != nil {
 		return err
 	}
+	for _, col := range [][2]string{
+		{"nr_sent", "INTEGER NOT NULL DEFAULT 0"},
+		{"nr_received", "INTEGER NOT NULL DEFAULT 0"},
+		{"dok", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if err := s.addColumnIfMissing("qsos", col[0], col[1]); err != nil {
+			return fmt.Errorf("migrate qsos column %s: %w", col[0], err)
+		}
+	}
 	return nil
 }
 
@@ -116,11 +128,13 @@ func (s *Store) InsertQSO(q *QSO) (int64, error) {
 	}
 	res, err := s.db.Exec(
 		`INSERT INTO qsos (time_utc, callsign, band, freq_hz, mode, rst_sent, rst_received,
+			nr_sent, nr_received, dok,
 			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, contest_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		q.Time.Format(time.RFC3339),
 		strings.ToUpper(q.Callsign),
 		q.Band, q.FreqHz, q.Mode, q.RSTSent, q.RSTReceived,
+		q.NrSent, q.NrReceived, strings.ToUpper(q.DOK),
 		strings.ToUpper(q.Locator), q.ITUZone, q.CQZone, q.Lighthouse,
 		strings.ToUpper(q.Operator), strings.ToUpper(q.StationCall), q.Notes, q.ContestName,
 		q.ContestID,
@@ -140,6 +154,7 @@ func (s *Store) ListQSOs(contestID int64, limit int) ([]QSO, error) {
 	}
 	rows, err := s.db.Query(
 		`SELECT id, contest_id, time_utc, callsign, band, freq_hz, mode, rst_sent, rst_received,
+			nr_sent, nr_received, dok,
 			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name
 		 FROM qsos WHERE contest_id = ? ORDER BY id DESC LIMIT ?`, contestID, limit)
 	if err != nil {
@@ -151,7 +166,8 @@ func (s *Store) ListQSOs(contestID int64, limit int) ([]QSO, error) {
 		var q QSO
 		var t string
 		if err := rows.Scan(&q.ID, &q.ContestID, &t, &q.Callsign, &q.Band, &q.FreqHz, &q.Mode,
-			&q.RSTSent, &q.RSTReceived, &q.Locator, &q.ITUZone, &q.CQZone,
+			&q.RSTSent, &q.RSTReceived, &q.NrSent, &q.NrReceived, &q.DOK,
+			&q.Locator, &q.ITUZone, &q.CQZone,
 			&q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName); err != nil {
 			return nil, err
 		}
@@ -165,6 +181,7 @@ func (s *Store) ListQSOs(contestID int64, limit int) ([]QSO, error) {
 func (s *Store) AllQSOs(contestID int64) ([]QSO, error) {
 	rows, err := s.db.Query(
 		`SELECT id, contest_id, time_utc, callsign, band, freq_hz, mode, rst_sent, rst_received,
+			nr_sent, nr_received, dok,
 			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name
 		 FROM qsos WHERE contest_id = ? ORDER BY time_utc ASC, id ASC`, contestID)
 	if err != nil {
@@ -176,7 +193,8 @@ func (s *Store) AllQSOs(contestID int64) ([]QSO, error) {
 		var q QSO
 		var t string
 		if err := rows.Scan(&q.ID, &q.ContestID, &t, &q.Callsign, &q.Band, &q.FreqHz, &q.Mode,
-			&q.RSTSent, &q.RSTReceived, &q.Locator, &q.ITUZone, &q.CQZone,
+			&q.RSTSent, &q.RSTReceived, &q.NrSent, &q.NrReceived, &q.DOK,
+			&q.Locator, &q.ITUZone, &q.CQZone,
 			&q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName); err != nil {
 			return nil, err
 		}
@@ -201,6 +219,13 @@ func (s *Store) FindDuplicate(contestID int64, callsign, band, mode string, with
 		return false, err
 	}
 	return true, nil
+}
+
+// MaxNrSent returns the highest nr_sent value for a contest (0 if none).
+func (s *Store) MaxNrSent(contestID int64) (int, error) {
+	var max int
+	err := s.db.QueryRow(`SELECT COALESCE(MAX(nr_sent), 0) FROM qsos WHERE contest_id = ?`, contestID).Scan(&max)
+	return max, err
 }
 
 // DeleteQSO removes a QSO by id.

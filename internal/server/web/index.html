@@ -114,6 +114,12 @@
               <label>Callsign
                 <input id="q-call" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
               </label>
+              <label>Nr rcvd
+                <input id="q-nr-rcvd" type="number" min="1" style="width:5em" />
+              </label>
+              <label>Nr sent
+                <input id="q-nr-sent" type="number" min="1" style="width:5em" />
+              </label>
               <label>Mode
                 <select id="q-mode" required></select>
               </label>
@@ -130,6 +136,9 @@
               </label>
               <label>RST rcvd
                 <input id="q-rst-rcvd" type="text" maxlength="6" required />
+              </label>
+              <label>DOK
+                <input id="q-dok" type="text" maxlength="10" autocapitalize="characters" style="width:5em" />
               </label>
               <label>Locator
                 <input id="q-loc" type="text" maxlength="6" autocapitalize="characters" />
@@ -170,6 +179,7 @@
                 <tr>
                   <th>Time UTC</th>
                   <th>Call</th>
+                  <th>Nr</th>
                   <th>Band</th>
                   <th>Freq</th>
                   <th>Mode</th>
