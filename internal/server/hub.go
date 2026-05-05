@@ -180,6 +180,27 @@ func (h *Hub) Broadcast(ev Event) {
 	}
 }
 
+// BroadcastToContest sends an event only to browser clients that have the
+// given contest selected in their session.
+func (h *Hub) BroadcastToContest(contestID int64, ev Event) {
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c := range h.clients {
+		if c.role != RoleBrowser || c.session == nil {
+			continue
+		}
+		id, _, _, _ := c.session.ContestInfo()
+		if id != contestID {
+			continue
+		}
+		h.deliver(c, data)
+	}
+}
+
 // deliver attempts to enqueue data for c; on a full queue the connection is
 // dropped.  Caller must hold h.mu.
 func (h *Hub) deliver(c *client, data []byte) {

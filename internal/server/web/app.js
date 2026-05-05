@@ -859,12 +859,20 @@
   function connectWS() {
     const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
     ws = new WebSocket(proto + location.host + '/ws');
-    ws.onopen = () => { wsRetry = 0; };
+    ws.onopen = () => {
+      if (wsRetry > 0 && me?.contest_id) {
+        api('/api/qsos').then(r => r.ok ? r.json() : null).then(d => {
+          if (d) { qsos = d; renderQsos(); }
+        }).catch(() => {});
+      }
+      wsRetry = 0;
+    };
     ws.onmessage = (ev) => {
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
       switch (msg.type) {
         case 'qso':
-          if (!qsos.find(q => q.id === msg.payload.id)) {
+          if (msg.payload && msg.payload.contest_id === me?.contest_id &&
+              !qsos.find(q => q.id === msg.payload.id)) {
             qsos.unshift(msg.payload);
             renderQsos(msg.payload.id);
           }

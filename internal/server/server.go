@@ -561,7 +561,7 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ID = id
-	s.hub.Broadcast(Event{Type: "qso", Payload: in})
+	s.hub.BroadcastToContest(contestID, Event{Type: "qso", Payload: in})
 	writeJSON(w, http.StatusCreated, in)
 }
 
@@ -571,7 +571,7 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
 		return
 	}
-	_, contestStatus, _, _ := sess.ContestInfo()
+	contestID, contestStatus, _, _ := sess.ContestInfo()
 	if contestStatus == "finished" {
 		writeError(w, http.StatusForbidden, "contest is finished (read-only)")
 		return
@@ -590,7 +590,7 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.hub.Broadcast(Event{Type: "qso_deleted", Payload: map[string]int64{"id": id}})
+	s.hub.BroadcastToContest(contestID, Event{Type: "qso_deleted", Payload: map[string]int64{"id": id}})
 	w.WriteHeader(http.StatusNoContent)
 }
 
