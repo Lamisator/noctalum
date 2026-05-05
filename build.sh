@@ -9,6 +9,7 @@
 #   ./build.sh                          # build all defaults
 #   ./build.sh --server-only            # only the contestlog server
 #   ./build.sh --helper-only            # only the contestlog-helper
+#   ./build.sh --wsjtx-only             # only the contestlog-wsjtx bridge
 #   ./build.sh --target linux/amd64     # restrict to one OS/arch
 #   ./build.sh --image golang:1.23      # use a different builder image
 
@@ -32,12 +33,14 @@ usage() {
 
 build_server=true
 build_helper=true
+build_wsjtx=true
 single_target=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --server-only) build_helper=false; shift ;;
-    --helper-only) build_server=false; shift ;;
+    --server-only) build_helper=false; build_wsjtx=false; shift ;;
+    --helper-only) build_server=false; build_wsjtx=false; shift ;;
+    --wsjtx-only)  build_server=false; build_helper=false; shift ;;
     --target)      single_target="$2"; shift 2 ;;
     --image)       GO_IMAGE="$2"; shift 2 ;;
     -h|--help)     usage; exit 0 ;;
@@ -107,6 +110,11 @@ fi
 if $build_helper; then
   for t in "${helper_targets[@]}"; do
     run_build "./cmd/helper" "contestlog-helper" "$t"
+  done
+fi
+if $build_wsjtx; then
+  for t in "${helper_targets[@]}"; do
+    run_build "./cmd/wsjtx" "contestlog-wsjtx" "$t"
   done
 fi
 
