@@ -70,8 +70,11 @@
     <form id="global-settings-form">
       <fieldset>
         <legend>DX Cluster</legend>
-        <p class="muted small">Callsign used to log in to the telnet DX cluster feed (<code>dxc.ve7cc.net:23</code>). One connection shared across all operators.</p>
-        <label>Cluster callsign
+        <p class="muted small">Telnet DX cluster feed shared across all operators. The connection is re-established automatically on failure.</p>
+        <label>Cluster server (host:port)
+          <input id="gs-cluster-server" type="text" autocomplete="off" placeholder="dxc.ve7cc.net:23" style="max-width:260px" />
+        </label>
+        <label style="margin-top:10px">Cluster callsign
           <input id="gs-cluster-call" type="text" autocomplete="off" autocapitalize="characters" placeholder="e.g. OH2BH" style="max-width:160px" />
         </label>
         <label style="margin-top:10px">Spot retention (days)
@@ -172,6 +175,7 @@
             <div class="row">
               <label>Callsign
                 <input id="q-call" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
+                <div id="q-call-country" class="call-country"></div>
               </label>
               <label>RST sent
                 <input id="q-rst-sent" type="text" maxlength="6" />
@@ -287,6 +291,16 @@
               </select>
               <select id="cluster-mode-filter">
                 <option value="">All modes</option>
+              </select>
+              <select id="cluster-spotter-filter">
+                <option value="">All spotters</option>
+                <option value="DE">DE (Germany)</option>
+                <option value="EU">Europe</option>
+                <option value="AS">Asia</option>
+                <option value="NA">North Am.</option>
+                <option value="SA">South Am.</option>
+                <option value="OC">Oceania</option>
+                <option value="AF">Africa</option>
               </select>
               <button id="cluster-refresh-btn" class="ghost" title="Refresh">↻</button>
             </div>

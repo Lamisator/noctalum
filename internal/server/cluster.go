@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	clusterHost     = "dxc.ve7cc.net:23"
-	clusterMaxSpots = 300
-	clusterMaxLog   = 200
+	clusterDefaultServer = "dxc.ve7cc.net:23"
+	clusterMaxSpots      = 300
+	clusterMaxLog        = 200
 )
 
 var clusterState struct {
@@ -27,6 +27,7 @@ var clusterState struct {
 	log       []string // raw telnet lines, newest first
 	connected bool
 	myCall    string
+	server    string
 	reconnect chan struct{} // closed to trigger reconnect
 	st        *store.Store
 }
@@ -80,6 +81,35 @@ func getClusterCall() string {
 	return clusterState.myCall
 }
 
+// SetClusterServer updates the telnet server address (host:port).
+// An empty string resets to the default. If the address changed, the current
+// connection is dropped so the client reconnects to the new server.
+func SetClusterServer(server string) {
+	if server == "" {
+		server = clusterDefaultServer
+	}
+	clusterState.mu.Lock()
+	changed := server != clusterState.server
+	clusterState.server = server
+	ch := clusterState.reconnect
+	clusterState.mu.Unlock()
+	if changed {
+		clusterState.mu.Lock()
+		clusterState.reconnect = make(chan struct{})
+		clusterState.mu.Unlock()
+		close(ch)
+	}
+}
+
+func getClusterServer() string {
+	clusterState.mu.Lock()
+	defer clusterState.mu.Unlock()
+	if clusterState.server == "" {
+		return clusterDefaultServer
+	}
+	return clusterState.server
+}
+
 func getReconnectCh() chan struct{} {
 	clusterState.mu.Lock()
 	defer clusterState.mu.Unlock()
@@ -113,11 +143,12 @@ func startClusterClient(ctx context.Context) {
 
 func connectAndRead(ctx context.Context, reconnectCh chan struct{}) {
 	myCall := getClusterCall()
-	log.Printf("cluster: connecting to %s as %s", clusterHost, myCall)
-	appendClusterLog(fmt.Sprintf(">>> Connecting to %s as %s", clusterHost, myCall))
+	server := getClusterServer()
+	log.Printf("cluster: connecting to %s as %s", server, myCall)
+	appendClusterLog(fmt.Sprintf(">>> Connecting to %s as %s", server, myCall))
 
 	d := net.Dialer{Timeout: 15 * time.Second}
-	conn, err := d.DialContext(ctx, "tcp", clusterHost)
+	conn, err := d.DialContext(ctx, "tcp", server)
 	if err != nil {
 		msg := fmt.Sprintf(">>> Dial error: %v", err)
 		log.Printf("cluster: %s", msg)
@@ -279,6 +310,7 @@ func (s *Server) handleClusterLog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"connected": connected,
 		"call":      myCall,
+		"server":    getClusterServer(),
 		"lines":     logs,
 	})
 }

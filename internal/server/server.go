@@ -94,6 +94,7 @@ func New(st *store.Store) (*Server, error) {
 	if set.ClusterCall != "" {
 		SetClusterCall(set.ClusterCall)
 	}
+	SetClusterServer(set.ClusterServer)
 	retention := set.ClusterRetentionDays
 	if retention == 0 {
 		retention = 7
@@ -799,6 +800,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			out["qrz_username"] = s.settings.QRZUsername
 			out["qrz_configured"] = s.settings.QRZPassword != ""
 			out["cluster_call"] = s.settings.ClusterCall
+			out["cluster_server"] = s.settings.ClusterServer
 			out["cluster_retention_days"] = s.settings.ClusterRetentionDays
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -808,13 +810,14 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in struct {
-			DefaultMode           string `json:"default_mode"`
-			DefaultBand           string `json:"default_band"`
-			RegenHelperToken      bool   `json:"regen_helper_token"`
-			QRZUsername           string `json:"qrz_username"`
-			QRZPassword           string `json:"qrz_password"`
-			ClusterCall           string `json:"cluster_call"`
-			ClusterRetentionDays  int    `json:"cluster_retention_days"`
+			DefaultMode          string `json:"default_mode"`
+			DefaultBand          string `json:"default_band"`
+			RegenHelperToken     bool   `json:"regen_helper_token"`
+			QRZUsername          string `json:"qrz_username"`
+			QRZPassword          string `json:"qrz_password"`
+			ClusterCall          string `json:"cluster_call"`
+			ClusterServer        string `json:"cluster_server"`
+			ClusterRetentionDays int    `json:"cluster_retention_days"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -831,11 +834,13 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			QRZUsername:          in.QRZUsername,
 			QRZPassword:          s.settings.QRZPassword,
 			ClusterCall:          s.settings.ClusterCall,
+			ClusterServer:        s.settings.ClusterServer,
 			ClusterRetentionDays: retDays,
 		}
 		if in.ClusterCall != "" {
 			ns.ClusterCall = strings.ToUpper(strings.TrimSpace(in.ClusterCall))
 		}
+		ns.ClusterServer = strings.TrimSpace(in.ClusterServer)
 		if in.RegenHelperToken {
 			ns.HelperToken = newToken()
 		}
@@ -853,6 +858,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			s.qrz = nil
 		}
 		SetClusterCall(ns.ClusterCall)
+		SetClusterServer(ns.ClusterServer)
 		details := "mode: " + ns.DefaultMode + ", band: " + ns.DefaultBand
 		if in.RegenHelperToken {
 			details += ", helper_token: regenerated"

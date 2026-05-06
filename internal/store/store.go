@@ -44,6 +44,7 @@ type Settings struct {
 	QRZUsername           string `json:"qrz_username"`
 	QRZPassword           string `json:"qrz_password"`
 	ClusterCall           string `json:"cluster_call"`
+	ClusterServer         string `json:"cluster_server"`
 	ClusterRetentionDays  int    `json:"cluster_retention_days"`
 }
 
@@ -405,6 +406,8 @@ func (s *Store) LoadSettings() (Settings, error) {
 			out.QRZPassword = v
 		case "cluster_call":
 			out.ClusterCall = v
+		case "cluster_server":
+			out.ClusterServer = v
 		case "cluster_retention_days":
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				out.ClusterRetentionDays = n
@@ -428,6 +431,7 @@ func (s *Store) SaveSettings(set Settings) error {
 		pairs = append(pairs, [2]string{"qrz_password", set.QRZPassword})
 	}
 	pairs = append(pairs, [2]string{"cluster_call", set.ClusterCall})
+	pairs = append(pairs, [2]string{"cluster_server", set.ClusterServer})
 	if set.ClusterRetentionDays > 0 {
 		pairs = append(pairs, [2]string{"cluster_retention_days", strconv.Itoa(set.ClusterRetentionDays)})
 	}
