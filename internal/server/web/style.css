@@ -765,11 +765,22 @@ button.small { padding: 4px 8px; font-size: 12px; }
 }
 .map-canvas {
   width: 100%;
-  height: auto;
+  height: 160px;
   border-radius: 4px;
   border: 1px solid var(--border);
-  display: block;
+  overflow: hidden;
+  flex-shrink: 0;
 }
+/* Dark Leaflet overrides */
+.map-canvas .leaflet-tile-pane { filter: brightness(0.85) saturate(0.9); }
+.map-canvas .leaflet-control-attribution { font-size: 8px; background: rgba(0,0,0,0.5) !important; color: #888 !important; }
+.map-canvas .leaflet-control-attribution a { color: #aaa !important; }
+.map-canvas .leaflet-control-zoom a {
+  background: var(--bg-elev) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+.map-canvas .leaflet-control-zoom a:hover { background: var(--bg-elev-2) !important; }
 .bearing-display {
   text-align: center;
   width: 100%;

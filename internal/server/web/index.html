@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ContestLog</title>
   <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
 
@@ -110,10 +111,10 @@
               </svg>
             </div>
           </div>
-          <canvas id="map-canvas" class="map-canvas" width="200" height="100"></canvas>
-          <div id="bearing-display" class="bearing-display hidden">
+          <div id="map-canvas" class="map-canvas"></div>
+          <div id="bearing-display" class="bearing-display">
             <div class="muted small">Antenna rotation</div>
-            <div class="bearing-value" id="bearing-value">—°</div>
+            <div class="bearing-value" id="bearing-value">—</div>
           </div>
         </aside>
 
@@ -453,6 +454,7 @@
   <div class="modal-card" id="modal-card"></div>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.min.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
