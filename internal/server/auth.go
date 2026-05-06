@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -13,9 +14,11 @@ import (
 )
 
 const (
-	sessionCookie    = "contestlog_session"
-	maxFailedLogins  = 5
-	lockoutDuration  = 5 * time.Minute
+	sessionCookie        = "contestlog_session"
+	sessionTTL           = 48 * time.Hour
+	sessionTouchInterval = 5 * time.Minute
+	maxFailedLogins      = 5
+	lockoutDuration      = 5 * time.Minute
 )
 
 // Permission keys.  Add new ones here, then expose them in the UI.
@@ -50,8 +53,7 @@ func HasPermission(perms []string, key string) bool {
 	return false
 }
 
-// Session is a logged-in user.  Sessions are kept in memory; restart forces
-// re-login (acceptable trade-off for simpler revocation).
+// Session is a logged-in user.
 type Session struct {
 	ID          string
 	UserID      int64
@@ -59,6 +61,8 @@ type Session struct {
 	Callsign    string
 	Permissions []string
 	CSRFToken   string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
 
 	mu            sync.Mutex
 	selectedRig   string
@@ -66,9 +70,8 @@ type Session struct {
 	contestStatus string
 	contestCall   string
 	contestName   string
-
-	CreatedAt time.Time
-	LastSeen  time.Time
+	lastSeen      time.Time
+	lastDBUpdate  time.Time // last time last_seen was flushed to DB
 }
 
 // SelectedRig returns the rig name this session has bound to (or "" for none).
@@ -112,56 +115,161 @@ func (s *Session) ClearContest() {
 	s.mu.Unlock()
 }
 
-// SessionStore is an in-memory session table indexed by session ID.
+// SessionStore is the in-memory session table backed by the database.
 type SessionStore struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
+	db       *store.Store
 }
 
-// NewSessionStore returns an empty store.
-func NewSessionStore() *SessionStore {
-	return &SessionStore{sessions: make(map[string]*Session)}
+// NewSessionStore returns a new session store backed by the given database.
+func NewSessionStore(db *store.Store) *SessionStore {
+	return &SessionStore{
+		sessions: make(map[string]*Session),
+		db:       db,
+	}
 }
 
-// Create issues a new session for an authenticated user.
+// LoadFromDB populates the in-memory map from the database at startup.
+// User data (permissions) is refreshed from the current DB state.
+func (s *SessionStore) LoadFromDB() error {
+	rows, err := s.db.LoadSessions()
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	loaded := 0
+	for _, row := range rows {
+		if now.After(row.ExpiresAt) {
+			continue
+		}
+		u, err := s.db.GetUserByID(row.UserID)
+		if err != nil || u.Disabled {
+			continue // skip sessions for deleted/disabled users
+		}
+		sess := &Session{
+			ID:           row.ID,
+			UserID:       row.UserID,
+			Username:     u.Username,
+			Callsign:     u.Callsign,
+			Permissions:  append([]string{}, u.Permissions...),
+			CSRFToken:    row.CSRFToken,
+			CreatedAt:    row.CreatedAt,
+			ExpiresAt:    row.ExpiresAt,
+			lastSeen:     row.LastSeen,
+			lastDBUpdate: now,
+		}
+		s.mu.Lock()
+		s.sessions[row.ID] = sess
+		s.mu.Unlock()
+		loaded++
+	}
+	if loaded > 0 {
+		log.Printf("restored %d session(s) from database", loaded)
+	}
+	return nil
+}
+
+// Create issues a new session for an authenticated user and persists it.
 func (s *SessionStore) Create(u store.User) *Session {
 	id := randomID(24)
+	now := time.Now()
 	sess := &Session{
-		ID:          id,
-		UserID:      u.ID,
-		Username:    u.Username,
-		Callsign:    u.Callsign,
-		Permissions: append([]string{}, u.Permissions...),
-		CSRFToken:   randomID(24),
-		CreatedAt:   time.Now(),
-		LastSeen:    time.Now(),
+		ID:           id,
+		UserID:       u.ID,
+		Username:     u.Username,
+		Callsign:     u.Callsign,
+		Permissions:  append([]string{}, u.Permissions...),
+		CSRFToken:    randomID(24),
+		CreatedAt:    now,
+		ExpiresAt:    now.Add(sessionTTL),
+		lastSeen:     now,
+		lastDBUpdate: now,
 	}
 	s.mu.Lock()
 	s.sessions[id] = sess
 	s.mu.Unlock()
+
+	row := store.SessionRow{
+		ID:        id,
+		UserID:    u.ID,
+		CSRFToken: sess.CSRFToken,
+		CreatedAt: sess.CreatedAt,
+		LastSeen:  sess.lastSeen,
+		ExpiresAt: sess.ExpiresAt,
+	}
+	if err := s.db.SaveSession(row); err != nil {
+		log.Printf("persist session: %v", err)
+	}
 	return sess
 }
 
-// Get returns a session by ID, refreshing its LastSeen.
+// Get returns a session by ID, extending its TTL and refreshing the DB
+// write at most every sessionTouchInterval.
 func (s *SessionStore) Get(id string) (*Session, bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	sess, ok := s.sessions[id]
-	if ok {
-		sess.LastSeen = time.Now()
+	if !ok {
+		s.mu.Unlock()
+		return nil, false
 	}
-	return sess, ok
+	now := time.Now()
+	if now.After(sess.ExpiresAt) {
+		delete(s.sessions, id)
+		s.mu.Unlock()
+		_ = s.db.DeleteSession(id)
+		return nil, false
+	}
+	sess.lastSeen = now
+	newExpiry := now.Add(sessionTTL)
+	sess.ExpiresAt = newExpiry
+	needsDBFlush := now.Sub(sess.lastDBUpdate) >= sessionTouchInterval
+	if needsDBFlush {
+		sess.lastDBUpdate = now
+	}
+	s.mu.Unlock()
+
+	if needsDBFlush {
+		_ = s.db.TouchSession(id, now, newExpiry)
+	}
+	return sess, true
 }
 
-// Delete removes a session.
+// Delete removes a session from memory and the database.
 func (s *SessionStore) Delete(id string) {
 	s.mu.Lock()
 	delete(s.sessions, id)
 	s.mu.Unlock()
+	_ = s.db.DeleteSession(id)
 }
 
-// AllForUser returns every active session for a user (used to forcefully
-// log them out when their account is disabled or deleted).
+// DeleteAllForUser removes every session for the given user from both memory
+// and the database (called after password change or passkey revocation).
+func (s *SessionStore) DeleteAllForUser(userID int64) {
+	s.mu.Lock()
+	for id, sess := range s.sessions {
+		if sess.UserID == userID {
+			delete(s.sessions, id)
+		}
+	}
+	s.mu.Unlock()
+	_ = s.db.DeleteSessionsForUser(userID)
+}
+
+// CleanExpired removes expired sessions from the in-memory map and the DB.
+func (s *SessionStore) CleanExpired() {
+	now := time.Now()
+	s.mu.Lock()
+	for id, sess := range s.sessions {
+		if now.After(sess.ExpiresAt) {
+			delete(s.sessions, id)
+		}
+	}
+	s.mu.Unlock()
+	_ = s.db.DeleteExpiredSessions()
+}
+
+// AllForUser returns every active session for a user.
 func (s *SessionStore) AllForUser(userID int64) []*Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -218,7 +326,7 @@ func SetSessionCookie(w http.ResponseWriter, id string) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		MaxAge:   60 * 60 * 24,
+		MaxAge:   int(sessionTTL.Seconds()),
 	})
 }
 

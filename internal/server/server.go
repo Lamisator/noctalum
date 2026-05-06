@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
@@ -49,7 +50,7 @@ type Server struct {
 func New(st *store.Store) (*Server, error) {
 	s := &Server{
 		store:    st,
-		sessions: NewSessionStore(),
+		sessions: NewSessionStore(st),
 		rigs:     NewRigRegistry(),
 		upgrader: websocket.Upgrader{
 			CheckOrigin:     checkSameOrigin,
@@ -86,11 +87,29 @@ func New(st *store.Store) (*Server, error) {
 		s.qrz = NewQRZClient(set.QRZUsername, set.QRZPassword)
 	}
 
+	if err := s.sessions.LoadFromDB(); err != nil {
+		log.Printf("warning: could not restore sessions from DB: %v", err)
+	}
+	go s.sessionCleanupLoop(context.Background())
+
 	n, _ := st.CountUsers()
 	if n == 0 {
 		log.Printf("first-run setup required — open the web UI to create the initial admin account")
 	}
 	return s, nil
+}
+
+func (s *Server) sessionCleanupLoop(ctx context.Context) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.sessions.CleanExpired()
+		}
+	}
 }
 
 // Routes returns the configured HTTP handler.
@@ -457,6 +476,8 @@ func (s *Server) handleChangeOwnPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.audit(r, store.AuditInfo, AuditUserPasswordChange, sess.Username, sess.Username, "own password changed")
+	s.sessions.DeleteAllForUser(sess.UserID)
+	ClearSessionCookie(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -932,9 +953,7 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if *in.Disabled {
-				for _, s2 := range s.sessions.AllForUser(id) {
-					s.sessions.Delete(s2.ID)
-				}
+				s.sessions.DeleteAllForUser(id)
 				s.audit(r, store.AuditWarn, AuditUserDisable, sess.Username, target.Username, "")
 			} else {
 				s.audit(r, store.AuditInfo, AuditUserEnable, sess.Username, target.Username, "")
@@ -965,6 +984,7 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.audit(r, store.AuditWarn, AuditUserPasswordReset, sess.Username, target.Username, "admin reset")
+		s.sessions.DeleteAllForUser(id)
 		w.WriteHeader(http.StatusNoContent)
 
 	case r.Method == http.MethodPost && sub == "unlock":
@@ -990,9 +1010,7 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		for _, s2 := range s.sessions.AllForUser(id) {
-			s.sessions.Delete(s2.ID)
-		}
+		s.sessions.DeleteAllForUser(id)
 		s.audit(r, store.AuditWarn, AuditUserDelete, sess.Username, target.Username,
 			"callsign: "+target.Callsign)
 		w.WriteHeader(http.StatusNoContent)

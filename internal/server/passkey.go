@@ -305,6 +305,8 @@ func (s *Server) handlePasskeyCredentials(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.sessions.DeleteAllForUser(sess.UserID)
+		ClearSessionCookie(w)
 		w.WriteHeader(http.StatusNoContent)
 
 	default:
