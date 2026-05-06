@@ -449,6 +449,8 @@
   function clearQRZInfo() {
     $('qrz-info-bar').classList.add('hidden');
     $('qrz-info-name').textContent = '';
+    $('q-name').value = '';
+    $('q-loc').value = '';
     clearLeftPanel();
   }
 
