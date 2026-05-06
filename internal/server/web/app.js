@@ -111,6 +111,7 @@
   let wsRetry = 0;
   let nrReserved = false; // true once a serial number has been reserved for the current QSO entry
   let currentTargetLocator = null; // Maidenhead locator of the station being looked up
+  let callsignFilter = null; // callsign to narrow QSO history while entering a contact
 
   function hasPerm(p) {
     if (!me) return false;
@@ -359,7 +360,8 @@
     $('q-rst-sent').placeholder = def;
     $('q-rst-rcvd').placeholder = def;
   }
-  $('q-mode').addEventListener('change', () => applyRSTDefaults($('q-mode').value));
+  $('q-mode').addEventListener('change', () => { applyRSTDefaults($('q-mode').value); updateDuplicateBadge(); });
+  $('q-band').addEventListener('change', () => updateDuplicateBadge());
 
   // ----- left panel -----
   function updateLeftPanel(callsign, hasPicture, locator) {
@@ -454,6 +456,23 @@
     clearLeftPanel();
   }
 
+  function updateDuplicateBadge() {
+    const call = $('q-call').value.trim().toUpperCase();
+    const badge = $('dup-badge');
+    if (!call) { badge.className = 'dup-badge hidden'; return; }
+    const worked = qsos.filter(q => q.callsign === call);
+    if (!worked.length) { badge.className = 'dup-badge hidden'; return; }
+    const band = $('q-band').value;
+    const mode = $('q-mode').value;
+    if (worked.some(q => q.band === band && q.mode === mode)) {
+      badge.className = 'dup-badge dup-duplicate';
+      badge.textContent = 'DUPLICATE';
+    } else {
+      badge.className = 'dup-badge dup-worked';
+      badge.textContent = 'WORKED OTHER BAND/MODE';
+    }
+  }
+
   async function triggerQRZLookup(callsign) {
     clearQRZInfo();
     if (!callsign || callsign.length < 3) return;
@@ -489,6 +508,9 @@
     // always resets it correctly regardless of the NR reservation flight time.
     clearTimeout(qrzLookupTimer);
     const call = $('q-call').value.trim().toUpperCase();
+    callsignFilter = call || null;
+    renderQsos();
+    updateDuplicateBadge();
     if (call.length >= 3) {
       qrzLookupTimer = setTimeout(() => triggerQRZLookup(call), 600);
     } else {
@@ -544,6 +566,9 @@
     clearQRZInfo();
     currentTargetLocator = null;
     nrReserved = false;
+    callsignFilter = null;
+    updateDuplicateBadge();
+    renderQsos();
     $('q-call').focus();
   });
 
@@ -661,15 +686,23 @@
 
   // ----- QSO history table -----
   function renderQsos(highlightId) {
-    const filter = $('history-filter').value.trim().toLowerCase();
+    const textFilter = $('history-filter').value.trim().toLowerCase();
     const tbody = $('qso-tbody');
     tbody.innerHTML = '';
     let shown = 0;
     const canDelete = hasPerm('qso.write') && contestIsOpen();
-    for (const q of qsos) {
-      if (filter) {
+
+    let source = qsos;
+    let csFiltered = false;
+    if (callsignFilter) {
+      const matches = qsos.filter(q => q.callsign === callsignFilter);
+      if (matches.length > 0) { source = matches; csFiltered = true; }
+    }
+
+    for (const q of source) {
+      if (textFilter) {
         const hay = `${q.callsign} ${q.band} ${q.mode} ${q.operator} ${q.locator} ${q.dok || ''}`.toLowerCase();
-        if (!hay.includes(filter)) continue;
+        if (!hay.includes(textFilter)) continue;
       }
       const tr = document.createElement('tr');
       if (q.id === highlightId) tr.classList.add('fresh');
@@ -694,7 +727,10 @@
       tbody.appendChild(tr);
       shown++;
     }
-    $('qso-count').textContent = `${shown} QSO${shown===1?'':'s'}` + (filter ? ` (filtered from ${qsos.length})` : '');
+    const filterParts = [];
+    if (csFiltered) filterParts.push(`with ${callsignFilter}`);
+    if (textFilter) filterParts.push(`filtered from ${qsos.length}`);
+    $('qso-count').textContent = `${shown} QSO${shown===1?'':'s'}` + (filterParts.length ? ` (${filterParts.join(', ')})` : '');
   }
   $('history-filter').addEventListener('input', () => renderQsos());
   $('qso-tbody').addEventListener('click', async (e) => {
@@ -1177,11 +1213,13 @@
               !qsos.find(q => q.id === msg.payload.id)) {
             qsos.unshift(msg.payload);
             renderQsos(msg.payload.id);
+            updateDuplicateBadge();
           }
           break;
         case 'qso_deleted':
           qsos = qsos.filter(q => q.id !== msg.payload.id);
           renderQsos();
+          updateDuplicateBadge();
           break;
         case 'operators':
           operators = msg.payload || [];
