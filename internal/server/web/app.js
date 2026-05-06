@@ -78,16 +78,21 @@
   function initLeafletMap() {
     const el = $('map-canvas');
     if (!el || leafletMap || typeof L === 'undefined') return;
-    leafletMap = L.map(el, {
-      zoomControl: true,
-      attributionControl: true,
-      scrollWheelZoom: true,
-    }).setView([20, 0], 1);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/">OSM</a> © <a href="https://carto.com/">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 18,
-    }).addTo(leafletMap);
+    try {
+      leafletMap = L.map(el, {
+        zoomControl: true,
+        attributionControl: true,
+        scrollWheelZoom: true,
+      }).setView([20, 0], 1);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '© <a href="https://www.openstreetmap.org/">OSM</a> © <a href="https://carto.com/">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 18,
+      }).addTo(leafletMap);
+    } catch (e) {
+      leafletMap = null;
+      console.warn('Leaflet init failed:', e);
+    }
   }
 
   const $ = (id) => document.getElementById(id);
@@ -270,8 +275,12 @@
     renderRigList();
     applySelectedRigToForm();
     clearLeftPanel();
-    // Give Leaflet a chance to measure the (now-visible) container
-    requestAnimationFrame(() => { if (leafletMap) leafletMap.invalidateSize(); });
+    // Initialize Leaflet after the container is visible and laid out
+    requestAnimationFrame(() => {
+      initLeafletMap();
+      if (leafletMap) leafletMap.invalidateSize();
+      updateMap();
+    });
     if (!ws) connectWS();
     $('q-call').focus();
   }
@@ -372,13 +381,19 @@
     $('left-pic').classList.add('hidden');
     $('left-pic-placeholder').classList.remove('hidden');
     currentTargetLocator = null;
-    updateMap();
+    $('bearing-value').textContent = '—';
+    if (leafletMap) {
+      if (qthMarker) { qthMarker.remove(); qthMarker = null; }
+      if (tgtMarker) { tgtMarker.remove(); tgtMarker = null; }
+      pathLines.forEach(l => l.remove()); pathLines = [];
+    }
   }
 
   function updateMap() {
     if (typeof L === 'undefined') return;
     if (!leafletMap) initLeafletMap();
     if (!leafletMap) return;
+    try {
 
     // Remove previous overlays
     if (qthMarker)  { qthMarker.remove();  qthMarker  = null; }
@@ -425,6 +440,7 @@
       leafletMap.setView([20, 0], 1);
       $('bearing-value').textContent = '—';
     }
+    } catch (e) { console.warn('updateMap error:', e); }
   }
 
   // ----- QRZ lookup -----
