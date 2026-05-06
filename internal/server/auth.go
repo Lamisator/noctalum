@@ -23,18 +23,19 @@ const (
 
 // Permission keys.  Add new ones here, then expose them in the UI.
 const (
-	PermQSOWrite       = "qso.write"
-	PermQSOExport      = "qso.export"
-	PermSettingsWrite  = "settings.write"
-	PermUsersManage    = "users.manage"
-	PermRigUse         = "rig.use"
-	PermContestsManage = "contests.manage"
-	PermAuditLog       = "audit.log"
+	PermQSOWrite          = "qso.write"
+	PermQSOExport         = "qso.export"
+	PermSettingsWrite     = "settings.write"
+	PermUsersManage       = "users.manage"
+	PermRigUse            = "rig.use"
+	PermContestsManage    = "contests.manage"
+	PermAuditLog          = "audit.log"
+	PermFeatureRequests   = "feature_requests"
 )
 
 // AllPermissions is the canonical list (used by UI + role validation).
 var AllPermissions = []string{
-	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermContestsManage, PermAuditLog,
+	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermContestsManage, PermAuditLog, PermFeatureRequests,
 }
 
 // DefaultUserRolePermissions are the permissions assigned to the built-in
@@ -70,8 +71,10 @@ type Session struct {
 	contestStatus string
 	contestCall   string
 	contestName   string
-	contestQTH    string
-	lastSeen      time.Time
+	contestQTH       string
+	contestBands     string
+	contestObjective string
+	lastSeen         time.Time
 	lastDBUpdate  time.Time // last time last_seen was flushed to DB
 }
 
@@ -103,14 +106,30 @@ func (s *Session) ContestQTH() string {
 	return s.contestQTH
 }
 
+// ContestBands returns the comma-separated bands for the selected contest.
+func (s *Session) ContestBands() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.contestBands
+}
+
+// ContestObjective returns the markdown objective for the selected contest.
+func (s *Session) ContestObjective() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.contestObjective
+}
+
 // SetContest sets the active contest for this session.
-func (s *Session) SetContest(id int64, status, call, name, qth string) {
+func (s *Session) SetContest(id int64, status, call, name, qth, bands, objective string) {
 	s.mu.Lock()
 	s.contestID = id
 	s.contestStatus = status
 	s.contestCall = call
 	s.contestName = name
 	s.contestQTH = qth
+	s.contestBands = bands
+	s.contestObjective = objective
 	s.mu.Unlock()
 }
 
@@ -122,6 +141,8 @@ func (s *Session) ClearContest() {
 	s.contestCall = ""
 	s.contestName = ""
 	s.contestQTH = ""
+	s.contestBands = ""
+	s.contestObjective = ""
 	s.mu.Unlock()
 }
 
@@ -308,13 +329,13 @@ func (s *SessionStore) RefreshUser(u store.User) {
 
 // UpdateContestOnSessions refreshes contest fields on every session that has
 // the given contest selected (called after an admin edits a contest).
-func (s *SessionStore) UpdateContestOnSessions(contestID int64, status, call, name, qth string) {
+func (s *SessionStore) UpdateContestOnSessions(contestID int64, status, call, name, qth, bands, objective string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, sess := range s.sessions {
 		id, _, _, _ := sess.ContestInfo()
 		if id == contestID {
-			sess.SetContest(contestID, status, call, name, qth)
+			sess.SetContest(contestID, status, call, name, qth, bands, objective)
 		}
 	}
 }

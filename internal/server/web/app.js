@@ -1,7 +1,7 @@
 // ContestLog frontend
 (() => {
   const MODES = ['CW', 'SSB', 'USB', 'LSB', 'FM', 'AM', 'RTTY', 'FT8', 'FT4', 'PSK31', 'PSK63', 'JT65', 'DIGI'];
-  const BANDS = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m', '4m', '2m', '70cm', '23cm'];
+  const BANDS = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m', '4m', '2m', '70cm', '23cm', '13cm', '3cm'];
 
   // ----- geo utilities -----
 
@@ -112,6 +112,7 @@
   let nrReserved = false; // true once a serial number has been reserved for the current QSO entry
   let currentTargetLocator = null; // Maidenhead locator of the station being looked up
   let callsignFilter = null; // callsign to narrow QSO history while entering a contact
+  let editingQsoId = null; // ID of the QSO being edited, or null for new entry
 
   function hasPerm(p) {
     if (!me) return false;
@@ -124,7 +125,7 @@
 
   // ----- screens -----
   function show(which) {
-    ['setup-screen', 'login-screen', 'contest-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
+    ['setup-screen', 'login-screen', 'contest-screen', 'global-settings-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
     $(which).classList.remove('hidden');
     if (which === 'setup-screen') $('setup-username').focus();
     if (which === 'login-screen') $('login-username').focus();
@@ -204,6 +205,52 @@
     show('login-screen');
   }
 
+  // ----- global settings screen -----
+  $('global-settings-btn').addEventListener('click', () => showGlobalSettings());
+  $('global-settings-back-btn').addEventListener('click', () => showContestScreen());
+  $('gs-cluster-log-refresh-btn').addEventListener('click', loadGlobalClusterLog);
+
+  async function showGlobalSettings() {
+    show('global-settings-screen');
+    $('global-settings-error').textContent = '';
+    try {
+      const res = await api('/api/settings');
+      if (res.ok) {
+        const s = await res.json();
+        $('gs-cluster-call').value = s.cluster_call || '';
+        $('gs-cluster-retention').value = s.cluster_retention_days || 7;
+      }
+    } catch {}
+    loadGlobalClusterLog();
+  }
+
+  async function loadGlobalClusterLog() {
+    try {
+      const res = await api('/api/cluster/log');
+      if (!res.ok) return;
+      const data = await res.json();
+      $('gs-cluster-log-pre').textContent = (data.lines || []).join('\n');
+      const conn = data.connected ? 'Connected' : 'Disconnected';
+      $('gs-cluster-log-status').textContent = `${conn} · callsign: ${data.call || 'none'}`;
+    } catch {}
+  }
+
+  $('global-settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('global-settings-error').textContent = '';
+    const body = {
+      cluster_call: $('gs-cluster-call').value.trim().toUpperCase(),
+      cluster_retention_days: parseInt($('gs-cluster-retention').value) || 7,
+    };
+    const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      $('global-settings-error').textContent = j.error || 'Save failed';
+      return;
+    }
+    loadGlobalClusterLog();
+  });
+
   // ----- contest selection screen -----
   $('station-pill').addEventListener('click', () => showContestScreen());
 
@@ -248,6 +295,8 @@
             me.contest_call = j.contest_call;
             me.contest_name = j.contest_name;
             me.contest_qth = j.contest_qth || '';
+            me.contest_bands = (j.contest_bands || []).join(',');
+            me.contest_objective = j.contest_objective || '';
           }
           await enterApp();
         });
@@ -264,6 +313,7 @@
     applyContestReadonly();
     qsos = [];
     nrReserved = false;
+    editingQsoId = null;
     const [qres, ores, rres] = await Promise.all([
       api('/api/qsos'), api('/api/operators'), api('/api/rigs')
     ]);
@@ -276,6 +326,8 @@
     renderRigList();
     applySelectedRigToForm();
     clearLeftPanel();
+    renderBandPills();
+    renderObjective();
     // Initialize Leaflet after the container is visible and laid out
     requestAnimationFrame(() => {
       initLeafletMap();
@@ -319,8 +371,170 @@
       if (t.dataset.tab === 'contests') refreshContests();
       if (t.dataset.tab === 'settings') loadPasskeys();
       if (t.dataset.tab === 'audit') refreshAuditLog(true);
+      if (t.dataset.tab === 'featurerequests') refreshFeatureRequests();
     });
   });
+
+  // ----- ops panel tabs -----
+  document.querySelectorAll('.ops-tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.ops-tab').forEach(x => x.classList.remove('active'));
+      document.querySelectorAll('.ops-tab-pane').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      $('ops-tab-' + t.dataset.opsTab).classList.add('active');
+      if (t.dataset.opsTab === 'cluster') loadClusterSpots();
+    });
+  });
+
+  // ----- DX Cluster -----
+  let clusterSpots = [];
+  let clusterTimer = null;
+
+  async function loadClusterSpots() {
+    $('cluster-status').textContent = 'Loading…';
+    try {
+      const res = await api('/api/cluster/spots');
+      if (!res.ok) {
+        $('cluster-status').textContent = 'Cluster unavailable.';
+        return;
+      }
+      const data = await res.json();
+      clusterSpots = data.spots || [];
+      updateClusterFilters();
+      renderClusterSpots();
+      const connStr = data.connected ? 'live' : 'connecting…';
+      $('cluster-status').textContent = `${clusterSpots.length} spots · ${connStr} · ${new Date().toLocaleTimeString()}`;
+    } catch {
+      $('cluster-status').textContent = 'Failed to load cluster.';
+    }
+    // auto-refresh every 60s while the tab is visible
+    clearTimeout(clusterTimer);
+    clusterTimer = setTimeout(() => {
+      if ($('ops-tab-cluster').classList.contains('active')) loadClusterSpots();
+    }, 60000);
+  }
+
+  function updateClusterFilters() {
+    const bandSel = $('cluster-band-filter');
+    const modeSel = $('cluster-mode-filter');
+    const curBand = bandSel.value;
+    const curMode = modeSel.value;
+
+    const bands = [...new Set(clusterSpots.map(s => s.band).filter(Boolean))].sort();
+    const modes = [...new Set(clusterSpots.map(s => s.mode).filter(Boolean))].sort();
+
+    bandSel.innerHTML = '<option value="">All bands</option>' +
+      bands.map(b => `<option value="${escHtml(b)}"${b === curBand ? ' selected' : ''}>${escHtml(b)}</option>`).join('');
+    modeSel.innerHTML = '<option value="">All modes</option>' +
+      modes.map(m => `<option value="${escHtml(m)}"${m === curMode ? ' selected' : ''}>${escHtml(m)}</option>`).join('');
+  }
+
+  function renderClusterSpots() {
+    const tbody = $('cluster-tbody');
+    if (!tbody) return;
+    const bandFilter = $('cluster-band-filter').value;
+    const modeFilter = $('cluster-mode-filter').value;
+
+    let filtered = clusterSpots;
+    if (bandFilter) filtered = filtered.filter(s => s.band === bandFilter);
+    if (modeFilter) filtered = filtered.filter(s => s.mode === modeFilter);
+
+    tbody.innerHTML = '';
+    for (const spot of filtered) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="muted">${escHtml(spot.time)}</td>
+        <td class="cluster-dx">${escHtml(fmtCall(spot.dx))}</td>
+        <td class="cluster-freq">${escHtml(spot.freq)}</td>
+        <td>${escHtml(spot.mode)}</td>
+        <td title="${escHtml(spot.spotter ? 'de ' + spot.spotter : '')}">${escHtml(spot.comment)}</td>
+      `;
+      tr.addEventListener('click', () => useClusterSpot(spot));
+      tbody.appendChild(tr);
+    }
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="muted" style="text-align:center;padding:10px">No spots.</td></tr>';
+    }
+  }
+
+  function useClusterSpot(spot) {
+    if (!contestIsOpen()) return;
+    if (spot.dx) $('q-call').value = spot.dx;
+    if (spot.freq) $('q-freq').value = spot.freq;
+    if (spot.band) $('q-band').value = spot.band;
+    if (spot.mode && MODES.includes(spot.mode)) $('q-mode').value = spot.mode;
+    applyRSTDefaults($('q-mode').value);
+    updateDuplicateBadge();
+    // tune the selected rig if one is connected
+    if (me?.selected_rig && spot.freq) {
+      const freqHz = Math.round(parseFloat(spot.freq) * 1000);
+      if (freqHz > 0) {
+        api('/api/rigs/set_freq', { method: 'POST', body: JSON.stringify({ freq_hz: freqHz }) })
+          .catch(() => {});
+      }
+    }
+    // trigger lookup for pic/locator
+    const call = $('q-call').value.trim().toUpperCase();
+    if (call.length >= 3) { clearLeftPanel(); triggerQRZLookup(call); }
+    // switch to log tab
+    document.querySelector('.tab[data-tab="log"]').click();
+    $('q-call').focus();
+  }
+
+  $('cluster-refresh-btn').addEventListener('click', loadClusterSpots);
+  $('cluster-band-filter').addEventListener('change', renderClusterSpots);
+  $('cluster-mode-filter').addEventListener('change', renderClusterSpots);
+
+  // ----- markdown renderer -----
+  function inlineMd(s) {
+    return s
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__(.+?)__/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/_(.+?)_/g, '<em>$1</em>')
+      .replace(/`(.+?)`/g, '<code>$1</code>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  }
+
+  function renderMarkdown(md) {
+    if (!md || !md.trim()) return '<p class="objective-empty">No objective set.</p>';
+    const blocks = md.split(/\n{2,}/);
+    return blocks.map(block => {
+      const lines = block.split('\n');
+      const first = lines[0];
+      // Fenced code block
+      if (first.startsWith('```')) {
+        const code = lines.slice(1).filter(l => !l.startsWith('```')).map(l => escHtml(l)).join('\n');
+        return `<pre><code>${code}</code></pre>`;
+      }
+      // Headings
+      const hm = first.match(/^(#{1,4})\s+(.+)/);
+      if (hm) return `<h${hm[1].length}>${inlineMd(hm[2])}</h${hm[1].length}>`;
+      // Blockquote
+      if (first.startsWith('> ')) {
+        return `<blockquote>${lines.map(l => inlineMd(l.replace(/^>\s?/, ''))).join('<br>')}</blockquote>`;
+      }
+      // Unordered list
+      if (first.match(/^[-*]\s/)) {
+        const items = lines.filter(l => l.match(/^[-*]\s/)).map(l => `<li>${inlineMd(l.replace(/^[-*]\s+/, ''))}</li>`).join('');
+        return `<ul>${items}</ul>`;
+      }
+      // Ordered list
+      if (first.match(/^\d+\.\s/)) {
+        const items = lines.filter(l => l.match(/^\d+\.\s/)).map(l => `<li>${inlineMd(l.replace(/^\d+\.\s+/, ''))}</li>`).join('');
+        return `<ol>${items}</ol>`;
+      }
+      // Paragraph
+      return `<p>${lines.map(l => inlineMd(l)).join('<br>')}</p>`;
+    }).join('');
+  }
+
+  function renderObjective() {
+    const el = $('objective-content');
+    if (!el) return;
+    el.innerHTML = renderMarkdown(me?.contest_objective || '');
+  }
 
   function applyPermissionsToUI() {
     document.querySelectorAll('.tab-perm').forEach(t => {
@@ -331,6 +545,7 @@
       if (hasPerm(el.dataset.perm)) el.removeAttribute('data-perm-denied');
       else el.setAttribute('data-perm-denied', '1');
     });
+    $('feature-request-btn').classList.toggle('hidden', !hasPerm('feature_requests'));
   }
 
   // ----- mode/band fillers -----
@@ -391,6 +606,23 @@
     }
   }
 
+  function showQsoPicture(callsign) {
+    const img = $('left-pic');
+    const ph  = $('left-pic-placeholder');
+    img.onload  = () => { img.classList.remove('hidden'); ph.classList.add('hidden'); img.onload = img.onerror = null; };
+    img.onerror = () => { img.classList.add('hidden'); ph.classList.remove('hidden'); img.onload = img.onerror = null; };
+    img.src = '/api/lookup/picture?callsign=' + encodeURIComponent(callsign);
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!$('modal-root').classList.contains('hidden')) {
+      $('modal-root').classList.add('hidden');
+      return;
+    }
+    if ($('tab-log').classList.contains('active')) cancelQsoEdit();
+  });
+
   function updateMap() {
     if (typeof L === 'undefined') return;
     if (!leafletMap) initLeafletMap();
@@ -449,19 +681,19 @@
   let qrzLookupTimer = null;
 
   function clearQRZInfo() {
-    $('qrz-info-bar').classList.add('hidden');
-    $('qrz-info-name').textContent = '';
     $('q-name').value = '';
     $('q-loc').value = '';
     clearLeftPanel();
+    renderBandPills();
   }
 
   function updateDuplicateBadge() {
-    const call = $('q-call').value.trim().toUpperCase();
     const badge = $('dup-badge');
-    if (!call) { badge.className = 'dup-badge hidden'; return; }
+    if (editingQsoId !== null) { badge.className = 'dup-badge hidden'; renderBandPills(); return; }
+    const call = $('q-call').value.trim().toUpperCase();
+    if (!call) { badge.className = 'dup-badge hidden'; renderBandPills(); return; }
     const worked = qsos.filter(q => q.callsign === call);
-    if (!worked.length) { badge.className = 'dup-badge hidden'; return; }
+    if (!worked.length) { badge.className = 'dup-badge hidden'; renderBandPills(); return; }
     const band = $('q-band').value;
     const mode = $('q-mode').value;
     if (worked.some(q => q.band === band && q.mode === mode)) {
@@ -471,10 +703,63 @@
       badge.className = 'dup-badge dup-worked';
       badge.textContent = 'WORKED OTHER BAND/MODE';
     }
+    renderBandPills();
+  }
+
+  function contestBands() {
+    const raw = me?.contest_bands || '';
+    if (!raw) return [];
+    return raw.split(',').filter(Boolean);
+  }
+
+  function renderBandPills() {
+    const bar = $('band-pills-bar');
+    if (!bar) return;
+    const bands = contestBands();
+    if (!bands.length) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+
+    const call = $('q-call').value.trim().toUpperCase();
+    const currentBand = $('q-band').value;
+    const currentMode = $('q-mode').value;
+    const worked = call ? qsos.filter(q => q.callsign === call) : [];
+
+    // Detect which band the rig is on
+    const rig = rigs.find(x => x.name === me?.selected_rig);
+    const rigBand = rig?.band || null;
+
+    bar.innerHTML = '';
+    for (const band of bands) {
+      const pill = document.createElement('span');
+      pill.className = 'band-pill';
+      pill.textContent = band;
+
+      const isRigBand = band === (rigBand || currentBand);
+      const workedOnBand = worked.filter(q => q.band === band);
+      const dupOnBand = workedOnBand.some(q => q.mode === currentMode);
+
+      if (!call) {
+        pill.classList.add('bp-inactive');
+      } else if (dupOnBand) {
+        pill.classList.add('bp-dup');
+      } else if (workedOnBand.length > 0) {
+        pill.classList.add('bp-other');
+      } else {
+        pill.classList.add('bp-new');
+      }
+      if (isRigBand) pill.classList.add('bp-current');
+
+      pill.addEventListener('click', () => {
+        $('q-band').value = band;
+        $('q-freq').value = '';
+        updateDuplicateBadge();
+      });
+
+      bar.appendChild(pill);
+    }
+    bar.classList.remove('hidden');
   }
 
   async function triggerQRZLookup(callsign) {
-    clearQRZInfo();
     if (!callsign || callsign.length < 3) return;
     try {
       const res = await api('/api/lookup?callsign=' + encodeURIComponent(callsign));
@@ -482,12 +767,9 @@
       const j = await res.json();
       if (j.name && !$('q-name').value) $('q-name').value = j.name;
       if (j.locator && !$('q-loc').value) $('q-loc').value = j.locator.toUpperCase();
-      if (j.name) {
-        $('qrz-info-name').textContent = j.name;
-        $('qrz-info-bar').classList.remove('hidden');
-      }
       const loc = j.locator ? j.locator.toUpperCase() : ($('q-loc').value.trim().toUpperCase() || null);
       updateLeftPanel(callsign, !!j.has_picture, loc);
+      renderBandPills();
     } catch {}
   }
 
@@ -508,8 +790,10 @@
     // always resets it correctly regardless of the NR reservation flight time.
     clearTimeout(qrzLookupTimer);
     const call = $('q-call').value.trim().toUpperCase();
-    callsignFilter = call || null;
-    renderQsos();
+    if (editingQsoId === null) {
+      callsignFilter = call || null;
+      renderQsos();
+    }
     updateDuplicateBadge();
     if (call.length >= 3) {
       qrzLookupTimer = setTimeout(() => triggerQRZLookup(call), 600);
@@ -526,6 +810,55 @@
       }
     }
   });
+
+  function loadQsoIntoForm(q) {
+    editingQsoId = q.id;
+    $('q-call').value = q.callsign;
+    $('q-name').value = q.name || '';
+    $('q-nr-rcvd').value = q.nr_received || '';
+    $('q-nr-sent').value = q.nr_sent || '';
+    $('q-mode').value = q.mode;
+    $('q-band').value = q.band;
+    $('q-freq').value = q.freq_hz ? (q.freq_hz / 1000).toFixed(2) : '';
+    $('q-rst-sent').value = q.rst_sent || '';
+    $('q-rst-rcvd').value = q.rst_received || '';
+    $('q-dok').value = q.dok || '';
+    $('q-loc').value = q.locator || '';
+    $('q-itu').value = q.itu_zone || '';
+    $('q-cq').value = q.cq_zone || '';
+    $('q-lh').value = q.lighthouse || '';
+    $('q-notes').value = q.notes || '';
+    const t = new Date(q.time);
+    $('q-time').value = t.toISOString().substring(0, 19);
+    $('log-qso-btn').textContent = 'Save Edit';
+    $('entry-panel-title').textContent = 'Edit QSO';
+    nrReserved = true;
+    callsignFilter = null;
+    renderQsos();
+    updateDuplicateBadge();
+    currentTargetLocator = q.locator || null;
+    updateMap();
+    renderBandPills();
+    $('q-call').focus();
+    $('q-call').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function cancelQsoEdit() {
+    editingQsoId = null;
+    ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
+    clearQRZInfo();
+    currentTargetLocator = null;
+    nrReserved = false;
+    callsignFilter = null;
+    updateDuplicateBadge();
+    renderQsos();
+    $('log-qso-btn').textContent = 'Log QSO';
+    $('entry-panel-title').textContent = 'New QSO';
+    $('q-call').focus();
+    renderBandPills();
+  }
+
+  $('cancel-edit-btn').addEventListener('click', cancelQsoEdit);
 
   // ----- QSO entry -----
   $('qso-form').addEventListener('submit', async (e) => {
@@ -552,6 +885,21 @@
     if (t) body.time = new Date(t + 'Z').toISOString();
 
     $('qso-error').textContent = '';
+
+    if (editingQsoId !== null) {
+      const res = await api('/api/qsos/' + editingQsoId, { method: 'PUT', body: JSON.stringify(body) });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        $('qso-error').textContent = j.error || 'Failed to update QSO';
+        return;
+      }
+      const updated = await res.json();
+      const idx = qsos.findIndex(q => q.id === editingQsoId);
+      if (idx !== -1) qsos[idx] = updated;
+      cancelQsoEdit();
+      return;
+    }
+
     let res = await api('/api/qsos', { method: 'POST', body: JSON.stringify(body) });
     if (res.status === 409) {
       if (!confirm('Possible duplicate QSO with this station, band, and mode in the last 10 minutes. Log anyway?')) return;
@@ -685,6 +1033,41 @@
   }
 
   // ----- QSO history table -----
+  let qsoSortCol = 'nr_sent';
+  let qsoSortDir = -1; // 1 = asc, -1 = desc, 0 = off
+
+  function updateSortHeaders() {
+    document.querySelectorAll('#qso-table thead th.sortable').forEach(th => {
+      const col = th.dataset.col;
+      const arrow = th.querySelector('.sort-arrow');
+      if (col === qsoSortCol && qsoSortDir !== 0) {
+        th.classList.add('sort-active');
+        arrow.textContent = qsoSortDir === 1 ? ' ▲' : ' ▼';
+      } else {
+        th.classList.remove('sort-active');
+        arrow.textContent = '';
+      }
+    });
+  }
+
+  document.querySelectorAll('#qso-table thead th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (qsoSortCol !== col) {
+        qsoSortCol = col;
+        qsoSortDir = 1;
+      } else {
+        if (qsoSortDir === 1)       qsoSortDir = -1;
+        else if (qsoSortDir === -1) qsoSortDir = 0;
+        else                        qsoSortDir = 1;
+      }
+      updateSortHeaders();
+      renderQsos();
+    });
+  });
+
+  updateSortHeaders();
+
   function renderQsos(highlightId) {
     const textFilter = $('history-filter').value.trim().toLowerCase();
     const tbody = $('qso-tbody');
@@ -699,6 +1082,15 @@
       if (matches.length > 0) { source = matches; csFiltered = true; }
     }
 
+    if (qsoSortDir !== 0) {
+      source = [...source].sort((a, b) => {
+        let av = a[qsoSortCol] ?? '';
+        let bv = b[qsoSortCol] ?? '';
+        if (typeof av === 'number' && typeof bv === 'number') return qsoSortDir * (av - bv);
+        return qsoSortDir * String(av).localeCompare(String(bv), undefined, { numeric: true });
+      });
+    }
+
     for (const q of source) {
       if (textFilter) {
         const hay = `${q.callsign} ${q.band} ${q.mode} ${q.operator} ${q.locator} ${q.dok || ''}`.toLowerCase();
@@ -710,10 +1102,13 @@
       const utc = t.toISOString().substring(0, 19).replace('T', ' ');
       const mhz = q.freq_hz ? (q.freq_hz / 1_000_000).toFixed(4) : '';
       const zone = (q.itu_zone || q.cq_zone) ? `${escHtml(q.itu_zone || '-')}/${escHtml(q.cq_zone || '-')}` : '';
+      const isEditing = q.id === editingQsoId;
+      tr.className = isEditing ? 'editing-row' : '';
+      tr.style.cursor = 'pointer';
       tr.innerHTML = `
+        <td>${q.nr_sent ? escHtml(String(q.nr_sent)) : ''}</td>
         <td>${escHtml(utc)}</td>
         <td><strong>${escHtml(fmtCall(q.callsign))}</strong></td>
-        <td>${q.nr_sent ? escHtml(String(q.nr_sent)) : ''}</td>
         <td>${escHtml(q.band)}</td>
         <td>${escHtml(mhz)}</td>
         <td>${escHtml(q.mode)}</td>
@@ -724,6 +1119,15 @@
         <td>${escHtml(fmtCall(q.operator))}</td>
         <td>${canDelete ? `<button class="del-btn" data-id="${Number(q.id)}">✕</button>` : ''}</td>
       `;
+      tr.addEventListener('click', (e) => {
+        if (e.target.closest('.del-btn')) return;
+        if (hasPerm('qso.write') && contestIsOpen()) {
+          if (editingQsoId === null) { clearLeftPanel(); triggerQRZLookup(q.callsign); }
+          loadQsoIntoForm(q);
+        } else {
+          showQsoPicture(q.callsign);
+        }
+      });
       tbody.appendChild(tr);
       shown++;
     }
@@ -889,6 +1293,23 @@
     }
   }
 
+  function buildBandSelectHTML(selectedBands) {
+    return `<label>Active bands</label>
+      <div class="band-select-grid" id="modal-band-grid">
+        ${BANDS.map(b => `<span class="band-select-pill${selectedBands.includes(b) ? ' selected' : ''}" data-band="${escHtml(b)}">${escHtml(b)}</span>`).join('')}
+      </div>`;
+  }
+
+  function attachBandSelectListeners() {
+    document.querySelectorAll('#modal-band-grid .band-select-pill').forEach(pill => {
+      pill.addEventListener('click', () => pill.classList.toggle('selected'));
+    });
+  }
+
+  function selectedBandsFromModal() {
+    return Array.from(document.querySelectorAll('#modal-band-grid .band-select-pill.selected')).map(p => p.dataset.band);
+  }
+
   function contestCreateModal() {
     showModal(`
       <h3>New Contest</h3>
@@ -899,6 +1320,12 @@
         <input name="station_call" autocapitalize="characters" placeholder="e.g. DK0XYZ" required />
         <label>QTH locator (optional)</label>
         <input name="qth" placeholder="e.g. JO50de" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
+        ${buildBandSelectHTML([])}
+        <label style="margin-top:10px">Objective <span class="muted small">(Markdown, optional)</span></label>
+        <div class="md-editor-wrap">
+          <textarea name="objective" placeholder="Describe the contest objective…"></textarea>
+          <div class="md-preview-pane objective-content" id="modal-md-preview"></div>
+        </div>
         <div class="modal-err error"></div>
         <div class="modal-actions">
           <button type="button" class="ghost cancel-btn">Cancel</button>
@@ -912,6 +1339,8 @@
           name: form.name.value.trim(),
           station_call: form.station_call.value.trim().toUpperCase(),
           qth: form.qth.value.trim().toUpperCase(),
+          bands: selectedBandsFromModal(),
+          objective: form.objective.value,
         }),
       });
       if (!res.ok) {
@@ -926,6 +1355,12 @@
         renderContestPicker();
       }
     });
+    attachBandSelectListeners();
+    const taC = document.querySelector('#modal-card textarea[name=objective]');
+    const previewC = $('modal-md-preview');
+    if (taC && previewC) {
+      taC.addEventListener('input', () => { previewC.innerHTML = renderMarkdown(taC.value); });
+    }
   }
 
   function contestEditModal(c) {
@@ -938,6 +1373,12 @@
         <input name="station_call" value="${escHtml(c.station_call)}" autocapitalize="characters" required />
         <label>QTH locator (optional)</label>
         <input name="qth" value="${escHtml(c.qth || '')}" placeholder="e.g. JO50de" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
+        ${buildBandSelectHTML(c.bands || [])}
+        <label style="margin-top:10px">Objective <span class="muted small">(Markdown)</span></label>
+        <div class="md-editor-wrap">
+          <textarea name="objective" placeholder="Describe the contest objective…">${escHtml(c.objective || '')}</textarea>
+          <div class="md-preview-pane objective-content" id="modal-md-preview"></div>
+        </div>
         <div class="modal-err error"></div>
         <div class="modal-actions">
           <button type="button" class="ghost cancel-btn">Cancel</button>
@@ -952,6 +1393,8 @@
           station_call: form.station_call.value.trim().toUpperCase(),
           qth: form.qth.value.trim().toUpperCase(),
           status: c.status,
+          bands: selectedBandsFromModal(),
+          objective: form.objective.value,
         }),
       });
       if (!res.ok) {
@@ -960,6 +1403,15 @@
       }
       await refreshContests();
     });
+    attachBandSelectListeners();
+    // Live markdown preview
+    const ta = document.querySelector('#modal-card textarea[name=objective]');
+    const preview = $('modal-md-preview');
+    if (ta && preview) {
+      const updatePreview = () => { preview.innerHTML = renderMarkdown(ta.value); };
+      updatePreview();
+      ta.addEventListener('input', updatePreview);
+    }
   }
 
   // ----- users tab -----
@@ -1216,11 +1668,19 @@
             updateDuplicateBadge();
           }
           break;
+        case 'qso_updated': {
+          const idx = qsos.findIndex(q => q.id === msg.payload.id);
+          if (idx !== -1) qsos[idx] = msg.payload;
+          renderQsos();
+          updateDuplicateBadge();
+          break;
+        }
         case 'qso_deleted':
           qsos = qsos.filter(q => q.id !== msg.payload.id);
           renderQsos();
           updateDuplicateBadge();
           break;
+
         case 'operators':
           operators = msg.payload || [];
           renderOperators();
@@ -1231,6 +1691,7 @@
           renderRigList();
           renderOperators();
           applySelectedRigToForm();
+          renderBandPills();
           break;
         case 'contest_updated':
           if (me && msg.payload.id === me.contest_id) {
@@ -1238,9 +1699,13 @@
             me.contest_call = msg.payload.station_call;
             me.contest_name = msg.payload.name;
             if ('qth' in msg.payload) me.contest_qth = msg.payload.qth;
+            if ('bands' in msg.payload) me.contest_bands = (msg.payload.bands || []).join(',');
+            if ('objective' in msg.payload) me.contest_objective = msg.payload.objective;
             updateContestDisplay();
             applyContestReadonly();
             updateMap();
+            renderBandPills();
+            renderObjective();
           }
           break;
       }
@@ -1265,7 +1730,7 @@
     }
     me = j;
     csrfToken = j.csrf_token || null;
-    $('current-op').textContent = fmtCall(me.callsign);
+    $('current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
     return true;
   }
 
@@ -1555,6 +2020,120 @@
     if (e.key === 'Enter') refreshAuditLog(true);
   });
 
+  // ----- feature requests -----
+  let featureRequests = [];
+
+  $('feature-request-btn').addEventListener('click', () => featureRequestSubmitModal());
+
+  function featureRequestSubmitModal() {
+    showModal(`
+      <h3>Feature Request</h3>
+      <form>
+        <label>From</label>
+        <input name="from" value="${escHtml(me?.username || '')}" readonly style="opacity:0.6;cursor:not-allowed" />
+        <label>Request</label>
+        <textarea name="text" rows="5" required style="width:100%;resize:vertical;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:inherit;font:inherit"></textarea>
+        <div class="modal-err error"></div>
+        <div class="modal-actions">
+          <button type="button" class="ghost cancel-btn">Cancel</button>
+          <button type="submit" class="primary">Send</button>
+        </div>
+      </form>
+    `, async (form) => {
+      const text = form.text.value.trim();
+      if (!text) throw new Error('Please enter your request.');
+      const res = await api('/api/feature-requests', {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || 'Failed to submit');
+      }
+    });
+  }
+
+  async function refreshFeatureRequests() {
+    if (!hasPerm('feature_requests')) return;
+    const res = await api('/api/feature-requests');
+    if (!res.ok) return;
+    featureRequests = await res.json();
+    renderFeatureRequests();
+  }
+
+  function renderFeatureRequests() {
+    const tbody = $('fr-tbody');
+    tbody.innerHTML = '';
+    $('fr-select-all').checked = false;
+    for (const fr of featureRequests) {
+      const tr = document.createElement('tr');
+      const date = fr.created_at ? new Date(fr.created_at).toLocaleString() : '';
+      const statusClass = { pending: 'open', accepted: 'admin', declined: 'disabled', implemented: 'finished' }[fr.status] || '';
+      tr.innerHTML = `
+        <td><input type="checkbox" class="fr-check" data-id="${Number(fr.id)}" /></td>
+        <td>${escHtml(fr.from)}</td>
+        <td class="muted small">${escHtml(date)}</td>
+        <td><span class="badge ${statusClass}">${escHtml(fr.status)}</span></td>
+        <td style="white-space:pre-wrap;max-width:480px">${escHtml(fr.text)}</td>
+        <td class="actions" style="white-space:nowrap">
+          <select class="fr-status-sel ghost" data-id="${Number(fr.id)}" style="font-size:12px;padding:2px 6px;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:4px;color:inherit">
+            <option value="pending" ${fr.status==='pending'?'selected':''}>Pending</option>
+            <option value="accepted" ${fr.status==='accepted'?'selected':''}>Accepted</option>
+            <option value="declined" ${fr.status==='declined'?'selected':''}>Declined</option>
+            <option value="implemented" ${fr.status==='implemented'?'selected':''}>Implemented</option>
+          </select>
+          <button class="ghost fr-del-btn" data-id="${Number(fr.id)}">Delete</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+    tbody.querySelectorAll('.fr-status-sel').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        const id = Number(sel.dataset.id);
+        const res = await api('/api/feature-requests/' + id, {
+          method: 'PUT',
+          body: JSON.stringify({ status: sel.value }),
+        });
+        if (res.ok) refreshFeatureRequests();
+      });
+    });
+    tbody.querySelectorAll('.fr-del-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Delete this feature request?')) return;
+        const id = Number(btn.dataset.id);
+        const res = await api('/api/feature-requests/' + id, { method: 'DELETE' });
+        if (res.ok) refreshFeatureRequests();
+      });
+    });
+    $('fr-count').textContent = featureRequests.length + ' request' + (featureRequests.length !== 1 ? 's' : '');
+  }
+
+  $('fr-select-all').addEventListener('change', (e) => {
+    document.querySelectorAll('.fr-check').forEach(cb => { cb.checked = e.target.checked; });
+  });
+
+  $('fr-export-btn').addEventListener('click', () => {
+    const selected = Array.from(document.querySelectorAll('.fr-check:checked')).map(cb => Number(cb.dataset.id));
+    const items = featureRequests.filter(fr => selected.includes(Number(fr.id)));
+    if (!items.length) { alert('Select at least one request to export.'); return; }
+    const body = 'The following changes are requested for this application: \n\n' +
+      items.map(fr => fr.text).join('\n----------\n');
+    const blob = new Blob([body], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'feature-requests.txt';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  $('fr-delete-selected-btn').addEventListener('click', async () => {
+    const selected = Array.from(document.querySelectorAll('.fr-check:checked')).map(cb => Number(cb.dataset.id));
+    if (!selected.length) { alert('Select at least one request to delete.'); return; }
+    if (!confirm(`Delete ${selected.length} selected request(s)?`)) return;
+    await Promise.all(selected.map(id => api('/api/feature-requests/' + id, { method: 'DELETE' })));
+    refreshFeatureRequests();
+  });
+
   function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
@@ -1571,7 +2150,7 @@
       if (j.setup_required) { show('setup-screen'); return; }
       me = j;
       csrfToken = j.csrf_token || null;
-      $('current-op').textContent = fmtCall(me.callsign);
+      $('current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
       applyPermissionsToUI();
       await loadSettings();
       applyDefaults();

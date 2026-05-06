@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,11 +38,26 @@ type QSO struct {
 
 // Settings holds global defaults; station/contest info lives in each Contest.
 type Settings struct {
-	DefaultMode string `json:"default_mode"`
-	DefaultBand string `json:"default_band"`
-	HelperToken string `json:"helper_token"`
-	QRZUsername string `json:"qrz_username"`
-	QRZPassword string `json:"qrz_password"`
+	DefaultMode           string `json:"default_mode"`
+	DefaultBand           string `json:"default_band"`
+	HelperToken           string `json:"helper_token"`
+	QRZUsername           string `json:"qrz_username"`
+	QRZPassword           string `json:"qrz_password"`
+	ClusterCall           string `json:"cluster_call"`
+	ClusterRetentionDays  int    `json:"cluster_retention_days"`
+}
+
+// ClusterSpot is a single DX cluster spot stored in the database.
+type ClusterSpot struct {
+	ID        int64  `json:"id"`
+	Time      string `json:"time"`
+	DX        string `json:"dx"`
+	Freq      string `json:"freq"`
+	Band      string `json:"band"`
+	Mode      string `json:"mode"`
+	Comment   string `json:"comment"`
+	Spotter   string `json:"spotter"`
+	CreatedAt string `json:"created_at"`
 }
 
 // Store wraps the SQLite database.
@@ -92,6 +108,18 @@ func (s *Store) migrate() error {
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS cluster_spots (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			time_str TEXT NOT NULL,
+			dx TEXT NOT NULL,
+			freq TEXT NOT NULL,
+			band TEXT NOT NULL,
+			mode TEXT NOT NULL,
+			comment TEXT NOT NULL,
+			spotter TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_cluster_spots_created ON cluster_spots(created_at DESC)`,
 	}
 	for _, q := range stmts {
 		if _, err := s.db.Exec(q); err != nil {
@@ -111,6 +139,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.migrateSessions(); err != nil {
+		return err
+	}
+	if err := s.migrateFeatureRequests(); err != nil {
 		return err
 	}
 	for _, col := range [][2]string{
@@ -237,8 +268,110 @@ func (s *Store) MaxNrSent(contestID int64) (int, error) {
 }
 
 // DeleteQSO removes a QSO by id.
+func (s *Store) UpdateQSO(q *QSO) error {
+	if q.Time.IsZero() {
+		q.Time = time.Now().UTC()
+	} else {
+		q.Time = q.Time.UTC()
+	}
+	_, err := s.db.Exec(
+		`UPDATE qsos SET time_utc=?, callsign=?, name=?, band=?, freq_hz=?, mode=?,
+			rst_sent=?, rst_received=?, nr_sent=?, nr_received=?, dok=?,
+			locator=?, itu_zone=?, cq_zone=?, lighthouse=?, notes=?
+		 WHERE id=?`,
+		q.Time.Format(time.RFC3339),
+		strings.ToUpper(q.Callsign), q.Name,
+		q.Band, q.FreqHz, q.Mode, q.RSTSent, q.RSTReceived,
+		q.NrSent, q.NrReceived, strings.ToUpper(q.DOK),
+		strings.ToUpper(q.Locator), q.ITUZone, q.CQZone, q.Lighthouse, q.Notes,
+		q.ID,
+	)
+	return err
+}
+
+func (s *Store) GetQSO(id int64) (*QSO, error) {
+	row := s.db.QueryRow(
+		`SELECT id, contest_id, time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
+			nr_sent, nr_received, dok,
+			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name
+		 FROM qsos WHERE id = ?`, id)
+	var q QSO
+	var ts string
+	err := row.Scan(&q.ID, &q.ContestID, &ts, &q.Callsign, &q.Name, &q.Band, &q.FreqHz, &q.Mode,
+		&q.RSTSent, &q.RSTReceived, &q.NrSent, &q.NrReceived, &q.DOK,
+		&q.Locator, &q.ITUZone, &q.CQZone, &q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName)
+	if err != nil {
+		return nil, err
+	}
+	q.Time, _ = time.Parse(time.RFC3339, ts)
+	return &q, nil
+}
+
 func (s *Store) DeleteQSO(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM qsos WHERE id = ?`, id)
+	return err
+}
+
+// FeatureRequest is a user-submitted change request.
+type FeatureRequest struct {
+	ID        int64     `json:"id"`
+	From      string    `json:"from"`
+	Text      string    `json:"text"`
+	Status    string    `json:"status"` // pending, accepted, declined, implemented
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (s *Store) migrateFeatureRequests() error {
+	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS feature_requests (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		from_user TEXT NOT NULL,
+		text TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		created_at TEXT NOT NULL
+	)`)
+	return err
+}
+
+func (s *Store) InsertFeatureRequest(from, text string) (*FeatureRequest, error) {
+	now := time.Now().UTC()
+	res, err := s.db.Exec(
+		`INSERT INTO feature_requests (from_user, text, status, created_at) VALUES (?, ?, 'pending', ?)`,
+		from, text, now.Format(time.RFC3339),
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return &FeatureRequest{ID: id, From: from, Text: text, Status: "pending", CreatedAt: now}, nil
+}
+
+func (s *Store) ListFeatureRequests() ([]FeatureRequest, error) {
+	rows, err := s.db.Query(
+		`SELECT id, from_user, text, status, created_at FROM feature_requests ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FeatureRequest
+	for rows.Next() {
+		var fr FeatureRequest
+		var ts string
+		if err := rows.Scan(&fr.ID, &fr.From, &fr.Text, &fr.Status, &ts); err != nil {
+			return nil, err
+		}
+		fr.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+		out = append(out, fr)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) UpdateFeatureRequestStatus(id int64, status string) error {
+	_, err := s.db.Exec(`UPDATE feature_requests SET status=? WHERE id=?`, status, id)
+	return err
+}
+
+func (s *Store) DeleteFeatureRequest(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM feature_requests WHERE id=?`, id)
 	return err
 }
 
@@ -270,6 +403,12 @@ func (s *Store) LoadSettings() (Settings, error) {
 			out.QRZUsername = v
 		case "qrz_password":
 			out.QRZPassword = v
+		case "cluster_call":
+			out.ClusterCall = v
+		case "cluster_retention_days":
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				out.ClusterRetentionDays = n
+			}
 		}
 	}
 	return out, rows.Err()
@@ -287,6 +426,10 @@ func (s *Store) SaveSettings(set Settings) error {
 	pairs = append(pairs, [2]string{"qrz_username", set.QRZUsername})
 	if set.QRZPassword != "" {
 		pairs = append(pairs, [2]string{"qrz_password", set.QRZPassword})
+	}
+	pairs = append(pairs, [2]string{"cluster_call", set.ClusterCall})
+	if set.ClusterRetentionDays > 0 {
+		pairs = append(pairs, [2]string{"cluster_retention_days", strconv.Itoa(set.ClusterRetentionDays)})
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -310,5 +453,43 @@ func (s *Store) SetHelperToken(tok string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO settings(key,value) VALUES('helper_token',?)
 		 ON CONFLICT(key) DO UPDATE SET value=excluded.value`, tok)
+	return err
+}
+
+// ----- cluster spots -----
+
+// SaveClusterSpot inserts a spot into the database.
+func (s *Store) SaveClusterSpot(sp ClusterSpot) error {
+	_, err := s.db.Exec(
+		`INSERT INTO cluster_spots(time_str,dx,freq,band,mode,comment,spotter) VALUES(?,?,?,?,?,?,?)`,
+		sp.Time, sp.DX, sp.Freq, sp.Band, sp.Mode, sp.Comment, sp.Spotter)
+	return err
+}
+
+// LoadRecentClusterSpots returns the most recent limit spots ordered newest first.
+func (s *Store) LoadRecentClusterSpots(limit int) ([]ClusterSpot, error) {
+	rows, err := s.db.Query(
+		`SELECT id,time_str,dx,freq,band,mode,comment,spotter,created_at
+		 FROM cluster_spots ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ClusterSpot
+	for rows.Next() {
+		var sp ClusterSpot
+		if err := rows.Scan(&sp.ID, &sp.Time, &sp.DX, &sp.Freq, &sp.Band, &sp.Mode, &sp.Comment, &sp.Spotter, &sp.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, sp)
+	}
+	return out, rows.Err()
+}
+
+// PruneClusterSpots deletes spots older than retentionDays days.
+func (s *Store) PruneClusterSpots(retentionDays int) error {
+	_, err := s.db.Exec(
+		`DELETE FROM cluster_spots WHERE created_at < datetime('now', ? || ' days')`,
+		strconv.Itoa(-retentionDays))
 	return err
 }

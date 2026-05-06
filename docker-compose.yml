@@ -1,0 +1,11 @@
+services:
+  contestlogger:
+    image: debian:bookworm-slim
+    command: /app/contestlog-server -addr :8675 -db /data/contestlog.db
+    volumes:
+      - ./app/contestlog-server:/app/contestlog-server:ro
+      - ./data:/data
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    ports:
+      - "127.0.0.1:8675:8675"
+    restart: unless-stopped

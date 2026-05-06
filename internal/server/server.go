@@ -91,6 +91,16 @@ func New(st *store.Store) (*Server, error) {
 		log.Printf("warning: could not restore sessions from DB: %v", err)
 	}
 	go s.sessionCleanupLoop(context.Background())
+	if set.ClusterCall != "" {
+		SetClusterCall(set.ClusterCall)
+	}
+	retention := set.ClusterRetentionDays
+	if retention == 0 {
+		retention = 7
+	}
+	InitCluster(st, retention)
+	startClusterClient(context.Background())
+	go s.clusterPruneLoop(context.Background())
 
 	n, _ := st.CountUsers()
 	if n == 0 {
@@ -153,6 +163,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/export/cabrillo", s.requirePerm(PermQSOExport, s.handleExportCabrillo))
 	mux.HandleFunc("/api/export/csv", s.requirePerm(PermQSOExport, s.handleExportCSV))
 	mux.HandleFunc("/api/audit", s.requirePerm(PermAuditLog, s.handleAuditLog))
+	mux.HandleFunc("/api/feature-requests", s.requirePerm(PermFeatureRequests, s.handleFeatureRequests))
+	mux.HandleFunc("/api/feature-requests/", s.requirePerm(PermFeatureRequests, s.handleFeatureRequestByID))
+	mux.HandleFunc("/api/cluster/spots", s.requireAuth(s.handleClusterSpots))
+	mux.HandleFunc("/api/cluster/log", s.requireAuth(s.handleClusterLog))
+	mux.HandleFunc("/api/rigs/set_freq", s.requireAuth(s.handleSetFreq))
 
 	// WebSocket — auth-checked inside (browser uses cookie, helper uses token).
 	mux.HandleFunc("/ws", s.handleWS)
@@ -445,7 +460,9 @@ func sessionInfo(sess *Session) map[string]any {
 		"contest_status": contestStatus,
 		"contest_call":   contestCall,
 		"contest_name":   contestName,
-		"contest_qth":    sess.ContestQTH(),
+		"contest_qth":       sess.ContestQTH(),
+		"contest_bands":     sess.ContestBands(),
+		"contest_objective": sess.ContestObjective(),
 	}
 }
 
@@ -670,16 +687,101 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if r.Method != http.MethodDelete {
-		writeError(w, http.StatusMethodNotAllowed, "DELETE only")
-		return
+	switch r.Method {
+	case http.MethodPut:
+		existing, err := s.store.GetQSO(id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "QSO not found")
+			return
+		}
+		if existing.ContestID != contestID {
+			writeError(w, http.StatusForbidden, "QSO belongs to a different contest")
+			return
+		}
+		var in store.QSO
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		in.ID = id
+		in.ContestID = existing.ContestID
+		in.Operator = existing.Operator
+		in.StationCall = existing.StationCall
+		in.ContestName = existing.ContestName
+		in.Callsign = strings.ToUpper(strings.TrimSpace(in.Callsign))
+		if !ValidCallsign(in.Callsign) {
+			writeError(w, http.StatusBadRequest, "invalid contacted callsign")
+			return
+		}
+		if in.Mode == "" {
+			writeError(w, http.StatusBadRequest, "mode required")
+			return
+		}
+		if in.RSTSent == "" {
+			in.RSTSent = DefaultRST(in.Mode)
+		}
+		if in.RSTReceived == "" {
+			in.RSTReceived = DefaultRST(in.Mode)
+		}
+		if !ValidReport(in.RSTSent, in.Mode) {
+			writeError(w, http.StatusBadRequest, "RST sent invalid for mode "+in.Mode)
+			return
+		}
+		if !ValidReport(in.RSTReceived, in.Mode) {
+			writeError(w, http.StatusBadRequest, "RST received invalid for mode "+in.Mode)
+			return
+		}
+		if !ValidLocator(in.Locator) {
+			writeError(w, http.StatusBadRequest, "invalid Maidenhead locator")
+			return
+		}
+		if !ValidZone(in.ITUZone) {
+			writeError(w, http.StatusBadRequest, "invalid ITU zone")
+			return
+		}
+		if !ValidZone(in.CQZone) {
+			writeError(w, http.StatusBadRequest, "invalid CQ zone")
+			return
+		}
+		if in.FreqHz < 0 {
+			writeError(w, http.StatusBadRequest, "invalid frequency")
+			return
+		}
+		if in.Band == "" && in.FreqHz > 0 {
+			in.Band = BandFromHz(in.FreqHz)
+		}
+		if in.Band == "" {
+			writeError(w, http.StatusBadRequest, "band could not be determined")
+			return
+		}
+		if in.Time.IsZero() {
+			in.Time = existing.Time
+		}
+		if err := s.store.UpdateQSO(&in); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.hub.BroadcastToContest(contestID, Event{Type: "qso_updated", Payload: in})
+		writeJSON(w, http.StatusOK, in)
+	case http.MethodDelete:
+		existing, err := s.store.GetQSO(id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "QSO not found")
+			return
+		}
+		if existing.ContestID != contestID {
+			writeError(w, http.StatusForbidden, "QSO belongs to a different contest")
+			return
+		}
+		if err := s.store.DeleteQSO(id); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.hub.BroadcastToContest(contestID, Event{Type: "qso_deleted", Payload: map[string]int64{"id": id}})
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "PUT or DELETE only")
 	}
-	if err := s.store.DeleteQSO(id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.hub.BroadcastToContest(contestID, Event{Type: "qso_deleted", Payload: map[string]int64{"id": id}})
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // ----- settings -----
@@ -696,6 +798,8 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			out["helper_token"] = s.settings.HelperToken
 			out["qrz_username"] = s.settings.QRZUsername
 			out["qrz_configured"] = s.settings.QRZPassword != ""
+			out["cluster_call"] = s.settings.ClusterCall
+			out["cluster_retention_days"] = s.settings.ClusterRetentionDays
 		}
 		writeJSON(w, http.StatusOK, out)
 	case http.MethodPut:
@@ -704,22 +808,33 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in struct {
-			DefaultMode      string `json:"default_mode"`
-			DefaultBand      string `json:"default_band"`
-			RegenHelperToken bool   `json:"regen_helper_token"`
-			QRZUsername      string `json:"qrz_username"`
-			QRZPassword      string `json:"qrz_password"`
+			DefaultMode           string `json:"default_mode"`
+			DefaultBand           string `json:"default_band"`
+			RegenHelperToken      bool   `json:"regen_helper_token"`
+			QRZUsername           string `json:"qrz_username"`
+			QRZPassword           string `json:"qrz_password"`
+			ClusterCall           string `json:"cluster_call"`
+			ClusterRetentionDays  int    `json:"cluster_retention_days"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
+		retDays := in.ClusterRetentionDays
+		if retDays == 0 {
+			retDays = s.settings.ClusterRetentionDays
+		}
 		ns := store.Settings{
-			DefaultMode: in.DefaultMode,
-			DefaultBand: in.DefaultBand,
-			HelperToken: s.settings.HelperToken,
-			QRZUsername: in.QRZUsername,
-			QRZPassword: s.settings.QRZPassword, // keep existing if not provided
+			DefaultMode:          in.DefaultMode,
+			DefaultBand:          in.DefaultBand,
+			HelperToken:          s.settings.HelperToken,
+			QRZUsername:          in.QRZUsername,
+			QRZPassword:          s.settings.QRZPassword,
+			ClusterCall:          s.settings.ClusterCall,
+			ClusterRetentionDays: retDays,
+		}
+		if in.ClusterCall != "" {
+			ns.ClusterCall = strings.ToUpper(strings.TrimSpace(in.ClusterCall))
 		}
 		if in.RegenHelperToken {
 			ns.HelperToken = newToken()
@@ -737,6 +852,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.qrz = nil
 		}
+		SetClusterCall(ns.ClusterCall)
 		details := "mode: " + ns.DefaultMode + ", band: " + ns.DefaultBand
 		if in.RegenHelperToken {
 			details += ", helper_token: regenerated"
@@ -847,6 +963,26 @@ func (s *Server) handleQRZTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": result.Name, "locator": result.Locator})
 }
 
+// clusterPruneLoop prunes old cluster spots from the DB once per hour.
+func (s *Server) clusterPruneLoop(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			retention := s.settings.ClusterRetentionDays
+			if retention == 0 {
+				retention = 7
+			}
+			if err := s.store.PruneClusterSpots(retention); err != nil {
+				log.Printf("cluster prune: %v", err)
+			}
+		}
+	}
+}
+
 // ----- rigs -----
 
 func (s *Server) handleRigs(w http.ResponseWriter, r *http.Request) {
@@ -871,6 +1007,32 @@ func (s *Server) handleSelectRig(w http.ResponseWriter, r *http.Request) {
 	sess.SetSelectedRig(strings.TrimSpace(body.Name))
 	s.broadcastRigs()
 	writeJSON(w, http.StatusOK, map[string]string{"selected_rig": sess.SelectedRig()})
+}
+
+func (s *Server) handleSetFreq(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "POST required")
+		return
+	}
+	sess := sessionFor(s, r)
+	rigName := sess.SelectedRig()
+	if rigName == "" {
+		writeError(w, http.StatusBadRequest, "no rig selected")
+		return
+	}
+	var body struct {
+		FreqHz int64 `json:"freq_hz"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.FreqHz <= 0 {
+		writeError(w, http.StatusBadRequest, "freq_hz required")
+		return
+	}
+	sent := s.hub.SendToRig(rigName, Event{Type: "set_freq", Payload: map[string]any{"freq_hz": body.FreqHz}})
+	if !sent {
+		writeError(w, http.StatusServiceUnavailable, "rig helper not connected")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // ----- users -----
@@ -1184,9 +1346,11 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in struct {
-			Name        string `json:"name"`
-			StationCall string `json:"station_call"`
-			QTH         string `json:"qth"`
+			Name        string   `json:"name"`
+			StationCall string   `json:"station_call"`
+			QTH         string   `json:"qth"`
+			Bands       []string `json:"bands"`
+			Objective   string   `json:"objective"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1205,7 +1369,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid QTH locator")
 			return
 		}
-		c, err := s.store.CreateContest(in.Name, in.StationCall, qth)
+		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1248,14 +1412,17 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH)
+		bandsStr := strings.Join(c.Bands, ",")
+		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective)
 		s.hub.Broadcast(Event{Type: "operators", Payload: s.hub.Operators()})
 		writeJSON(w, http.StatusOK, map[string]any{
-			"contest_id":     c.ID,
-			"contest_status": c.Status,
-			"contest_call":   c.StationCall,
-			"contest_name":   c.Name,
-			"contest_qth":    c.QTH,
+			"contest_id":        c.ID,
+			"contest_status":    c.Status,
+			"contest_call":      c.StationCall,
+			"contest_name":      c.Name,
+			"contest_qth":       c.QTH,
+			"contest_bands":     c.Bands,
+			"contest_objective": c.Objective,
 		})
 		return
 	}
@@ -1268,10 +1435,12 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in struct {
-			Name        string `json:"name"`
-			StationCall string `json:"station_call"`
-			QTH         string `json:"qth"`
-			Status      string `json:"status"`
+			Name        string   `json:"name"`
+			StationCall string   `json:"station_call"`
+			QTH         string   `json:"qth"`
+			Status      string   `json:"status"`
+			Bands       []string `json:"bands"`
+			Objective   string   `json:"objective"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1294,21 +1463,24 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid QTH locator")
 			return
 		}
-		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status); err != nil {
+		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		contestUpdSess := sessionFor(s, r)
 		s.audit(r, store.AuditInfo, AuditContestUpdate, contestUpdSess.Username, in.Name,
 			"status: "+in.Status+", call: "+strings.ToUpper(in.StationCall))
+		bandsStrUpd := strings.Join(in.Bands, ",")
 		// Propagate to any sessions that have this contest selected.
-		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH)
+		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH, bandsStrUpd, in.Objective)
 		s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
 			"id":           id,
 			"name":         in.Name,
 			"station_call": strings.ToUpper(in.StationCall),
 			"qth":          putQTH,
 			"status":       in.Status,
+			"bands":        in.Bands,
+			"objective":    in.Objective,
 		}})
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -1376,6 +1548,81 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="contestlog.csv"`)
 	if err := ExportCSV(w, qsos); err != nil {
 		log.Printf("CSV export error: %v", err)
+	}
+}
+
+// ----- feature requests -----
+
+func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		list, err := s.store.ListFeatureRequests()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if list == nil {
+			list = []store.FeatureRequest{}
+		}
+		writeJSON(w, http.StatusOK, list)
+	case http.MethodPost:
+		sess := sessionFor(s, r)
+		var in struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if strings.TrimSpace(in.Text) == "" {
+			writeError(w, http.StatusBadRequest, "text required")
+			return
+		}
+		fr, err := s.store.InsertFeatureRequest(sess.Username, strings.TrimSpace(in.Text))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, fr)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *Server) handleFeatureRequestByID(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/feature-requests/")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	switch r.Method {
+	case http.MethodPut:
+		var in struct {
+			Status string `json:"status"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		valid := map[string]bool{"pending": true, "accepted": true, "declined": true, "implemented": true}
+		if !valid[in.Status] {
+			writeError(w, http.StatusBadRequest, "invalid status")
+			return
+		}
+		if err := s.store.UpdateFeatureRequestStatus(id, in.Status); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodDelete:
+		if err := s.store.DeleteFeatureRequest(id); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 

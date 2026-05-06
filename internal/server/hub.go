@@ -221,6 +221,25 @@ func (h *Hub) deliver(c *client, data []byte) {
 	}
 }
 
+// SendToRig enqueues an event for all helper clients with the given rig name.
+// Returns true if at least one helper received the message.
+func (h *Hub) SendToRig(rigName string, ev Event) bool {
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	sent := false
+	for c := range h.clients {
+		if c.role == RoleHelper && c.rigName == rigName {
+			h.deliver(c, data)
+			sent = true
+		}
+	}
+	return sent
+}
+
 // readPump consumes incoming messages and dispatches them to the inbound handler.
 func (c *client) readPump() {
 	defer func() { c.hub.remove(c); _ = c.conn.Close() }()

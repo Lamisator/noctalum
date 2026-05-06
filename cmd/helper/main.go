@@ -203,11 +203,28 @@ func session(serverURL, name, token, rigHost string, rigPort, intervalMs int) er
 	defer conn.Close()
 	log.Printf("registered rig %q at %s", name, serverURL)
 
-	// Drain server-sent frames so the connection stays alive.
+	// Handle server-sent frames: set_freq commands and keepalive pings.
 	go func() {
 		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
 				return
+			}
+			var ev struct {
+				Type    string `json:"type"`
+				Payload struct {
+					FreqHz int64 `json:"freq_hz"`
+				} `json:"payload"`
+			}
+			if err := json.Unmarshal(msg, &ev); err != nil {
+				continue
+			}
+			if ev.Type == "set_freq" && ev.Payload.FreqHz > 0 {
+				if err := setRigFreq(rigHost, rigPort, ev.Payload.FreqHz); err != nil {
+					log.Printf("set_freq %d: %v", ev.Payload.FreqHz, err)
+				} else {
+					log.Printf("set freq → %d Hz", ev.Payload.FreqHz)
+				}
 			}
 		}
 	}()
@@ -338,6 +355,14 @@ func rigQuery(addr, cmd string, deadline time.Time) (string, error) {
 			return "", err
 		}
 	}
+}
+
+// setRigFreq sends an "F <freq>" command to rigctld to tune the transceiver.
+func setRigFreq(host string, port int, freqHz int64) error {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	deadline := time.Now().Add(5 * time.Second)
+	_, err := rigQuery(addr, fmt.Sprintf("F %d", freqHz), deadline)
+	return err
 }
 
 // rprtError translates a Hamlib RPRT error code to a human-readable error.

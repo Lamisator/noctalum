@@ -56,8 +56,43 @@
       <button id="create-contest-btn" class="primary" style="width:100%">+ New Contest</button>
     </div>
     <div id="contest-pick-error" class="error" style="margin-top:10px"></div>
-    <div style="margin-top:16px;text-align:right">
+    <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
+      <button id="global-settings-btn" class="ghost perm-required" data-perm="settings.write" style="font-size:12px">&#9881; Global Settings</button>
       <button id="contest-logout-btn" class="ghost" style="font-size:12px">Sign out</button>
+    </div>
+  </div>
+</div>
+
+<!-- Global Settings screen -->
+<div id="global-settings-screen" class="screen login-screen hidden">
+  <div class="login-card wide">
+    <h1>Global Settings</h1>
+    <form id="global-settings-form">
+      <fieldset>
+        <legend>DX Cluster</legend>
+        <p class="muted small">Callsign used to log in to the telnet DX cluster feed (<code>dxc.ve7cc.net:23</code>). One connection shared across all operators.</p>
+        <label>Cluster callsign
+          <input id="gs-cluster-call" type="text" autocomplete="off" autocapitalize="characters" placeholder="e.g. OH2BH" style="max-width:160px" />
+        </label>
+        <label style="margin-top:10px">Spot retention (days)
+          <input id="gs-cluster-retention" type="number" min="1" max="365" style="max-width:80px" placeholder="7" />
+        </label>
+      </fieldset>
+      <div class="entry-actions" style="margin-top:16px">
+        <span id="global-settings-error" class="error"></span>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+    <div style="margin-top:16px">
+      <p class="muted small" style="margin-bottom:6px">Telnet log (last 200 lines, newest first):</p>
+      <div class="row" style="align-items:center;gap:8px;margin-bottom:6px">
+        <span id="gs-cluster-log-status" class="muted small"></span>
+        <button type="button" id="gs-cluster-log-refresh-btn" class="ghost" style="margin-left:auto;font-size:12px">↻ Refresh log</button>
+      </div>
+      <pre id="gs-cluster-log-pre" style="height:220px;overflow-y:auto;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--fg)"></pre>
+    </div>
+    <div style="margin-top:16px;text-align:left">
+      <button id="global-settings-back-btn" class="ghost" style="font-size:12px">&#8592; Back to contests</button>
     </div>
   </div>
 </div>
@@ -68,11 +103,14 @@
     <div class="topbar-left">
       <div class="brand">ContestLog</div>
       <span class="op-badge">Logged in as <strong id="current-op"></strong></span>
+      <button id="feature-request-btn" class="ghost fr-btn hidden" title="Submit a feature request">Feature Request</button>
     </div>
 
-    <div class="station-pill" id="station-pill" title="Click to change contest">
-      <span class="station-call" id="station-call">—</span>
-      <span class="station-contest-name" id="station-contest-name"></span>
+    <div class="station-area">
+      <div class="station-pill" id="station-pill" title="Click to change contest">
+        <span class="station-call" id="station-call">—</span>
+        <span class="station-contest-name" id="station-contest-name"></span>
+      </div>
     </div>
 
     <div class="topbar-right">
@@ -83,6 +121,7 @@
         <button class="tab tab-perm" data-tab="users" data-perm="users.manage">Users</button>
         <button class="tab tab-perm" data-tab="export" data-perm="qso.export">Export</button>
         <button class="tab tab-perm" data-tab="audit" data-perm="audit.log">Audit Log</button>
+        <button class="tab tab-perm" data-tab="featurerequests" data-perm="feature_requests">Feature Requests</button>
       </nav>
       <div class="rig-status" id="rig-status" title="Selected transceiver">
         <span class="rig-dot"></span>
@@ -127,41 +166,39 @@
             </label>
             <span class="muted small" id="rig-bar-detail"></span>
           </div>
-          <h2>New QSO <span id="dup-badge" class="dup-badge hidden"></span></h2>
+          <h2><span id="entry-panel-title">New QSO</span> <span id="dup-badge" class="dup-badge hidden"></span></h2>
           <form id="qso-form" autocomplete="off">
-            <div id="qrz-info-bar" class="qrz-info-bar hidden">
-              <span id="qrz-info-name" class="qrz-info-name"></span>
-            </div>
+            <div id="band-pills-bar" class="qrz-info-bar hidden"></div>
             <div class="row">
               <label>Callsign
                 <input id="q-call" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
               </label>
-              <label>Name
-                <input id="q-name" type="text" maxlength="80" autocomplete="off" style="width:11em" />
-              </label>
-              <label>Nr rcvd
-                <input id="q-nr-rcvd" type="number" min="1" style="width:5em" />
-              </label>
-              <label>Nr sent
-                <input id="q-nr-sent" type="number" min="1" style="width:5em" />
-              </label>
-              <label>Mode
-                <select id="q-mode" required></select>
-              </label>
-              <label>Band
-                <select id="q-band" required></select>
-              </label>
-              <label>Frequency (kHz)
-                <input id="q-freq" type="number" step="0.01" min="0" />
-              </label>
-            </div>
-            <div class="row">
               <label>RST sent
                 <input id="q-rst-sent" type="text" maxlength="6" />
               </label>
               <label>RST rcvd
                 <input id="q-rst-rcvd" type="text" maxlength="6" />
               </label>
+              <label>Nr rcvd
+                <input id="q-nr-rcvd" type="text" inputmode="numeric" style="width:5em" />
+              </label>
+              <label>Nr sent
+                <input id="q-nr-sent" type="text" inputmode="numeric" style="width:5em" />
+              </label>
+              <label>Mode
+                <select id="q-mode" required style="width:6em"></select>
+              </label>
+              <label>Band
+                <select id="q-band" required style="width:5.5em"></select>
+              </label>
+              <label>Frequency (kHz)
+                <input id="q-freq" type="text" inputmode="decimal" />
+              </label>
+              <label>Name
+                <input id="q-name" type="text" maxlength="80" autocomplete="off" style="width:9em" />
+              </label>
+            </div>
+            <div class="row">
               <label>DOK
                 <input id="q-dok" type="text" maxlength="10" autocapitalize="characters" style="width:5em" />
               </label>
@@ -188,6 +225,7 @@
             </div>
             <div class="entry-actions">
               <span id="qso-error" class="error"></span>
+              <button type="button" id="cancel-edit-btn" class="ghost">Cancel <span class="kbd">Esc</span></button>
               <button type="submit" class="primary" id="log-qso-btn">Log QSO <span class="kbd">Enter</span></button>
             </div>
           </form>
@@ -202,17 +240,17 @@
             <table id="qso-table">
               <thead>
                 <tr>
-                  <th>Time UTC</th>
-                  <th>Call</th>
-                  <th>Nr</th>
-                  <th>Band</th>
-                  <th>Freq</th>
-                  <th>Mode</th>
-                  <th>Snt</th>
-                  <th>Rcv</th>
-                  <th>Loc</th>
-                  <th>ITU/CQ</th>
-                  <th>Op</th>
+                  <th class="sortable" data-col="nr_sent">Nr <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="time">Time UTC <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="callsign">Call <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="band">Band <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="freq_hz">Freq <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="mode">Mode <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="rst_sent">Snt <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="rst_received">Rcv <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="locator">Loc <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="itu_zone">ITU/CQ <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="operator">Op <span class="sort-arrow"></span></th>
                   <th></th>
                 </tr>
               </thead>
@@ -229,11 +267,49 @@
             <div class="muted">Operating as</div>
             <div class="ops-station" id="ops-station-call">—</div>
           </div>
-          <h3>Connected operators</h3>
-          <ul id="ops-list" class="ops-list"></ul>
+          <div class="ops-tabs">
+            <button class="ops-tab active" data-ops-tab="status">Status</button>
+            <button class="ops-tab" data-ops-tab="cluster">Cluster</button>
+            <button class="ops-tab" data-ops-tab="objective">Objective</button>
+          </div>
 
-          <h3 style="margin-top:18px">Available rigs</h3>
-          <ul id="rig-list" class="rig-list"></ul>
+          <div id="ops-tab-status" class="ops-tab-pane active">
+            <h3>Connected operators</h3>
+            <ul id="ops-list" class="ops-list"></ul>
+            <h3 style="margin-top:18px">Available rigs</h3>
+            <ul id="rig-list" class="rig-list"></ul>
+          </div>
+
+          <div id="ops-tab-cluster" class="ops-tab-pane">
+            <div class="cluster-filters">
+              <select id="cluster-band-filter">
+                <option value="">All bands</option>
+              </select>
+              <select id="cluster-mode-filter">
+                <option value="">All modes</option>
+              </select>
+              <button id="cluster-refresh-btn" class="ghost" title="Refresh">↻</button>
+            </div>
+            <div class="cluster-scroll">
+              <table id="cluster-table">
+                <thead>
+                  <tr>
+                    <th>UTC</th>
+                    <th>DX</th>
+                    <th>kHz</th>
+                    <th>Md</th>
+                    <th>Info</th>
+                  </tr>
+                </thead>
+                <tbody id="cluster-tbody"></tbody>
+              </table>
+            </div>
+            <div id="cluster-status" class="muted small" style="margin-top:6px"></div>
+          </div>
+
+          <div id="ops-tab-objective" class="ops-tab-pane">
+            <div id="objective-content" class="objective-content"></div>
+          </div>
         </aside>
       </div>
     </section>
@@ -443,6 +519,34 @@
 
         <div class="history-footer">
           <button id="audit-load-more" class="ghost hidden">Load more</button>
+        </div>
+      </div>
+    </section>
+    <!-- Feature Requests tab -->
+    <section id="tab-featurerequests" class="tab-pane">
+      <div class="card">
+        <div class="history-header">
+          <h2>Feature Requests</h2>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button id="fr-export-btn" class="ghost">Export selected</button>
+            <button id="fr-delete-selected-btn" class="ghost">Delete selected</button>
+          </div>
+        </div>
+        <table id="fr-table">
+          <thead>
+            <tr>
+              <th style="width:32px"><input type="checkbox" id="fr-select-all" title="Select all" /></th>
+              <th>From</th>
+              <th>Date</th>
+              <th>Status</th>
+              <th>Request</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="fr-tbody"></tbody>
+        </table>
+        <div class="history-footer muted">
+          <span id="fr-count">0 requests</span>
         </div>
       </div>
     </section>
