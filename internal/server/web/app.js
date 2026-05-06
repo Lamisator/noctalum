@@ -707,7 +707,7 @@
     }
   }
 
-  function useClusterSpot(spot) {
+  async function useClusterSpot(spot) {
     if (!contestIsOpen()) return;
     // Discard any in-progress entry (as if Esc was pressed)
     cancelQsoEdit();
@@ -725,6 +725,18 @@
     applyRSTDefaults($('q-mode').value);
     updateDuplicateBadge();
     updateCallCountry($('q-call').value.trim().toUpperCase());
+    // Reserve a serial number via the server (mutex-protected, no cross-station duplicates).
+    // The callsign was set programmatically so the q-call input event never fired.
+    if ($('q-call').value.trim()) {
+      nrReserved = true;
+      try {
+        const res = await api('/api/qsos/reserve-nr', { method: 'POST' });
+        if (res.ok) {
+          const j = await res.json();
+          $('q-nr-sent').value = j.nr;
+        }
+      } catch {}
+    }
     // tune the selected rig if one is connected
     if (me?.selected_rig && spot.freq) {
       const freqHz = Math.round(parseFloat(spot.freq) * 1000);
