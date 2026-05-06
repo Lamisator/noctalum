@@ -15,7 +15,8 @@ type Contest struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
 	StationCall string    `json:"station_call"`
-	Status      string    `json:"status"` // "open" | "finished"
+	QTH         string    `json:"qth"`      // Maidenhead locator of the station
+	Status      string    `json:"status"`   // "open" | "finished"
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -34,6 +35,9 @@ func (s *Store) migrateContests() error {
 		if _, err := s.db.Exec(q); err != nil {
 			return fmt.Errorf("migrate contests: %w", err)
 		}
+	}
+	if err := s.addColumnIfMissing("contests", "qth", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("migrate contests qth: %w", err)
 	}
 	return s.addColumnIfMissing("qsos", "contest_id", "INTEGER")
 }
@@ -65,13 +69,14 @@ func (s *Store) addColumnIfMissing(table, column, colType string) error {
 }
 
 // CreateContest inserts a new contest in 'open' status.
-func (s *Store) CreateContest(name, stationCall string) (*Contest, error) {
+func (s *Store) CreateContest(name, stationCall, qth string) (*Contest, error) {
 	name = strings.TrimSpace(name)
 	stationCall = strings.ToUpper(strings.TrimSpace(stationCall))
+	qth = strings.ToUpper(strings.TrimSpace(qth))
 	now := time.Now().UTC()
 	res, err := s.db.Exec(
-		`INSERT INTO contests (name, station_call, status, created_at) VALUES (?, ?, 'open', ?)`,
-		name, stationCall, now.Format(time.RFC3339),
+		`INSERT INTO contests (name, station_call, qth, status, created_at) VALUES (?, ?, ?, 'open', ?)`,
+		name, stationCall, qth, now.Format(time.RFC3339),
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
@@ -80,13 +85,13 @@ func (s *Store) CreateContest(name, stationCall string) (*Contest, error) {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
-	return &Contest{ID: id, Name: name, StationCall: stationCall, Status: "open", CreatedAt: now}, nil
+	return &Contest{ID: id, Name: name, StationCall: stationCall, QTH: qth, Status: "open", CreatedAt: now}, nil
 }
 
 // ListContests returns all contests, newest first.
 func (s *Store) ListContests() ([]Contest, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, station_call, status, created_at FROM contests ORDER BY created_at DESC`)
+		`SELECT id, name, station_call, qth, status, created_at FROM contests ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +100,7 @@ func (s *Store) ListContests() ([]Contest, error) {
 	for rows.Next() {
 		var c Contest
 		var t string
-		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.Status, &t); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &c.Status, &t); err != nil {
 			return nil, err
 		}
 		c.CreatedAt, _ = time.Parse(time.RFC3339, t)
@@ -107,10 +112,10 @@ func (s *Store) ListContests() ([]Contest, error) {
 // GetContest returns a single contest by ID.
 func (s *Store) GetContest(id int64) (*Contest, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, station_call, status, created_at FROM contests WHERE id = ?`, id)
+		`SELECT id, name, station_call, qth, status, created_at FROM contests WHERE id = ?`, id)
 	var c Contest
 	var t string
-	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.Status, &t); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &c.Status, &t); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrContestNotFound
 		}
@@ -120,11 +125,12 @@ func (s *Store) GetContest(id int64) (*Contest, error) {
 	return &c, nil
 }
 
-// UpdateContest updates name, station_call and status of an existing contest.
-func (s *Store) UpdateContest(id int64, name, stationCall, status string) error {
+// UpdateContest updates name, station_call, qth and status of an existing contest.
+func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string) error {
 	_, err := s.db.Exec(
-		`UPDATE contests SET name = ?, station_call = ?, status = ? WHERE id = ?`,
-		strings.TrimSpace(name), strings.ToUpper(strings.TrimSpace(stationCall)), status, id,
+		`UPDATE contests SET name = ?, station_call = ?, qth = ?, status = ? WHERE id = ?`,
+		strings.TrimSpace(name), strings.ToUpper(strings.TrimSpace(stationCall)),
+		strings.ToUpper(strings.TrimSpace(qth)), status, id,
 	)
 	return err
 }

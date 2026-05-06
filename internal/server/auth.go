@@ -70,6 +70,7 @@ type Session struct {
 	contestStatus string
 	contestCall   string
 	contestName   string
+	contestQTH    string
 	lastSeen      time.Time
 	lastDBUpdate  time.Time // last time last_seen was flushed to DB
 }
@@ -95,13 +96,21 @@ func (s *Session) ContestInfo() (id int64, status, call, name string) {
 	return s.contestID, s.contestStatus, s.contestCall, s.contestName
 }
 
+// ContestQTH returns the QTH locator of the selected contest.
+func (s *Session) ContestQTH() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.contestQTH
+}
+
 // SetContest sets the active contest for this session.
-func (s *Session) SetContest(id int64, status, call, name string) {
+func (s *Session) SetContest(id int64, status, call, name, qth string) {
 	s.mu.Lock()
 	s.contestID = id
 	s.contestStatus = status
 	s.contestCall = call
 	s.contestName = name
+	s.contestQTH = qth
 	s.mu.Unlock()
 }
 
@@ -112,6 +121,7 @@ func (s *Session) ClearContest() {
 	s.contestStatus = ""
 	s.contestCall = ""
 	s.contestName = ""
+	s.contestQTH = ""
 	s.mu.Unlock()
 }
 
@@ -298,13 +308,13 @@ func (s *SessionStore) RefreshUser(u store.User) {
 
 // UpdateContestOnSessions refreshes contest fields on every session that has
 // the given contest selected (called after an admin edits a contest).
-func (s *SessionStore) UpdateContestOnSessions(contestID int64, status, call, name string) {
+func (s *SessionStore) UpdateContestOnSessions(contestID int64, status, call, name, qth string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, sess := range s.sessions {
 		id, _, _, _ := sess.ContestInfo()
 		if id == contestID {
-			sess.SetContest(contestID, status, call, name)
+			sess.SetContest(contestID, status, call, name, qth)
 		}
 	}
 }

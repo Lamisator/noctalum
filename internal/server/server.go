@@ -445,6 +445,7 @@ func sessionInfo(sess *Session) map[string]any {
 		"contest_status": contestStatus,
 		"contest_call":   contestCall,
 		"contest_name":   contestName,
+		"contest_qth":    sess.ContestQTH(),
 	}
 }
 
@@ -1185,6 +1186,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Name        string `json:"name"`
 			StationCall string `json:"station_call"`
+			QTH         string `json:"qth"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1198,7 +1200,12 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid station callsign")
 			return
 		}
-		c, err := s.store.CreateContest(in.Name, in.StationCall)
+		qth := strings.ToUpper(strings.TrimSpace(in.QTH))
+		if qth != "" && !ValidLocator(qth) {
+			writeError(w, http.StatusBadRequest, "invalid QTH locator")
+			return
+		}
+		c, err := s.store.CreateContest(in.Name, in.StationCall, qth)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1241,13 +1248,14 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name)
+		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH)
 		s.hub.Broadcast(Event{Type: "operators", Payload: s.hub.Operators()})
 		writeJSON(w, http.StatusOK, map[string]any{
 			"contest_id":     c.ID,
 			"contest_status": c.Status,
 			"contest_call":   c.StationCall,
 			"contest_name":   c.Name,
+			"contest_qth":    c.QTH,
 		})
 		return
 	}
@@ -1262,6 +1270,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Name        string `json:"name"`
 			StationCall string `json:"station_call"`
+			QTH         string `json:"qth"`
 			Status      string `json:"status"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -1280,7 +1289,12 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "status must be 'open' or 'finished'")
 			return
 		}
-		if err := s.store.UpdateContest(id, in.Name, in.StationCall, in.Status); err != nil {
+		putQTH := strings.ToUpper(strings.TrimSpace(in.QTH))
+		if putQTH != "" && !ValidLocator(putQTH) {
+			writeError(w, http.StatusBadRequest, "invalid QTH locator")
+			return
+		}
+		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -1288,11 +1302,12 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		s.audit(r, store.AuditInfo, AuditContestUpdate, contestUpdSess.Username, in.Name,
 			"status: "+in.Status+", call: "+strings.ToUpper(in.StationCall))
 		// Propagate to any sessions that have this contest selected.
-		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name)
+		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH)
 		s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
 			"id":           id,
 			"name":         in.Name,
 			"station_call": strings.ToUpper(in.StationCall),
+			"qth":          putQTH,
 			"status":       in.Status,
 		}})
 		w.WriteHeader(http.StatusNoContent)

@@ -99,6 +99,24 @@
         Contest is finished — log is read-only.
       </div>
       <div class="layout-grid">
+
+        <aside class="left-panel card">
+          <div class="left-pic-area">
+            <img id="left-pic" class="left-pic hidden" alt="" />
+            <div id="left-pic-placeholder" class="left-pic-placeholder">
+              <svg viewBox="0 0 60 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="30" cy="22" r="14" fill="currentColor"/>
+                <path d="M2 68c0-15.5 12.5-28 28-28s28 12.5 28 28" fill="currentColor"/>
+              </svg>
+            </div>
+          </div>
+          <canvas id="map-canvas" class="map-canvas" width="200" height="100"></canvas>
+          <div id="bearing-display" class="bearing-display hidden">
+            <div class="muted small">Antenna rotation</div>
+            <div class="bearing-value" id="bearing-value">—°</div>
+          </div>
+        </aside>
+
         <div class="entry-panel card">
           <div class="rig-bar">
             <label>Rig:
@@ -111,7 +129,6 @@
           <h2>New QSO</h2>
           <form id="qso-form" autocomplete="off">
             <div id="qrz-info-bar" class="qrz-info-bar hidden">
-              <img id="qrz-pic" class="qrz-pic" alt="" />
               <span id="qrz-info-name" class="qrz-info-name"></span>
             </div>
             <div class="row">
@@ -321,7 +338,7 @@
         <table id="contests-table">
           <thead>
             <tr>
-              <th>Name</th><th>Station call</th><th>Status</th><th>Created</th><th></th>
+              <th>Name</th><th>Station call</th><th>QTH</th><th>Status</th><th>Created</th><th></th>
             </tr>
           </thead>
           <tbody id="contests-tbody"></tbody>

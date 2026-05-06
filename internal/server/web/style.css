@@ -197,14 +197,15 @@ a { color: var(--accent); text-decoration: none; }
 
 .layout-grid {
   display: grid;
-  grid-template-columns: 1fr 280px;
+  grid-template-columns: 210px 1fr 280px;
   grid-template-rows: auto 1fr;
   grid-template-areas:
-    "entry ops"
-    "history ops";
+    "left entry ops"
+    "left history ops";
   gap: 14px;
   height: 100%;
 }
+.left-panel  { grid-area: left; display: flex; flex-direction: column; align-items: center; gap: 12px; overflow-y: auto; }
 .entry-panel { grid-area: entry; }
 .history-panel { grid-area: history; display: flex; flex-direction: column; min-height: 0; }
 .ops-panel { grid-area: ops; }
@@ -655,6 +656,16 @@ code {
 .passkey-name { flex: 1; font-size: 14px; }
 button.small { padding: 4px 8px; font-size: 12px; }
 
+@media (max-width: 1180px) {
+  .layout-grid {
+    grid-template-columns: 1fr 280px;
+    grid-template-areas:
+      "entry ops"
+      "history ops";
+  }
+  .left-panel { display: none; }
+}
+
 @media (max-width: 880px) {
   .layout-grid {
     grid-template-columns: 1fr;
@@ -705,7 +716,7 @@ button.small { padding: 4px 8px; font-size: 12px; }
 .sort-arrow { font-size: 10px; }
 .mono { font-family: 'JetBrains Mono', 'Fira Mono', 'Cascadia Code', monospace; }
 
-/* ==== QRZ info bar ==== */
+/* ==== QRZ info bar (name only — pic moved to left panel) ==== */
 .qrz-info-bar {
   display: flex;
   align-items: center;
@@ -716,16 +727,58 @@ button.small { padding: 4px 8px; font-size: 12px; }
   border-radius: 6px;
   margin-bottom: 8px;
 }
-.qrz-pic {
-  width: 52px;
-  height: 52px;
-  border-radius: 4px;
-  object-fit: cover;
-  flex-shrink: 0;
-  background: var(--bg);
-}
 .qrz-info-name {
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
+}
+
+/* ==== Left sidebar panel ==== */
+.left-pic-area {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+.left-pic {
+  width: 90px;
+  height: 90px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.left-pic-placeholder {
+  width: 90px;
+  height: 90px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--border);
+}
+.left-pic-placeholder svg {
+  width: 56px;
+  height: 56px;
+}
+.map-canvas {
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  display: block;
+}
+.bearing-display {
+  text-align: center;
+  width: 100%;
+  padding: 4px 0;
+}
+.bearing-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
 }

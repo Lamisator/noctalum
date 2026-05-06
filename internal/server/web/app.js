@@ -3,10 +3,139 @@
   const MODES = ['CW', 'SSB', 'USB', 'LSB', 'FM', 'AM', 'RTTY', 'FT8', 'FT4', 'PSK31', 'PSK63', 'JT65', 'DIGI'];
   const BANDS = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m', '4m', '2m', '70cm', '23cm'];
 
+  // ----- geo utilities -----
+
+  // Simplified continent polygons [[lon, lat], …]
+  const WORLD = [
+    [[-170,71],[-140,70],[-120,68],[-100,70],[-80,62],[-65,47],[-67,45],[-70,43],[-75,44],[-82,42],[-88,42],[-88,29],[-92,29],[-97,28],[-97,20],[-90,18],[-85,16],[-83,10],[-79,9],[-75,10],[-72,12],[-60,11],[-62,10],[-67,11],[-75,10],[-80,9],[-85,11],[-88,16],[-95,22],[-105,20],[-110,25],[-117,32],[-122,37],[-125,48],[-130,54],[-138,59],[-148,61],[-160,60],[-168,58],[-170,65],[-170,71]],
+    [[-55,60],[-45,58],[-42,64],[-35,70],[-20,80],[-15,83],[0,83],[15,81],[33,74],[25,70],[0,74],[-20,72],[-28,68],[-40,65],[-48,62],[-55,60]],
+    [[-80,10],[-78,8],[-75,11],[-68,12],[-60,9],[-51,4],[-50,0],[-50,-4],[-45,-5],[-36,-5],[-35,-9],[-40,-20],[-45,-24],[-49,-29],[-54,-33],[-57,-38],[-62,-40],[-65,-43],[-67,-55],[-67,-54],[-64,-46],[-63,-40],[-65,-42],[-69,-48],[-71,-42],[-71,-35],[-70,-28],[-72,-22],[-70,-18],[-76,-12],[-80,-5],[-80,0],[-80,10]],
+    [[-10,36],[-9,39],[-9,43],[-5,44],[0,43],[5,43],[8,43],[10,44],[15,37],[18,40],[24,38],[28,37],[36,37],[36,41],[40,42],[42,43],[36,47],[30,46],[30,47],[32,52],[35,52],[38,46],[40,43],[44,41],[42,42],[40,42],[36,46],[32,52],[28,58],[25,60],[28,64],[25,65],[20,68],[15,70],[13,68],[10,63],[5,62],[0,58],[-5,58],[-8,52],[-5,48],[0,46],[3,43],[0,43],[-9,43],[-10,36]],
+    [[-25,63],[-24,66],[-20,66],[-17,65],[-13,65],[-13,64],[-22,63],[-25,63]],
+    [[40,43],[44,41],[48,38],[55,26],[57,22],[60,22],[65,25],[70,22],[75,22],[80,28],[88,22],[95,22],[100,3],[105,0],[110,0],[115,4],[120,10],[125,10],[130,13],[140,35],[141,42],[145,44],[145,48],[141,52],[135,56],[132,42],[130,44],[135,48],[142,53],[144,45],[144,42],[140,40],[140,36],[136,35],[130,32],[122,30],[120,25],[115,20],[113,22],[110,20],[108,16],[104,10],[102,4],[100,3],[95,10],[92,22],[88,22],[84,26],[80,28],[74,20],[68,22],[60,24],[58,26],[55,24],[52,26],[50,29],[44,30],[40,37],[36,35],[36,38],[40,43]],
+    [[130,31],[131,33],[132,34],[136,34],[137,36],[140,36],[141,38],[141,40],[140,42],[135,42],[130,31]],
+    [[-18,15],[-16,20],[-13,22],[-8,27],[0,30],[10,37],[20,37],[25,37],[30,31],[33,30],[36,22],[38,15],[42,12],[44,10],[50,12],[44,12],[40,8],[38,4],[36,0],[38,-5],[35,-12],[32,-18],[28,-22],[25,-28],[30,-35],[28,-35],[20,-35],[17,-32],[12,-17],[8,-5],[2,4],[0,5],[-5,5],[-5,2],[-10,0],[-14,3],[-16,5],[-18,5],[-18,10],[-18,15]],
+    [[44,-12],[46,-14],[48,-18],[50,-20],[48,-25],[45,-25],[44,-23],[43,-18],[43,-14],[44,-12]],
+    [[114,-22],[116,-20],[118,-18],[122,-17],[127,-15],[130,-12],[135,-13],[138,-15],[140,-17],[145,-18],[148,-20],[152,-25],[152,-30],[150,-38],[146,-40],[144,-38],[140,-36],[136,-35],[130,-33],[125,-34],[117,-35],[114,-30],[114,-22]],
+    [[174,-37],[178,-38],[178,-41],[176,-43],[174,-41],[172,-38],[174,-37]],
+    [[172,-43],[175,-44],[172,-46],[170,-44],[168,-42],[172,-43]],
+    [[-180,-68],[-90,-70],[0,-68],[90,-70],[180,-68],[180,-90],[-180,-90],[-180,-68]],
+  ];
+
+  function locatorToLatLon(loc) {
+    if (!loc || loc.length < 4) return null;
+    loc = loc.toUpperCase();
+    const c0 = loc.charCodeAt(0) - 65, c1 = loc.charCodeAt(1) - 65;
+    if (c0 < 0 || c0 > 17 || c1 < 0 || c1 > 17) return null;
+    let lon = c0 * 20 - 180 + parseInt(loc[2]) * 2;
+    let lat = c1 * 10 - 90  + parseInt(loc[3]);
+    if (loc.length >= 6) {
+      lon += (loc.charCodeAt(4) - 65) / 12 + 1/24;
+      lat += (loc.charCodeAt(5) - 65) / 24 + 1/48;
+    } else {
+      lon += 1; lat += 0.5;
+    }
+    return { lat, lon };
+  }
+
+  function bearingTo(lat1, lon1, lat2, lon2) {
+    const R = Math.PI / 180;
+    const φ1 = lat1 * R, φ2 = lat2 * R, Δλ = (lon2 - lon1) * R;
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+  }
+
+  function bearingCompass(deg) {
+    const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+    return dirs[Math.round(deg / 22.5) % 16];
+  }
+
+  function greatCirclePoints(lat1, lon1, lat2, lon2, n) {
+    const R = Math.PI / 180;
+    const φ1 = lat1 * R, λ1 = lon1 * R, φ2 = lat2 * R, λ2 = lon2 * R;
+    const cosD = Math.sin(φ1)*Math.sin(φ2) + Math.cos(φ1)*Math.cos(φ2)*Math.cos(λ2-λ1);
+    const D = Math.acos(Math.max(-1, Math.min(1, cosD)));
+    if (D < 1e-9) return [[lat1, lon1]];
+    const sinD = Math.sin(D);
+    const pts = [];
+    for (let i = 0; i <= n; i++) {
+      const f = i / n;
+      const A = Math.sin((1-f)*D) / sinD, B = Math.sin(f*D) / sinD;
+      const x = A*Math.cos(φ1)*Math.cos(λ1) + B*Math.cos(φ2)*Math.cos(λ2);
+      const y = A*Math.cos(φ1)*Math.sin(λ1) + B*Math.cos(φ2)*Math.sin(λ2);
+      const z = A*Math.sin(φ1) + B*Math.sin(φ2);
+      pts.push([Math.atan2(z, Math.sqrt(x*x+y*y)) * 180/Math.PI, Math.atan2(y, x) * 180/Math.PI]);
+    }
+    return pts;
+  }
+
+  function drawMap(canvas, myLocStr, targetLocStr) {
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const lx = lon => (lon + 180) / 360 * W;
+    const ly = lat => (90 - lat) / 180 * H;
+
+    ctx.fillStyle = '#152030';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = '#1e2d40';
+    ctx.lineWidth = 0.5;
+    for (let lon = -180; lon <= 180; lon += 30) {
+      ctx.beginPath(); ctx.moveTo(lx(lon), 0); ctx.lineTo(lx(lon), H); ctx.stroke();
+    }
+    for (let lat = -90; lat <= 90; lat += 30) {
+      ctx.beginPath(); ctx.moveTo(0, ly(lat)); ctx.lineTo(W, ly(lat)); ctx.stroke();
+    }
+
+    ctx.fillStyle = '#2a3d2a';
+    ctx.strokeStyle = '#3a4f3a';
+    ctx.lineWidth = 0.5;
+    for (const poly of WORLD) {
+      ctx.beginPath();
+      poly.forEach(([lon, lat], i) => i ? ctx.lineTo(lx(lon), ly(lat)) : ctx.moveTo(lx(lon), ly(lat)));
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+
+    const my  = myLocStr     ? locatorToLatLon(myLocStr)     : null;
+    const tgt = targetLocStr ? locatorToLatLon(targetLocStr) : null;
+
+    if (my && tgt) {
+      const pts = greatCirclePoints(my.lat, my.lon, tgt.lat, tgt.lon, 80);
+      ctx.strokeStyle = 'rgba(79,195,247,0.65)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 2]);
+      ctx.beginPath();
+      let prevX = null;
+      for (const [lat, lon] of pts) {
+        const x = lx(lon), y = ly(lat);
+        if (prevX !== null && Math.abs(x - prevX) > W * 0.4) {
+          ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y);
+        } else if (prevX === null) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+        prevX = x;
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    if (my) {
+      ctx.fillStyle = '#66bb6a'; ctx.strokeStyle = '#0e1a0e'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(lx(my.lon), ly(my.lat), 3.5, 0, 2*Math.PI); ctx.fill(); ctx.stroke();
+    }
+    if (tgt) {
+      ctx.fillStyle = '#ef5350'; ctx.strokeStyle = '#1a0e0e'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(lx(tgt.lon), ly(tgt.lat), 3.5, 0, 2*Math.PI); ctx.fill(); ctx.stroke();
+    }
+  }
+
   const $ = (id) => document.getElementById(id);
 
   // ----- state -----
-  let me = null;          // {username, callsign, permissions, selected_rig, contest_id, contest_status, contest_call, contest_name}
+  let me = null;          // {username, callsign, permissions, selected_rig, contest_id, contest_status, contest_call, contest_name, contest_qth}
   let csrfToken = null;
   let qsos = [];
   let operators = [];
@@ -18,6 +147,7 @@
   let ws = null;
   let wsRetry = 0;
   let nrReserved = false; // true once a serial number has been reserved for the current QSO entry
+  let currentTargetLocator = null; // Maidenhead locator of the station being looked up
 
   function hasPerm(p) {
     if (!me) return false;
@@ -153,6 +283,7 @@
             me.contest_status = j.contest_status;
             me.contest_call = j.contest_call;
             me.contest_name = j.contest_name;
+            me.contest_qth = j.contest_qth || '';
           }
           await enterApp();
         });
@@ -180,6 +311,7 @@
     renderRigSelect();
     renderRigList();
     applySelectedRigToForm();
+    clearLeftPanel();
     if (!ws) connectWS();
     $('q-call').focus();
   }
@@ -257,13 +389,54 @@
   }
   $('q-mode').addEventListener('change', () => applyRSTDefaults($('q-mode').value));
 
+  // ----- left panel -----
+  function updateLeftPanel(callsign, hasPicture, locator) {
+    if (hasPicture) {
+      $('left-pic').src = '/api/lookup/picture?callsign=' + encodeURIComponent(callsign);
+      $('left-pic').classList.remove('hidden');
+      $('left-pic-placeholder').classList.add('hidden');
+    } else {
+      $('left-pic').src = '';
+      $('left-pic').classList.add('hidden');
+      $('left-pic-placeholder').classList.remove('hidden');
+    }
+    currentTargetLocator = locator || null;
+    updateMap();
+  }
+
+  function clearLeftPanel() {
+    $('left-pic').src = '';
+    $('left-pic').classList.add('hidden');
+    $('left-pic-placeholder').classList.remove('hidden');
+    currentTargetLocator = null;
+    updateMap();
+  }
+
+  function updateMap() {
+    const canvas = $('map-canvas');
+    if (!canvas) return;
+    const myLoc = me?.contest_qth || null;
+    drawMap(canvas, myLoc, currentTargetLocator);
+    if (myLoc && currentTargetLocator) {
+      const my  = locatorToLatLon(myLoc);
+      const tgt = locatorToLatLon(currentTargetLocator);
+      if (my && tgt) {
+        const b = bearingTo(my.lat, my.lon, tgt.lat, tgt.lon);
+        $('bearing-value').textContent = Math.round(b) + '° ' + bearingCompass(b);
+        $('bearing-display').classList.remove('hidden');
+        return;
+      }
+    }
+    $('bearing-display').classList.add('hidden');
+  }
+
   // ----- QRZ lookup -----
   let qrzLookupTimer = null;
 
   function clearQRZInfo() {
     $('qrz-info-bar').classList.add('hidden');
-    $('qrz-pic').src = '';
     $('qrz-info-name').textContent = '';
+    clearLeftPanel();
   }
 
   async function triggerQRZLookup(callsign) {
@@ -275,13 +448,25 @@
       const j = await res.json();
       if (j.name && !$('q-name').value) $('q-name').value = j.name;
       if (j.locator && !$('q-loc').value) $('q-loc').value = j.locator.toUpperCase();
-      if (j.has_picture) {
-        $('qrz-pic').src = '/api/lookup/picture?callsign=' + encodeURIComponent(callsign);
-        $('qrz-info-name').textContent = j.name || callsign;
+      if (j.name) {
+        $('qrz-info-name').textContent = j.name;
         $('qrz-info-bar').classList.remove('hidden');
       }
+      const loc = j.locator ? j.locator.toUpperCase() : ($('q-loc').value.trim().toUpperCase() || null);
+      updateLeftPanel(callsign, !!j.has_picture, loc);
     } catch {}
   }
+
+  // Redraw map when the locator field is edited manually.
+  let locTimer = null;
+  $('q-loc').addEventListener('input', () => {
+    clearTimeout(locTimer);
+    locTimer = setTimeout(() => {
+      const loc = $('q-loc').value.trim().toUpperCase();
+      currentTargetLocator = loc.length >= 4 ? loc : null;
+      updateMap();
+    }, 400);
+  });
 
   // Reserve a serial number the first time the operator starts typing a callsign.
   $('q-call').addEventListener('input', async () => {
@@ -342,6 +527,7 @@
     }
     ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
     clearQRZInfo();
+    currentTargetLocator = null;
     nrReserved = false;
     $('q-call').focus();
   });
@@ -624,6 +810,7 @@
       tr.innerHTML = `
         <td>${escHtml(c.name)}</td>
         <td style="color:var(--accent);font-weight:600">${escHtml(fmtCall(c.station_call))}</td>
+        <td class="muted">${escHtml(c.qth || '—')}</td>
         <td><span class="badge ${c.status}">${escHtml(c.status)}</span></td>
         <td class="muted">${date}</td>
         <td class="actions">
@@ -646,7 +833,7 @@
       if (!confirm(label)) return;
       api('/api/contests/' + c.id, {
         method: 'PUT',
-        body: JSON.stringify({ name: c.name, station_call: c.station_call, status: newStatus }),
+        body: JSON.stringify({ name: c.name, station_call: c.station_call, qth: c.qth || '', status: newStatus }),
       }).then(r => { if (r.ok) refreshContests(); });
     }
   }
@@ -659,6 +846,8 @@
         <input name="name" placeholder="e.g. CQ-WW-DX-CW 2025" required />
         <label>Station callsign</label>
         <input name="station_call" autocapitalize="characters" placeholder="e.g. DK0XYZ" required />
+        <label>QTH locator (optional)</label>
+        <input name="qth" placeholder="e.g. JO50de" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
         <div class="modal-err error"></div>
         <div class="modal-actions">
           <button type="button" class="ghost cancel-btn">Cancel</button>
@@ -671,6 +860,7 @@
         body: JSON.stringify({
           name: form.name.value.trim(),
           station_call: form.station_call.value.trim().toUpperCase(),
+          qth: form.qth.value.trim().toUpperCase(),
         }),
       });
       if (!res.ok) {
@@ -695,6 +885,8 @@
         <input name="name" value="${escHtml(c.name)}" required />
         <label>Station callsign</label>
         <input name="station_call" value="${escHtml(c.station_call)}" autocapitalize="characters" required />
+        <label>QTH locator (optional)</label>
+        <input name="qth" value="${escHtml(c.qth || '')}" placeholder="e.g. JO50de" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
         <div class="modal-err error"></div>
         <div class="modal-actions">
           <button type="button" class="ghost cancel-btn">Cancel</button>
@@ -707,6 +899,7 @@
         body: JSON.stringify({
           name: form.name.value.trim(),
           station_call: form.station_call.value.trim().toUpperCase(),
+          qth: form.qth.value.trim().toUpperCase(),
           status: c.status,
         }),
       });
@@ -991,8 +1184,10 @@
             me.contest_status = msg.payload.status;
             me.contest_call = msg.payload.station_call;
             me.contest_name = msg.payload.name;
+            if ('qth' in msg.payload) me.contest_qth = msg.payload.qth;
             updateContestDisplay();
             applyContestReadonly();
+            updateMap();
           }
           break;
       }
