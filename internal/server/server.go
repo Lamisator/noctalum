@@ -561,24 +561,20 @@ func (s *Server) handleReserveNr(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Peek only — does not consume a number; actual assignment happens in handleCreateQSO.
+	maxNr, err := s.store.MaxNrSent(contestID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	s.nrMu.Lock()
-	if s.nrNext == nil {
-		s.nrNext = make(map[int64]int)
-	}
-	if _, ok := s.nrNext[contestID]; !ok {
-		maxNr, err := s.store.MaxNrSent(contestID)
-		if err != nil {
-			s.nrMu.Unlock()
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
+	if s.nrNext != nil {
+		if next, ok := s.nrNext[contestID]; ok && next > maxNr+1 {
+			maxNr = next - 1
 		}
-		s.nrNext[contestID] = maxNr + 1
 	}
-	nr := s.nrNext[contestID]
-	s.nrNext[contestID]++
 	s.nrMu.Unlock()
-
-	writeJSON(w, http.StatusOK, map[string]int{"nr": nr})
+	writeJSON(w, http.StatusOK, map[string]int{"nr": maxNr + 1})
 }
 
 func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
@@ -661,6 +657,25 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "possible duplicate within "+dupWindow.String())
 		return
 	}
+
+	// Assign NR atomically — guarantees no gaps and no cross-operator duplicates.
+	s.nrMu.Lock()
+	if s.nrNext == nil {
+		s.nrNext = make(map[int64]int)
+	}
+	if _, ok := s.nrNext[contestID]; !ok {
+		maxNr, err := s.store.MaxNrSent(contestID)
+		if err != nil {
+			s.nrMu.Unlock()
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.nrNext[contestID] = maxNr + 1
+	}
+	in.NrSent = s.nrNext[contestID]
+	s.nrNext[contestID]++
+	s.nrMu.Unlock()
+
 	id, err := s.store.InsertQSO(&in)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

@@ -8,17 +8,16 @@
   // continent: EU NA SA AS AF OC
   // Sorted longest-first at build time for greedy prefix matching.
   const _DXCC = [
-    // --- 4-char specials ---
+    // --- 4-char+ specials ---
     ['VK9C','Cocos-Keeling Is.',null,'OC'],['VK9L','Lord Howe Is.',null,'OC'],
-    ['VK9N','Norfolk Is.','NF','OC'],['VK9W','Willis Is.',null,'OC'],
-    ['VK9X','Christmas Is.',null,'OC'],['VK0M','Macquarie Is.',null,'OC'],
-    ['VK0H','Heard Is.',null,'AF'],
+    ['VK9M','Mellish Reef',null,'OC'],['VK9N','Norfolk Is.','NF','OC'],
+    ['VK9W','Willis Is.',null,'OC'],['VK9X','Christmas Is.',null,'OC'],
+    ['VK0M','Macquarie Is.',null,'OC'],['VK0H','Heard Is.',null,'AF'],
     // --- 3-char specials ---
     ['KH0','N.Mariana Is.','MP','OC'],['WH0','N.Mariana Is.','MP','OC'],['AH0','N.Mariana Is.','MP','OC'],
     ['KH1','Baker & Howland',null,'OC'],
-    ['KH2','Guam','GU','OC'],['WH2','Guam','GU','OC'],
-    ['KH3','Johnston Is.',null,'OC'],
-    ['KH4','Midway Is.',null,'OC'],
+    ['KH2','Guam','GU','OC'],['WH2','Guam','GU','OC'],['AH2','Guam','GU','OC'],
+    ['KH3','Johnston Is.',null,'OC'],['KH4','Midway Is.',null,'OC'],
     ['KH5','Palmyra',null,'OC'],
     ['KH6','Hawaii','US','OC'],['WH6','Hawaii','US','OC'],['NH6','Hawaii','US','OC'],['AH6','Hawaii','US','OC'],
     ['KH7','Kure Is.',null,'OC'],
@@ -26,22 +25,36 @@
     ['KH9','Wake Is.',null,'OC'],
     ['KL7','Alaska','US','NA'],['WL7','Alaska','US','NA'],['NL7','Alaska','US','NA'],['AL7','Alaska','US','NA'],
     ['KP1','Navassa Is.',null,'NA'],
-    ['KP2','US Virgin Is.',null,'NA'],['WP2','US Virgin Is.',null,'NA'],['NP2','US Virgin Is.',null,'NA'],
+    ['KP2','US Virgin Is.','VI','NA'],['WP2','US Virgin Is.','VI','NA'],['NP2','US Virgin Is.','VI','NA'],
     ['KP4','Puerto Rico','PR','NA'],['WP4','Puerto Rico','PR','NA'],['NP4','Puerto Rico','PR','NA'],
-    ['VP2','Br.Virgin Is.',null,'NA'],
+    ['KP5','Desecheo Is.',null,'NA'],
+    ['VP2E','Anguilla','AI','NA'],['VP2M','Montserrat','MS','NA'],['VP2V','British Virgin Is.','VG','NA'],
     ['VP5','Turks & Caicos','TC','NA'],
+    ['VP8','Falkland Is.',null,'SA'],
     ['VP9','Bermuda','BM','NA'],
+    ['VQ9','Diego Garcia','IO','AF'],
     ['ZD7','St.Helena',null,'AF'],['ZD8','Ascension Is.',null,'AF'],['ZD9','Tristan da Cunha',null,'AF'],
     ['ZL7','Chatham Is.',null,'OC'],['ZL8','Kermadec Is.',null,'OC'],['ZL9','Auckland Is.',null,'OC'],
+    ['ZK2','Niue','NU','OC'],['ZK3','Tokelau','TK','OC'],
     ['OH0','Aland Is.','AX','EU'],['OJ0','Market Reef',null,'EU'],
     ['HB0','Liechtenstein','LI','EU'],
     ['CT3','Madeira','PT','AF'],
     ['EA8','Canary Is.','ES','AF'],['EA9','Ceuta/Melilla','ES','EU'],
     ['IS0','Sardinia','IT','EU'],['IT9','Sicily','IT','EU'],['IH9','Pantelleria','IT','EU'],
-    ['3D2','Fiji','FJ','OC'],
+    ['3D2','Fiji','FJ','OC'],['3DA','Eswatini','SZ','AF'],
     ['PJ2','Curacao','CW','NA'],['PJ4','Bonaire','BQ','NA'],
     ['PJ5','Saba',null,'NA'],['PJ7','Sint Maarten','SX','NA'],
     ['FP','St.Pierre-Miquelon',null,'NA'],
+    ['FJ','St.Martin',null,'NA'],
+    ['FW','Wallis & Futuna',null,'OC'],
+    ['JD1','Ogasawara',null,'AS'],
+    ['JW','Svalbard','SJ','EU'],['JX','Jan Mayen',null,'EU'],
+    ['OX','Greenland','GL','NA'],
+    ['XX9','Macao','MO','AS'],
+    ['ZB','Gibraltar','GI','EU'],
+    ['TK','Corsica','FR','EU'],
+    ['SV5','Dodecanese','GR','EU'],['SV9','Crete','GR','EU'],
+    ['UA2','Kaliningrad','RU','EU'],
     // --- 2-char (UK before G/M) ---
     ...['GW','MW','2W'].map(p=>[p,'Wales','GB','EU']),
     ...['GM','MM','2M'].map(p=>[p,'Scotland','GB','EU']),
@@ -52,54 +65,56 @@
     ['G','UK','GB','EU'],['M','UK','GB','EU'],['2E','UK','GB','EU'],
     // Canada
     ...['VE','VA','VY'].map(p=>[p,'Canada','CA','NA']),
-    // Australia / NZ
+    // Australia / NZ / Cook Islands
     ['VK','Australia','AU','OC'],
     ...['ZL','ZM'].map(p=>[p,'New Zealand','NZ','OC']),
+    ['ZK','Cook Islands','CK','OC'],
     // Germany
     ...['DA','DB','DC','DD','DE','DF','DG','DH','DJ','DK','DL','DM','DN','DO','DP'].map(p=>[p,'Germany','DE','EU']),
-    // Japan
+    // Japan (JA-JS; JT/JU/JV=Mongolia; JW/JX/JD1 handled above)
     ...['JA','JE','JF','JG','JH','JI','JJ','JK','JL','JM','JN','JO','JP','JQ','JR','JS'].map(p=>[p,'Japan','JP','AS']),
     ...['7J','7K','7L','7M','7N'].map(p=>[p,'Japan','JP','AS']),
+    // Mongolia
+    ...['JT','JU','JV'].map(p=>[p,'Mongolia','MN','AS']),
     // China / Taiwan
     ...['BA','BD','BG','BH','BI','BJ','BK','BL','BM','BN','BO','BP','BQ','BR','BS','BT','BY'].map(p=>[p,'China','CN','AS']),
     ['BV','Taiwan','TW','AS'],
     // Korea
     ...['HL','DS','DT','6K','6L','6M','6N'].map(p=>[p,'Korea (South)','KR','AS']),
     ['P5','N.Korea','KP','AS'],
-    // France (FG/FM/FY/FO/FH/FR before F)
+    // France (FG/FM/FY/FO/FH/FR before F; FP/FJ/FW in 3-char section above)
     ['FG','Guadeloupe','GP','NA'],['FM','Martinique','MQ','NA'],
     ['FY','French Guiana','GF','SA'],['FO','Fr.Polynesia','PF','OC'],
     ['FH','Mayotte','YT','AF'],['FR','Reunion','RE','AF'],
     ['TM','France','FR','EU'],['F','France','FR','EU'],
-    // Italy (IS0/IT9 handled above)
+    // Italy (IS0/IT9/IH9 handled above)
     ['I','Italy','IT','EU'],
-    // Spain (EA8/EA9 handled above)
-    ...['EA','EB','EC','ED','EE','EF','EG','EH'].map(p=>[p,'Spain','ES','EU']),
+    // Spain (EA8/EA9 handled above; AM/AN/AO also Spain per ITU allocation AMA-AOZ)
+    ...['AM','AN','AO','EA','EB','EC','ED','EE','EF','EG','EH'].map(p=>[p,'Spain','ES','EU']),
     // Portugal (CT3 handled above)
     ['CU','Azores','PT','EU'],['CT','Portugal','PT','EU'],['CS','Portugal','PT','EU'],
     // Scandinavia (OH0 handled above)
     ...['OH','OF','OG'].map(p=>[p,'Finland','FI','EU']),
     ...['SM','SK','SL','8S'].map(p=>[p,'Sweden','SE','EU']),
-    ...['LA','LB'].map(p=>[p,'Norway','NO','EU']),
+    ...['LA','LB','LC','LD','LE','LF','LG','LI','LJ','LK','LL','LM','LN'].map(p=>[p,'Norway','NO','EU']),
     ...['OZ','OV','OU'].map(p=>[p,'Denmark','DK','EU']),
     ['OY','Faroe Is.','FO','EU'],
     ['TF','Iceland','IS','EU'],
     // BeNeLux (PJ* handled above)
     ...['PA','PB','PC','PD','PE','PF','PG','PH','PI'].map(p=>[p,'Netherlands','NL','EU']),
-    ['PZ','Suriname','SR','SA'],
+    ['PZ','Suriname','SR','SA'],['P4','Aruba','AW','NA'],
     ...['ON','OO','OP','OQ','OR','OS','OT'].map(p=>[p,'Belgium','BE','EU']),
     ['LX','Luxembourg','LU','EU'],
     // Eastern Europe
-    ...['SP','SQ','SR','3Z'].map(p=>[p,'Poland','PL','EU']),
+    ...['SP','SQ','SR','SN','3Z'].map(p=>[p,'Poland','PL','EU']),
     ...['OK','OL'].map(p=>[p,'Czech Rep.','CZ','EU']),
     ['OM','Slovakia','SK','EU'],
     ['OE','Austria','AT','EU'],
-    // HB0 handled above
     ...['HB','HE'].map(p=>[p,'Switzerland','CH','EU']),
     ...['HA','HG'].map(p=>[p,'Hungary','HU','EU']),
     ...['YO','YP','YQ','YR'].map(p=>[p,'Romania','RO','EU']),
     ['LZ','Bulgaria','BG','EU'],
-    ...['SV','J4'].map(p=>[p,'Greece','GR','EU']),
+    ['SV','Greece','GR','EU'],['J4','Greece','GR','EU'],
     ...['TA','TB','TC','YM'].map(p=>[p,'Turkey','TR','AS']),
     // Balkans
     ['9A','Croatia','HR','EU'],['S5','Slovenia','SI','EU'],
@@ -109,11 +124,15 @@
     ['ZA','Albania','AL','EU'],['Z6','Kosovo','XK','EU'],
     // Baltics
     ['ES','Estonia','EE','EU'],['YL','Latvia','LV','EU'],['LY','Lithuania','LT','EU'],
+    // Caucasus / Moldova
+    ['ER','Moldova','MD','EU'],
+    ['EK','Armenia','AM','AS'],
+    ['4L','Georgia','GE','AS'],
     // Belarus
     ...['EU','EV','EW'].map(p=>[p,'Belarus','BY','EU']),
     // Ukraine
     ...['UR','US','UT','UU','UV','UW','UX','UY','UZ','EM','EN','EO'].map(p=>[p,'Ukraine','UA','EU']),
-    // Russia (UA1-UA6 EU, UA8-UA0 AS — we can't easily tell from prefix alone)
+    // Russia (UA2/Kaliningrad handled above)
     ...['RA','RB','RC','RD','RE','RF','RG','RH','RI','RJ','RK','RL','RM','RN','RO','RP','RQ','RR','RS','RT','RU','RV','RW','RX','RY','RZ'].map(p=>[p,'Russia','RU','EU']),
     ...['UA','UB','UC','UD','UF','UG','UH','UI'].map(p=>[p,'Russia','RU','EU']),
     // Ireland
@@ -122,24 +141,29 @@
     ['C3','Andorra','AD','EU'],['3A','Monaco','MC','EU'],
     ['T7','San Marino','SM','EU'],['HV','Vatican',null,'EU'],
     ['9H','Malta','MT','EU'],
-    // Near East / Asia
+    // Near East / Levant
     ...['5B','P3'].map(p=>[p,'Cyprus','CY','AS']),
     ...['4X','4Z'].map(p=>[p,'Israel','IL','AS']),
+    ['E4','Palestine','PS','AS'],
     ...['HZ','7Z'].map(p=>[p,'Saudi Arabia','SA','AS']),
     ['A4','Oman','OM','AS'],['A6','UAE','AE','AS'],['A9','Bahrain','BH','AS'],
     ['9K','Kuwait','KW','AS'],['YI','Iraq','IQ','AS'],
     ['OD','Lebanon','LB','AS'],['YK','Syria','SY','AS'],
     ['JY','Jordan','JO','AS'],['A7','Qatar','QA','AS'],
+    ['7O','Yemen','YE','AS'],
     ...['EP','EQ'].map(p=>[p,'Iran','IR','AS']),
+    // Central Asia
     ...['4J','4K'].map(p=>[p,'Azerbaijan','AZ','AS']),
     ['UK','Uzbekistan','UZ','AS'],['EY','Tajikistan','TJ','AS'],
     ['EZ','Turkmenistan','TM','AS'],
     ...['UN','UO','UP','UQ'].map(p=>[p,'Kazakhstan','KZ','AS']),
     ['EX','Kyrgyzstan','KG','AS'],
+    ['YA','Afghanistan','AF','AS'],
     // South Asia
     ...['VU','AT','AU','AV'].map(p=>[p,'India','IN','AS']),
     ['AP','Pakistan','PK','AS'],['4S','Sri Lanka','LK','AS'],
     ['S2','Bangladesh','BD','AS'],['9N','Nepal','NP','AS'],['A5','Bhutan','BT','AS'],
+    ['8Q','Maldives','MV','AS'],
     // SE Asia
     ['XU','Cambodia','KH','AS'],
     ...['XV','3W'].map(p=>[p,'Vietnam','VN','AS']),
@@ -150,7 +174,10 @@
     ...['YB','YC','YD','YE','YF'].map(p=>[p,'Indonesia','ID','AS']),
     ...['DU','DV','DW','DX','DY','DZ'].map(p=>[p,'Philippines','PH','AS']),
     ['9V','Singapore','SG','AS'],['VR','Hong Kong','HK','AS'],['V8','Brunei','BN','AS'],
-    // USA (all K*/W*/N*/A* after the specials above)
+    ['4W','Timor-Leste','TL','AS'],
+    // Pacific
+    ['T8','Palau','PW','OC'],['E5','Cook Is.',null,'OC'],
+    // USA (K*/W*/N*/A* after specials above)
     ['W','USA','US','NA'],['K','USA','US','NA'],['N','USA','US','NA'],
     ...['AA','AB','AC','AD','AE','AF','AG','AI','AJ','AK'].map(p=>[p,'USA','US','NA']),
     ...['WA','WB','WC','WD','WE','WF','WG','WI','WJ','WK','WM','WN','WO','WP','WQ','WR','WS','WT','WU','WV','WW','WX','WY','WZ'].map(p=>[p,'USA','US','NA']),
@@ -168,11 +195,12 @@
     ['HH','Haiti','HT','NA'],['HI','Dominican Rep.','DO','NA'],
     ...['CO','CM','T4'].map(p=>[p,'Cuba','CU','NA']),
     ['C6','Bahamas','BS','NA'],['6Y','Jamaica','JM','NA'],
+    ['J3','Grenada','GD','NA'],
     ...['J6','J7','J8'].map(p=>[p,'E.Caribbean',null,'NA']),
     ['V2','Antigua','AG','NA'],['V4','St.Kitts','KN','NA'],['8P','Barbados','BB','NA'],
     // South America
     ...['PY','PP','PQ','PR','PS','PT','PU','PV','PW','PX'].map(p=>[p,'Brazil','BR','SA']),
-    ...['LU','AY','LO'].map(p=>[p,'Argentina','AR','SA']),
+    ...['LU','AY','LO','LR','LS','LT','LV','LW'].map(p=>[p,'Argentina','AR','SA']),
     ['CE','Chile','CL','SA'],['OA','Peru','PE','SA'],['CX','Uruguay','UY','SA'],
     ['CP','Bolivia','BO','SA'],['HK','Colombia','CO','SA'],['HC','Ecuador','EC','SA'],
     ['ZP','Paraguay','PY','SA'],
@@ -186,13 +214,19 @@
     ...['9Q','9O'].map(p=>[p,'Congo (DRC)','CD','AF']),
     ['TL','C.African Rep.','CF','AF'],['TJ','Cameroon','CM','AF'],
     ['TR','Gabon','GA','AF'],['TT','Chad','TD','AF'],
+    ['TN','Congo Rep.','CG','AF'],
+    ['TY','Benin','BJ','AF'],
+    ['XT','Burkina Faso','BF','AF'],
     ['5V','Togo','TG','AF'],['5U','Niger','NE','AF'],['5X','Uganda','UG','AF'],
     ['9G','Ghana','GH','AF'],['9L','Sierra Leone','SL','AF'],
     ['EL','Liberia','LR','AF'],
     ...['6W','6V'].map(p=>[p,'Senegal','SN','AF']),
-    ['TU','Ivory Coast','CI','AF'],['TS','Tunisia','TN','AF'],
-    ['CN','Morocco','MA','AF'],['7X','Algeria','DZ','AF'],
+    ['TU','Ivory Coast','CI','AF'],
+    ['TS','Tunisia','TN','AF'],['3V','Tunisia','TN','AF'],
+    ['CN','Morocco','MA','AF'],
+    ...['7X','7T','7U','7V','7W','7Y'].map(p=>[p,'Algeria','DZ','AF']),
     ['ST','Sudan','SD','AF'],['ET','Ethiopia','ET','AF'],
+    ['E3','Eritrea','ER','AF'],
     ['6O','Somalia','SO','AF'],['5A','Libya','LY','AF'],
     ['SU','Egypt','EG','AF'],['D2','Angola','AO','AF'],
     ['C5','Gambia','GM','AF'],['D4','Cape Verde','CV','AF'],
@@ -202,10 +236,17 @@
     ['9X','Rwanda','RW','AF'],['9U','Burundi','BI','AF'],
     ...['TZ','5O'].map(p=>[p,'Mali','ML','AF']),
     ['5T','Mauritania','MR','AF'],['3B','Mauritius','MU','AF'],
+    ['5R','Madagascar','MG','AF'],['6X','Madagascar','MG','AF'],
+    ['S7','Seychelles','SC','AF'],
+    ['S9','Sao Tome','ST','AF'],
+    ['3X','Guinea','GN','AF'],
+    ['J2','Djibouti','DJ','AF'],
+    ['J5','Guinea-Bissau','GW','AF'],
+    ['D6','Comoros','KM','AF'],
     // Pacific
     ['FK','New Caledonia','NC','OC'],['V7','Marshall Is.','MH','OC'],
     ['V6','Micronesia','FM','OC'],['A3','Tonga','TO','OC'],
-    ['5W','Samoa','WS','OC'],['ZK','Tokelau','TK','OC'],
+    ['5W','Samoa','WS','OC'],
     ['H4','Solomon Is.','SB','OC'],['P2','Papua New Guinea','PG','OC'],
     ['YJ','Vanuatu','VU','OC'],['T2','Tuvalu','TV','OC'],['T3','Kiribati','KI','OC'],
   ].sort((a, b) => b[0].length - a[0].length);
@@ -348,7 +389,6 @@
   let allContests = [];
   let ws = null;
   let wsRetry = 0;
-  let nrReserved = false; // true once a serial number has been reserved for the current QSO entry
   let currentTargetLocator = null; // Maidenhead locator of the station being looked up
   let callsignFilter = null; // callsign to narrow QSO history while entering a contact
   let editingQsoId = null; // ID of the QSO being edited, or null for new entry
@@ -554,7 +594,6 @@
     updateContestDisplay();
     applyContestReadonly();
     qsos = [];
-    nrReserved = false;
     editingQsoId = null;
     const [qres, ores, rres] = await Promise.all([
       api('/api/qsos'), api('/api/operators'), api('/api/rigs')
@@ -718,25 +757,15 @@
     }
     if (spot.freq) $('q-freq').value = spot.freq;
     if (spot.band) $('q-band').value = spot.band;
-    if (spot.mode && MODES.includes(spot.mode)) $('q-mode').value = spot.mode;
+    const inferredMode = (spot.mode && MODES.includes(spot.mode)) ? spot.mode : modeFromFreqKHz(spot.freq);
+    if (inferredMode) $('q-mode').value = inferredMode;
     // Clear stale RST values so the mode-appropriate default takes effect
     $('q-rst-sent').value = '';
     $('q-rst-rcvd').value = '';
     applyRSTDefaults($('q-mode').value);
     updateDuplicateBadge();
     updateCallCountry($('q-call').value.trim().toUpperCase());
-    // Reserve a serial number via the server (mutex-protected, no cross-station duplicates).
-    // The callsign was set programmatically so the q-call input event never fired.
-    if ($('q-call').value.trim()) {
-      nrReserved = true;
-      try {
-        const res = await api('/api/qsos/reserve-nr', { method: 'POST' });
-        if (res.ok) {
-          const j = await res.json();
-          $('q-nr-sent').value = j.nr;
-        }
-      } catch {}
-    }
+    updateNrPreview();
     // tune the selected rig if one is connected
     if (me?.selected_rig && spot.freq) {
       const freqHz = Math.round(parseFloat(spot.freq) * 1000);
@@ -843,6 +872,32 @@
     if (['CW','RTTY','FT8','FT4','PSK31','PSK63','JT65','JT9','MFSK','OLIVIA','DIGI'].includes(m)) return '599';
     return '';
   }
+  // Infer likely mode from frequency (kHz) when a spot has no explicit mode.
+  // Based on common amateur band plans.
+  function modeFromFreqKHz(freqStr) {
+    const f = parseFloat(freqStr);
+    if (!f) return '';
+    // FT8 and FT4 calling frequencies (worldwide)
+    const ft8 = [1840, 3573, 5357, 7074, 10136, 14074, 18100, 21074, 24915, 28074, 50313, 144174];
+    const ft4 = [3575, 7047.5, 10140, 14080, 18104, 21140, 24919, 28180, 50318];
+    if (ft8.some(x => Math.abs(f - x) < 2)) return 'FT8';
+    if (ft4.some(x => Math.abs(f - x) < 2)) return 'FT4';
+    // RTTY segments
+    if ((f >= 3580 && f <= 3600) || (f >= 7035 && f <= 7045) ||
+        (f >= 14080 && f <= 14099) || (f >= 21080 && f <= 21099) ||
+        (f >= 28080 && f <= 28099)) return 'RTTY';
+    // CW segments (bottom of each band)
+    if ((f >= 1800 && f <= 1838) || (f >= 3500 && f <= 3570) ||
+        (f >= 7000 && f <= 7040) || (f >= 10100 && f <= 10130) ||
+        (f >= 14000 && f <= 14070) || (f >= 18068 && f <= 18095) ||
+        (f >= 21000 && f <= 21070) || (f >= 24890 && f <= 24915) ||
+        (f >= 28000 && f <= 28070) || (f >= 50000 && f <= 50100) ||
+        (f >= 144000 && f <= 144150)) return 'CW';
+    // SSB / voice — rest of HF and VHF
+    if (f < 10000 || (f >= 14100 && f < 30000) || (f >= 50100 && f < 300000)) return 'SSB';
+    return '';
+  }
+
   function applyRSTDefaults(m) {
     const def = defaultRST(m);
     $('q-rst-sent').placeholder = def;
@@ -1076,15 +1131,19 @@
       clearQRZInfo();
     }
 
-    if (!nrReserved && contestIsOpen() && call.length > 0) {
-      nrReserved = true;
-      const res = await api('/api/qsos/reserve-nr', { method: 'POST' });
-      if (res.ok) {
-        const j = await res.json();
-        $('q-nr-sent').value = j.nr;
-      }
-    }
+    updateNrPreview();
   });
+
+  // Show the next expected NR as a read-only hint in the nr-sent field for new QSOs.
+  // Actual assignment happens server-side at log time — no number is consumed here.
+  function updateNrPreview() {
+    if (editingQsoId !== null) return; // editing: NR is fixed, already shown
+    const maxNr = qsos.reduce((m, q) => Math.max(m, q.nr_sent || 0), 0);
+    const preview = String(maxNr + 1);
+    const field = $('q-nr-sent');
+    field.placeholder = preview;
+    if (!field.value) field.value = preview;
+  }
 
   function loadQsoIntoForm(q) {
     editingQsoId = q.id;
@@ -1107,7 +1166,6 @@
     $('q-time').value = t.toISOString().substring(0, 19);
     $('log-qso-btn').textContent = 'Save Edit';
     $('entry-panel-title').textContent = 'Edit QSO';
-    nrReserved = true;
     callsignFilter = null;
     renderQsos();
     updateDuplicateBadge();
@@ -1124,10 +1182,10 @@
     ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
     clearQRZInfo();
     currentTargetLocator = null;
-    nrReserved = false;
     callsignFilter = null;
     updateDuplicateBadge();
     renderQsos();
+    updateNrPreview();
     $('log-qso-btn').textContent = 'Log QSO';
     $('entry-panel-title').textContent = 'New QSO';
     $('q-call').focus();
@@ -1144,7 +1202,7 @@
       callsign: $('q-call').value.trim().toUpperCase(),
       name: $('q-name').value.trim(),
       nr_received: parseInt($('q-nr-rcvd').value || '0', 10) || 0,
-      nr_sent: parseInt($('q-nr-sent').value || '0', 10) || 0,
+      nr_sent: editingQsoId !== null ? (parseInt($('q-nr-sent').value || '0', 10) || 0) : 0,
       mode: $('q-mode').value,
       band: $('q-band').value,
       freq_hz: Math.round(parseFloat($('q-freq').value || '0') * 1000),
@@ -1189,10 +1247,10 @@
     ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
     clearQRZInfo();
     currentTargetLocator = null;
-    nrReserved = false;
     callsignFilter = null;
     updateDuplicateBadge();
     renderQsos();
+    updateNrPreview();
     $('q-call').focus();
   });
 
@@ -1398,7 +1456,8 @@
       tr.addEventListener('click', (e) => {
         if (e.target.closest('.del-btn')) return;
         if (hasPerm('qso.write') && contestIsOpen()) {
-          if (editingQsoId === null) { clearLeftPanel(); triggerQRZLookup(q.callsign); }
+          cancelQsoEdit();
+          clearLeftPanel(); triggerQRZLookup(q.callsign);
           loadQsoIntoForm(q);
         } else {
           showQsoPicture(q.callsign);
@@ -1564,7 +1623,7 @@
       if (!confirm(label)) return;
       api('/api/contests/' + c.id, {
         method: 'PUT',
-        body: JSON.stringify({ name: c.name, station_call: c.station_call, qth: c.qth || '', status: newStatus }),
+        body: JSON.stringify({ name: c.name, station_call: c.station_call, qth: c.qth || '', status: newStatus, bands: c.bands || [], objective: c.objective || '' }),
       }).then(r => { if (r.ok) refreshContests(); });
     }
   }
@@ -1942,6 +2001,7 @@
             qsos.unshift(msg.payload);
             renderQsos(msg.payload.id);
             updateDuplicateBadge();
+            updateNrPreview();
           }
           break;
         case 'qso_updated': {
@@ -1949,12 +2009,14 @@
           if (idx !== -1) qsos[idx] = msg.payload;
           renderQsos();
           updateDuplicateBadge();
+          updateNrPreview();
           break;
         }
         case 'qso_deleted':
           qsos = qsos.filter(q => q.id !== msg.payload.id);
           renderQsos();
           updateDuplicateBadge();
+          updateNrPreview();
           break;
 
         case 'operators':

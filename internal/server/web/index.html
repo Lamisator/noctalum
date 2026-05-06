@@ -286,23 +286,27 @@
 
           <div id="ops-tab-cluster" class="ops-tab-pane">
             <div class="cluster-filters">
-              <select id="cluster-band-filter">
-                <option value="">All bands</option>
-              </select>
-              <select id="cluster-mode-filter">
-                <option value="">All modes</option>
-              </select>
-              <select id="cluster-spotter-filter">
-                <option value="">All spotters</option>
-                <option value="DE">DE (Germany)</option>
-                <option value="EU">Europe</option>
-                <option value="AS">Asia</option>
-                <option value="NA">North Am.</option>
-                <option value="SA">South Am.</option>
-                <option value="OC">Oceania</option>
-                <option value="AF">Africa</option>
-              </select>
-              <button id="cluster-refresh-btn" class="ghost" title="Refresh">↻</button>
+              <div class="cluster-filters-row">
+                <select id="cluster-band-filter">
+                  <option value="">All bands</option>
+                </select>
+                <select id="cluster-mode-filter">
+                  <option value="">All modes</option>
+                </select>
+                <button id="cluster-refresh-btn" class="ghost" title="Refresh">↻</button>
+              </div>
+              <div class="cluster-filters-row">
+                <select id="cluster-spotter-filter" style="flex:1">
+                  <option value="">All spotters</option>
+                  <option value="DE">DE (Germany)</option>
+                  <option value="EU">Europe</option>
+                  <option value="AS">Asia</option>
+                  <option value="NA">North Am.</option>
+                  <option value="SA">South Am.</option>
+                  <option value="OC">Oceania</option>
+                  <option value="AF">Africa</option>
+                </select>
+              </div>
             </div>
             <div class="cluster-scroll">
               <table id="cluster-table">

@@ -406,9 +406,14 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
 /* ==== DX Cluster ==== */
 .cluster-filters {
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.cluster-filters-row {
+  display: flex;
   gap: 5px;
   align-items: center;
-  margin-bottom: 6px;
 }
 .cluster-filters select {
   flex: 1;
