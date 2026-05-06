@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -32,15 +33,16 @@ var webFS embed.FS
 
 // Server bundles every collaborating component.
 type Server struct {
-	store         *store.Store
-	sessions      *SessionStore
-	hub           *Hub
-	rigs          *RigRegistry
-	settings      store.Settings
-	upgrader      websocket.Upgrader
+	store          *store.Store
+	sessions       *SessionStore
+	hub            *Hub
+	rigs           *RigRegistry
+	settings       store.Settings
+	upgrader       websocket.Upgrader
 	helperUpgrader websocket.Upgrader
-	nrMu          sync.Mutex
-	nrNext        map[int64]int // per-contest next serial number to assign
+	nrMu           sync.Mutex
+	nrNext         map[int64]int // per-contest next serial number to assign
+	qrz            *QRZClient
 }
 
 // New constructs and configures a Server, ensuring built-in roles + helper token.
@@ -80,6 +82,9 @@ func New(st *store.Store) (*Server, error) {
 		log.Printf("generated helper token: %s (visible to admins in Settings)", tok)
 	}
 	s.settings = set
+	if set.QRZUsername != "" && set.QRZPassword != "" {
+		s.qrz = NewQRZClient(set.QRZUsername, set.QRZPassword)
+	}
 
 	n, _ := st.CountUsers()
 	if n == 0 {
@@ -115,6 +120,8 @@ func (s *Server) Routes() http.Handler {
 
 	// Permission-gated
 	mux.HandleFunc("/api/settings", s.requireAuth(s.handleSettings))
+	mux.HandleFunc("/api/lookup/picture", s.requireAuth(s.handleLookupPicture))
+	mux.HandleFunc("/api/lookup", s.requireAuth(s.handleLookup))
 	mux.HandleFunc("/api/permissions", s.requireAuth(s.handlePermissions))
 	mux.HandleFunc("/api/users", s.requirePerm(PermUsersManage, s.handleUsers))
 	mux.HandleFunc("/api/users/", s.requirePerm(PermUsersManage, s.handleUserByID))
@@ -664,6 +671,8 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if HasPermission(sess.Permissions, PermSettingsWrite) {
 			out["helper_token"] = s.settings.HelperToken
+			out["qrz_username"] = s.settings.QRZUsername
+			out["qrz_configured"] = s.settings.QRZPassword != ""
 		}
 		writeJSON(w, http.StatusOK, out)
 	case http.MethodPut:
@@ -675,6 +684,8 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			DefaultMode      string `json:"default_mode"`
 			DefaultBand      string `json:"default_band"`
 			RegenHelperToken bool   `json:"regen_helper_token"`
+			QRZUsername      string `json:"qrz_username"`
+			QRZPassword      string `json:"qrz_password"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -684,20 +695,32 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			DefaultMode: in.DefaultMode,
 			DefaultBand: in.DefaultBand,
 			HelperToken: s.settings.HelperToken,
+			QRZUsername: in.QRZUsername,
+			QRZPassword: s.settings.QRZPassword, // keep existing if not provided
 		}
 		if in.RegenHelperToken {
 			ns.HelperToken = newToken()
+		}
+		if in.QRZPassword != "" {
+			ns.QRZPassword = in.QRZPassword
 		}
 		if err := s.store.SaveSettings(ns); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		s.settings = ns
+		if ns.QRZUsername != "" && ns.QRZPassword != "" {
+			s.qrz = NewQRZClient(ns.QRZUsername, ns.QRZPassword)
+		} else {
+			s.qrz = nil
+		}
 		details := "mode: " + ns.DefaultMode + ", band: " + ns.DefaultBand
 		if in.RegenHelperToken {
 			details += ", helper_token: regenerated"
 		}
-		sess := sessionFor(s, r)
+		if in.QRZUsername != "" {
+			details += ", qrz_username: " + in.QRZUsername
+		}
 		s.audit(r, store.AuditInfo, AuditSettingsChange, sess.Username, "", details)
 		out := map[string]any{"status": "ok"}
 		if in.RegenHelperToken {
@@ -707,6 +730,64 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// ----- qrz lookup -----
+
+func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	callsign := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("callsign")))
+	if callsign == "" {
+		writeError(w, http.StatusBadRequest, "callsign required")
+		return
+	}
+	if s.qrz == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"name": "", "locator": "", "has_picture": false, "configured": false})
+		return
+	}
+	result, err := s.qrz.Lookup(callsign)
+	if err != nil {
+		log.Printf("qrz lookup %s: %v", callsign, err)
+		writeJSON(w, http.StatusOK, map[string]any{"name": "", "locator": "", "has_picture": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"name":        result.Name,
+		"locator":     result.Locator,
+		"has_picture": result.HasPic,
+	})
+}
+
+func (s *Server) handleLookupPicture(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	callsign := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("callsign")))
+	if callsign == "" || s.qrz == nil {
+		http.NotFound(w, r)
+		return
+	}
+	picURL := s.qrz.PictureURL(callsign)
+	if picURL == "" {
+		http.NotFound(w, r)
+		return
+	}
+	resp, err := http.Get(picURL) //nolint:noctx
+	if err != nil || resp.StatusCode != http.StatusOK {
+		http.NotFound(w, r)
+		return
+	}
+	defer resp.Body.Close()
+	ct := resp.Header.Get("Content-Type")
+	if ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	io.Copy(w, resp.Body) //nolint:errcheck
 }
 
 // ----- rigs -----

@@ -16,6 +16,7 @@ type QSO struct {
 	ContestID   int64     `json:"contest_id,omitempty"`
 	Time        time.Time `json:"time"`
 	Callsign    string    `json:"callsign"`
+	Name        string    `json:"name"`
 	Band        string    `json:"band"`
 	FreqHz      int64     `json:"freq_hz"`
 	Mode        string    `json:"mode"`
@@ -39,6 +40,8 @@ type Settings struct {
 	DefaultMode string `json:"default_mode"`
 	DefaultBand string `json:"default_band"`
 	HelperToken string `json:"helper_token"`
+	QRZUsername string `json:"qrz_username"`
+	QRZPassword string `json:"qrz_password"`
 }
 
 // Store wraps the SQLite database.
@@ -111,6 +114,7 @@ func (s *Store) migrate() error {
 		{"nr_sent", "INTEGER NOT NULL DEFAULT 0"},
 		{"nr_received", "INTEGER NOT NULL DEFAULT 0"},
 		{"dok", "TEXT NOT NULL DEFAULT ''"},
+		{"name", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		if err := s.addColumnIfMissing("qsos", col[0], col[1]); err != nil {
 			return fmt.Errorf("migrate qsos column %s: %w", col[0], err)
@@ -127,12 +131,13 @@ func (s *Store) InsertQSO(q *QSO) (int64, error) {
 		q.Time = q.Time.UTC()
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO qsos (time_utc, callsign, band, freq_hz, mode, rst_sent, rst_received,
+		`INSERT INTO qsos (time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
 			nr_sent, nr_received, dok,
 			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, contest_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		q.Time.Format(time.RFC3339),
 		strings.ToUpper(q.Callsign),
+		q.Name,
 		q.Band, q.FreqHz, q.Mode, q.RSTSent, q.RSTReceived,
 		q.NrSent, q.NrReceived, strings.ToUpper(q.DOK),
 		strings.ToUpper(q.Locator), q.ITUZone, q.CQZone, q.Lighthouse,
@@ -153,7 +158,7 @@ func (s *Store) ListQSOs(contestID int64, limit int) ([]QSO, error) {
 		limit = 1000
 	}
 	rows, err := s.db.Query(
-		`SELECT id, contest_id, time_utc, callsign, band, freq_hz, mode, rst_sent, rst_received,
+		`SELECT id, contest_id, time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
 			nr_sent, nr_received, dok,
 			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name
 		 FROM qsos WHERE contest_id = ? ORDER BY id DESC LIMIT ?`, contestID, limit)
@@ -165,7 +170,7 @@ func (s *Store) ListQSOs(contestID int64, limit int) ([]QSO, error) {
 	for rows.Next() {
 		var q QSO
 		var t string
-		if err := rows.Scan(&q.ID, &q.ContestID, &t, &q.Callsign, &q.Band, &q.FreqHz, &q.Mode,
+		if err := rows.Scan(&q.ID, &q.ContestID, &t, &q.Callsign, &q.Name, &q.Band, &q.FreqHz, &q.Mode,
 			&q.RSTSent, &q.RSTReceived, &q.NrSent, &q.NrReceived, &q.DOK,
 			&q.Locator, &q.ITUZone, &q.CQZone,
 			&q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName); err != nil {
@@ -180,7 +185,7 @@ func (s *Store) ListQSOs(contestID int64, limit int) ([]QSO, error) {
 // AllQSOs returns the full log for a contest in chronological order for export.
 func (s *Store) AllQSOs(contestID int64) ([]QSO, error) {
 	rows, err := s.db.Query(
-		`SELECT id, contest_id, time_utc, callsign, band, freq_hz, mode, rst_sent, rst_received,
+		`SELECT id, contest_id, time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
 			nr_sent, nr_received, dok,
 			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name
 		 FROM qsos WHERE contest_id = ? ORDER BY time_utc ASC, id ASC`, contestID)
@@ -192,7 +197,7 @@ func (s *Store) AllQSOs(contestID int64) ([]QSO, error) {
 	for rows.Next() {
 		var q QSO
 		var t string
-		if err := rows.Scan(&q.ID, &q.ContestID, &t, &q.Callsign, &q.Band, &q.FreqHz, &q.Mode,
+		if err := rows.Scan(&q.ID, &q.ContestID, &t, &q.Callsign, &q.Name, &q.Band, &q.FreqHz, &q.Mode,
 			&q.RSTSent, &q.RSTReceived, &q.NrSent, &q.NrReceived, &q.DOK,
 			&q.Locator, &q.ITUZone, &q.CQZone,
 			&q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName); err != nil {
@@ -258,6 +263,10 @@ func (s *Store) LoadSettings() (Settings, error) {
 			out.DefaultBand = v
 		case "helper_token":
 			out.HelperToken = v
+		case "qrz_username":
+			out.QRZUsername = v
+		case "qrz_password":
+			out.QRZPassword = v
 		}
 	}
 	return out, rows.Err()
@@ -271,6 +280,10 @@ func (s *Store) SaveSettings(set Settings) error {
 	}
 	if set.HelperToken != "" {
 		pairs = append(pairs, [2]string{"helper_token", set.HelperToken})
+	}
+	pairs = append(pairs, [2]string{"qrz_username", set.QRZUsername})
+	if set.QRZPassword != "" {
+		pairs = append(pairs, [2]string{"qrz_password", set.QRZPassword})
 	}
 	tx, err := s.db.Begin()
 	if err != nil {

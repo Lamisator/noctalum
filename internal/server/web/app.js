@@ -257,6 +257,32 @@
   }
   $('q-mode').addEventListener('change', () => applyRSTDefaults($('q-mode').value));
 
+  // ----- QRZ lookup -----
+  let qrzLookupTimer = null;
+
+  function clearQRZInfo() {
+    $('qrz-info-bar').classList.add('hidden');
+    $('qrz-pic').src = '';
+    $('qrz-info-name').textContent = '';
+  }
+
+  async function triggerQRZLookup(callsign) {
+    clearQRZInfo();
+    if (!callsign || callsign.length < 3) return;
+    try {
+      const res = await api('/api/lookup?callsign=' + encodeURIComponent(callsign));
+      if (!res.ok) return;
+      const j = await res.json();
+      if (j.name && !$('q-name').value) $('q-name').value = j.name;
+      if (j.locator && !$('q-loc').value) $('q-loc').value = j.locator.toUpperCase();
+      if (j.has_picture) {
+        $('qrz-pic').src = '/api/lookup/picture?callsign=' + encodeURIComponent(callsign);
+        $('qrz-info-name').textContent = j.name || callsign;
+        $('qrz-info-bar').classList.remove('hidden');
+      }
+    } catch {}
+  }
+
   // Reserve a serial number the first time the operator starts typing a callsign.
   $('q-call').addEventListener('input', async () => {
     if (!nrReserved && contestIsOpen() && $('q-call').value.trim().length > 0) {
@@ -267,6 +293,9 @@
         $('q-nr-sent').value = j.nr;
       }
     }
+    clearTimeout(qrzLookupTimer);
+    const call = $('q-call').value.trim().toUpperCase();
+    qrzLookupTimer = setTimeout(() => triggerQRZLookup(call), 600);
   });
 
   // ----- QSO entry -----
@@ -275,6 +304,7 @@
     if (!contestIsOpen()) return;
     const body = {
       callsign: $('q-call').value.trim().toUpperCase(),
+      name: $('q-name').value.trim(),
       nr_received: parseInt($('q-nr-rcvd').value || '0', 10) || 0,
       nr_sent: parseInt($('q-nr-sent').value || '0', 10) || 0,
       mode: $('q-mode').value,
@@ -303,7 +333,8 @@
       $('qso-error').textContent = j.error || 'Failed to save QSO';
       return;
     }
-    ['q-call','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
+    ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
+    clearQRZInfo();
     nrReserved = false;
     $('q-call').focus();
   });
@@ -480,6 +511,12 @@
       $('hint-token').textContent = settings.helper_token || '...';
     }
     $('hint-server').textContent = location.origin;
+    if ('qrz_username' in settings) {
+      $('s-qrz-user').value = settings.qrz_username || '';
+      $('qrz-status').textContent = settings.qrz_configured
+        ? 'QRZ.com lookup is configured.'
+        : 'QRZ.com lookup is not configured.';
+    }
   }
   $('settings-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -487,6 +524,8 @@
     const body = {
       default_mode: $('s-mode').value,
       default_band: $('s-band').value,
+      qrz_username: $('s-qrz-user')?.value?.trim() || '',
+      qrz_password: $('s-qrz-pass')?.value || '',
     };
     const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
     if (!res.ok) {
@@ -494,6 +533,7 @@
       $('settings-error').textContent = j.error || 'Save failed';
       return;
     }
+    if ($('s-qrz-pass')) $('s-qrz-pass').value = '';
     await loadSettings();
     applyDefaults();
   });

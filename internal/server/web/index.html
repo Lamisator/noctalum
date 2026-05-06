@@ -110,9 +110,16 @@
           </div>
           <h2>New QSO</h2>
           <form id="qso-form" autocomplete="off">
+            <div id="qrz-info-bar" class="qrz-info-bar hidden">
+              <img id="qrz-pic" class="qrz-pic" alt="" />
+              <span id="qrz-info-name" class="qrz-info-name"></span>
+            </div>
             <div class="row">
               <label>Callsign
                 <input id="q-call" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
+              </label>
+              <label>Name
+                <input id="q-name" type="text" maxlength="80" autocomplete="off" style="width:11em" />
               </label>
               <label>Nr rcvd
                 <input id="q-nr-rcvd" type="number" min="1" style="width:5em" />
@@ -251,6 +258,22 @@
   -server <span id="hint-server">http://this-server:8080</span> \
   -name "IC-7300" \
   -token <span id="hint-token">...</span></pre>
+        </fieldset>
+
+        <fieldset id="qrz-fieldset" class="perm-required" data-perm="settings.write">
+          <legend>QRZ.com lookup</legend>
+          <p class="muted small">
+            When configured, callsign lookups will fetch the operator's name,
+            Maidenhead locator and profile picture from QRZ.com.
+            Requires a QRZ.com XML subscription.
+          </p>
+          <label>QRZ.com username
+            <input id="s-qrz-user" type="text" autocomplete="off" autocapitalize="off" />
+          </label>
+          <label>QRZ.com password
+            <input id="s-qrz-pass" type="password" autocomplete="off" placeholder="leave blank to keep existing" />
+          </label>
+          <div id="qrz-status" class="muted small" style="margin-top:6px"></div>
         </fieldset>
       </div>
 

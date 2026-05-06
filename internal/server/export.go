@@ -26,6 +26,9 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion string)
 	}
 	for _, q := range qsos {
 		writeField(w, "CALL", q.Callsign)
+		if q.Name != "" {
+			writeField(w, "NAME", q.Name)
+		}
 		writeField(w, "QSO_DATE", q.Time.UTC().Format("20060102"))
 		writeField(w, "TIME_ON", q.Time.UTC().Format("150405"))
 		writeField(w, "BAND", strings.ToLower(q.Band))
@@ -75,7 +78,7 @@ func ExportCSV(w io.Writer, qsos []store.QSO) error {
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 	if err := cw.Write([]string{
-		"id", "time_utc", "callsign", "band", "freq_hz", "mode",
+		"id", "time_utc", "callsign", "name", "band", "freq_hz", "mode",
 		"rst_sent", "rst_received", "locator", "itu_zone", "cq_zone",
 		"lighthouse", "operator", "station_call", "contest_name", "notes",
 	}); err != nil {
@@ -85,7 +88,7 @@ func ExportCSV(w io.Writer, qsos []store.QSO) error {
 		if err := cw.Write([]string{
 			strconv.FormatInt(q.ID, 10),
 			q.Time.UTC().Format(time.RFC3339),
-			q.Callsign, q.Band, strconv.FormatInt(q.FreqHz, 10), q.Mode,
+			q.Callsign, q.Name, q.Band, strconv.FormatInt(q.FreqHz, 10), q.Mode,
 			q.RSTSent, q.RSTReceived, q.Locator, q.ITUZone, q.CQZone,
 			q.Lighthouse, q.Operator, q.StationCall, q.ContestName, q.Notes,
 		}); err != nil {
