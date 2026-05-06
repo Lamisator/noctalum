@@ -285,7 +285,17 @@
 
   // Reserve a serial number the first time the operator starts typing a callsign.
   $('q-call').addEventListener('input', async () => {
-    if (!nrReserved && contestIsOpen() && $('q-call').value.trim().length > 0) {
+    // QRZ timer must be set synchronously before any await so rapid typing
+    // always resets it correctly regardless of the NR reservation flight time.
+    clearTimeout(qrzLookupTimer);
+    const call = $('q-call').value.trim().toUpperCase();
+    if (call.length >= 3) {
+      qrzLookupTimer = setTimeout(() => triggerQRZLookup(call), 600);
+    } else {
+      clearQRZInfo();
+    }
+
+    if (!nrReserved && contestIsOpen() && call.length > 0) {
       nrReserved = true;
       const res = await api('/api/qsos/reserve-nr', { method: 'POST' });
       if (res.ok) {
@@ -293,9 +303,6 @@
         $('q-nr-sent').value = j.nr;
       }
     }
-    clearTimeout(qrzLookupTimer);
-    const call = $('q-call').value.trim().toUpperCase();
-    qrzLookupTimer = setTimeout(() => triggerQRZLookup(call), 600);
   });
 
   // ----- QSO entry -----
@@ -536,6 +543,31 @@
     if ($('s-qrz-pass')) $('s-qrz-pass').value = '';
     await loadSettings();
     applyDefaults();
+  });
+  $('qrz-test-btn').addEventListener('click', async () => {
+    const username = $('s-qrz-user').value.trim();
+    const password = $('s-qrz-pass').value;
+    if (!username) {
+      $('qrz-status').textContent = 'Enter a username first.';
+      $('qrz-status').style.color = 'var(--error)';
+      return;
+    }
+    $('qrz-test-btn').disabled = true;
+    $('qrz-status').textContent = 'Testing…';
+    $('qrz-status').style.color = '';
+    const res = await api('/api/qrz/test', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    $('qrz-test-btn').disabled = false;
+    const j = await res.json().catch(() => ({}));
+    if (j.ok) {
+      $('qrz-status').textContent = `Connected — W1AW: ${j.name || '(no name)'}`;
+      $('qrz-status').style.color = 'var(--success)';
+    } else {
+      $('qrz-status').textContent = 'Failed: ' + (j.error || 'unknown error');
+      $('qrz-status').style.color = 'var(--error)';
+    }
   });
   $('regen-token').addEventListener('click', async () => {
     if (!confirm('Generate a new helper token?  All existing helpers will need to be restarted with the new value.')) return;

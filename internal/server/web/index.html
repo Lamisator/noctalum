@@ -234,6 +234,44 @@
               <select id="s-band"></select>
             </label>
           </fieldset>
+
+          <fieldset id="helper-fieldset" class="perm-required" data-perm="settings.write">
+            <legend>Helper token</legend>
+            <p class="muted small">
+              Give this token to operators along with the
+              <code>contestlog-helper</code> binary.  Each helper presents the
+              token and a rig name (e.g. <code>IC-7300</code>) at startup.
+            </p>
+            <div class="row">
+              <input id="s-token" type="text" readonly />
+              <button type="button" id="copy-token" class="ghost">Copy</button>
+              <button type="button" id="regen-token" class="ghost">Regenerate</button>
+            </div>
+            <pre class="snippet">contestlog-helper \
+  -server <span id="hint-server">http://this-server:8080</span> \
+  -name "IC-7300" \
+  -token <span id="hint-token">...</span></pre>
+          </fieldset>
+
+          <fieldset id="qrz-fieldset" class="perm-required" data-perm="settings.write">
+            <legend>QRZ.com lookup</legend>
+            <p class="muted small">
+              When configured, callsign lookups fetch the operator's name,
+              Maidenhead locator and profile picture from QRZ.com.
+              Requires a QRZ.com XML data subscription.
+            </p>
+            <label>QRZ.com username
+              <input id="s-qrz-user" type="text" autocomplete="off" autocapitalize="off" />
+            </label>
+            <label>QRZ.com password
+              <input id="s-qrz-pass" type="password" autocomplete="off" placeholder="leave blank to keep existing" />
+            </label>
+            <div style="margin-top:10px">
+              <button type="button" id="qrz-test-btn" class="ghost">Test connection</button>
+            </div>
+            <div id="qrz-status" class="muted small" style="margin-top:6px"></div>
+          </fieldset>
+
           <div class="entry-actions">
             <span id="settings-error" class="error"></span>
             <button type="submit" class="primary perm-required" data-perm="settings.write">
@@ -241,40 +279,6 @@
             </button>
           </div>
         </form>
-
-        <fieldset id="helper-fieldset" class="perm-required" data-perm="settings.write">
-          <legend>Helper token</legend>
-          <p class="muted small">
-            Give this token to operators along with the
-            <code>contestlog-helper</code> binary.  Each helper presents the
-            token and a rig name (e.g. <code>IC-7300</code>) at startup.
-          </p>
-          <div class="row">
-            <input id="s-token" type="text" readonly />
-            <button type="button" id="copy-token" class="ghost">Copy</button>
-            <button type="button" id="regen-token" class="ghost">Regenerate</button>
-          </div>
-          <pre class="snippet">contestlog-helper \
-  -server <span id="hint-server">http://this-server:8080</span> \
-  -name "IC-7300" \
-  -token <span id="hint-token">...</span></pre>
-        </fieldset>
-
-        <fieldset id="qrz-fieldset" class="perm-required" data-perm="settings.write">
-          <legend>QRZ.com lookup</legend>
-          <p class="muted small">
-            When configured, callsign lookups will fetch the operator's name,
-            Maidenhead locator and profile picture from QRZ.com.
-            Requires a QRZ.com XML subscription.
-          </p>
-          <label>QRZ.com username
-            <input id="s-qrz-user" type="text" autocomplete="off" autocapitalize="off" />
-          </label>
-          <label>QRZ.com password
-            <input id="s-qrz-pass" type="password" autocomplete="off" placeholder="leave blank to keep existing" />
-          </label>
-          <div id="qrz-status" class="muted small" style="margin-top:6px"></div>
-        </fieldset>
       </div>
 
       <div class="card settings-card" style="margin-top:14px">

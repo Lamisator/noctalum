@@ -141,6 +141,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/settings", s.requireAuth(s.handleSettings))
 	mux.HandleFunc("/api/lookup/picture", s.requireAuth(s.handleLookupPicture))
 	mux.HandleFunc("/api/lookup", s.requireAuth(s.handleLookup))
+	mux.HandleFunc("/api/qrz/test", s.requirePerm(PermSettingsWrite, s.handleQRZTest))
 	mux.HandleFunc("/api/permissions", s.requireAuth(s.handlePermissions))
 	mux.HandleFunc("/api/users", s.requirePerm(PermUsersManage, s.handleUsers))
 	mux.HandleFunc("/api/users/", s.requirePerm(PermUsersManage, s.handleUserByID))
@@ -809,6 +810,40 @@ func (s *Server) handleLookupPicture(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	io.Copy(w, resp.Body) //nolint:errcheck
+}
+
+func (s *Server) handleQRZTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	var in struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if in.Username == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "username required"})
+		return
+	}
+	password := in.Password
+	if password == "" {
+		password = s.settings.QRZPassword
+	}
+	if password == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "no password provided or saved"})
+		return
+	}
+	client := NewQRZClient(in.Username, password)
+	result, err := client.Lookup("W1AW")
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": result.Name, "locator": result.Locator})
 }
 
 // ----- rigs -----
