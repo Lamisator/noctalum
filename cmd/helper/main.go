@@ -213,7 +213,8 @@ func session(serverURL, name, token, rigHost string, rigPort, intervalMs int) er
 			var ev struct {
 				Type    string `json:"type"`
 				Payload struct {
-					FreqHz int64 `json:"freq_hz"`
+					FreqHz int64  `json:"freq_hz"`
+					Mode   string `json:"mode"`
 				} `json:"payload"`
 			}
 			if err := json.Unmarshal(msg, &ev); err != nil {
@@ -224,6 +225,13 @@ func session(serverURL, name, token, rigHost string, rigPort, intervalMs int) er
 					log.Printf("set_freq %d: %v", ev.Payload.FreqHz, err)
 				} else {
 					log.Printf("set freq → %d Hz", ev.Payload.FreqHz)
+				}
+				if m := toRigctldMode(ev.Payload.Mode, ev.Payload.FreqHz); m != "" {
+					if err := setRigMode(rigHost, rigPort, m); err != nil {
+						log.Printf("set_mode %s: %v", m, err)
+					} else {
+						log.Printf("set mode → %s", m)
+					}
 				}
 			}
 		}
@@ -363,6 +371,43 @@ func setRigFreq(host string, port int, freqHz int64) error {
 	deadline := time.Now().Add(5 * time.Second)
 	_, err := rigQuery(addr, fmt.Sprintf("F %d", freqHz), deadline)
 	return err
+}
+
+// setRigMode sends an "M <mode> 0" command to rigctld.
+func setRigMode(host string, port int, mode string) error {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	deadline := time.Now().Add(5 * time.Second)
+	_, err := rigQuery(addr, fmt.Sprintf("M %s 0", mode), deadline)
+	return err
+}
+
+// toRigctldMode translates a ContestLog mode string to the rigctld mode name.
+// freqHz is used to resolve plain "SSB" to USB/LSB by convention.
+func toRigctldMode(mode string, freqHz int64) string {
+	switch strings.ToUpper(mode) {
+	case "CW":
+		return "CW"
+	case "USB":
+		return "USB"
+	case "LSB":
+		return "LSB"
+	case "SSB":
+		// Below 10 MHz use LSB; 10 MHz and above use USB.
+		if freqHz > 0 && freqHz < 10_000_000 {
+			return "LSB"
+		}
+		return "USB"
+	case "FM":
+		return "FM"
+	case "AM":
+		return "AM"
+	case "RTTY":
+		return "RTTY"
+	case "FT8", "FT4", "PSK31", "PSK63", "JT65", "DIGI":
+		return "USB"
+	default:
+		return ""
+	}
 }
 
 // rprtError translates a Hamlib RPRT error code to a human-readable error.

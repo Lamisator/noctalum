@@ -469,7 +469,7 @@
     if (me?.selected_rig && spot.freq) {
       const freqHz = Math.round(parseFloat(spot.freq) * 1000);
       if (freqHz > 0) {
-        api('/api/rigs/set_freq', { method: 'POST', body: JSON.stringify({ freq_hz: freqHz }) })
+        api('/api/rigs/set_freq', { method: 'POST', body: JSON.stringify({ freq_hz: freqHz, mode: spot.mode || '' }) })
           .catch(() => {});
       }
     }

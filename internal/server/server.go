@@ -1021,13 +1021,14 @@ func (s *Server) handleSetFreq(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		FreqHz int64 `json:"freq_hz"`
+		FreqHz int64  `json:"freq_hz"`
+		Mode   string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.FreqHz <= 0 {
 		writeError(w, http.StatusBadRequest, "freq_hz required")
 		return
 	}
-	sent := s.hub.SendToRig(rigName, Event{Type: "set_freq", Payload: map[string]any{"freq_hz": body.FreqHz}})
+	sent := s.hub.SendToRig(rigName, Event{Type: "set_freq", Payload: map[string]any{"freq_hz": body.FreqHz, "mode": body.Mode}})
 	if !sent {
 		writeError(w, http.StatusServiceUnavailable, "rig helper not connected")
 		return
