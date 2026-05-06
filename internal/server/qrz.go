@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -74,9 +75,9 @@ func (c *QRZClient) PictureURL(callsign string) string {
 }
 
 func (c *QRZClient) authenticate() error {
-	url := fmt.Sprintf("https://xmldata.qrz.com/xml/current/?username=%s;password=%s;agent=ContestLog",
-		c.username, c.password)
-	resp, err := c.httpClient.Get(url)
+	reqURL := fmt.Sprintf("https://xmldata.qrz.com/xml/current/?username=%s;password=%s;agent=ContestLog",
+		url.QueryEscape(c.username), url.QueryEscape(c.password))
+	resp, err := c.httpClient.Get(reqURL)
 	if err != nil {
 		return fmt.Errorf("qrz auth: %w", err)
 	}
@@ -94,9 +95,9 @@ func (c *QRZClient) authenticate() error {
 }
 
 func (c *QRZClient) doLookup(callsign string) (*QRZResult, error) {
-	url := fmt.Sprintf("https://xmldata.qrz.com/xml/current/?s=%s;callsign=%s",
-		c.sessionKey, strings.ToUpper(callsign))
-	resp, err := c.httpClient.Get(url)
+	reqURL := fmt.Sprintf("https://xmldata.qrz.com/xml/current/?s=%s;callsign=%s",
+		url.QueryEscape(c.sessionKey), url.QueryEscape(strings.ToUpper(callsign)))
+	resp, err := c.httpClient.Get(reqURL)
 	if err != nil {
 		return nil, fmt.Errorf("qrz lookup: %w", err)
 	}
