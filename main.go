@@ -17,6 +17,7 @@ import (
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
 	dbPath := flag.String("db", "contestlog.db", "SQLite database file path")
+	downloadsDir := flag.String("downloads-dir", "", "directory to serve helper downloads from (optional)")
 	flag.Parse()
 
 	st, err := store.Open(*dbPath)
@@ -28,6 +29,9 @@ func main() {
 	srv, err := server.New(st)
 	if err != nil {
 		log.Fatalf("init server: %v", err)
+	}
+	if *downloadsDir != "" {
+		srv.SetDownloadsDir(*downloadsDir)
 	}
 
 	httpSrv := &http.Server{

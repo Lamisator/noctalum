@@ -14,6 +14,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,7 +46,11 @@ type Server struct {
 	nrMu           sync.Mutex
 	nrNext         map[int64]int // per-contest next serial number to assign
 	qrz            *QRZClient
+	downloadsDir   string
 }
+
+// SetDownloadsDir configures a directory whose files are served at /downloads/.
+func (s *Server) SetDownloadsDir(dir string) { s.downloadsDir = dir }
 
 // New constructs and configures a Server, ensuring built-in roles + helper token.
 func New(st *store.Store) (*Server, error) {
@@ -134,9 +140,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/me", s.handleMe)
 	mux.HandleFunc("/api/passkey/login/begin", s.handlePasskeyLoginBegin)
 	mux.HandleFunc("/api/passkey/login/finish", s.handlePasskeyLoginFinish)
+	mux.HandleFunc("/api/downloads", s.handleDownloadsList)
+	mux.HandleFunc("/downloads/", s.handleDownloadsFile)
 
 	// Authenticated
 	mux.HandleFunc("/api/me/password", s.requireAuth(s.handleChangeOwnPassword))
+	mux.HandleFunc("/api/me/helper-token", s.requireAuth(s.handleRegenHelperToken))
 	mux.HandleFunc("/api/passkey/register/begin", s.requireAuth(s.handlePasskeyRegisterBegin))
 	mux.HandleFunc("/api/passkey/register/finish", s.requireAuth(s.handlePasskeyRegisterFinish))
 	mux.HandleFunc("/api/passkey/credentials", s.requireAuth(s.handlePasskeyCredentials))
@@ -164,8 +173,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/export/cabrillo", s.requirePerm(PermQSOExport, s.handleExportCabrillo))
 	mux.HandleFunc("/api/export/csv", s.requirePerm(PermQSOExport, s.handleExportCSV))
 	mux.HandleFunc("/api/audit", s.requirePerm(PermAuditLog, s.handleAuditLog))
-	mux.HandleFunc("/api/feature-requests", s.requirePerm(PermFeatureRequests, s.handleFeatureRequests))
-	mux.HandleFunc("/api/feature-requests/", s.requirePerm(PermFeatureRequests, s.handleFeatureRequestByID))
+	mux.HandleFunc("/api/feature-requests", s.requireAuth(s.handleFeatureRequests))
+	mux.HandleFunc("/api/feature-requests/", s.requireAuth(s.handleFeatureRequestByID))
 	mux.HandleFunc("/api/cluster/spots", s.requireAuth(s.handleClusterSpots))
 	mux.HandleFunc("/api/cluster/log", s.requireAuth(s.handleClusterLog))
 	mux.HandleFunc("/api/rigs/set_freq", s.requireAuth(s.handleSetFreq))
@@ -446,7 +455,11 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not logged in")
 		return
 	}
-	writeJSON(w, http.StatusOK, sessionInfo(sess))
+	info := sessionInfo(sess)
+	if u, err := s.store.GetUserByID(sess.UserID); err == nil {
+		info["helper_token"] = u.HelperToken
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
 func sessionInfo(sess *Session) map[string]any {
@@ -499,6 +512,21 @@ func (s *Server) handleChangeOwnPassword(w http.ResponseWriter, r *http.Request)
 	s.sessions.DeleteAllForUser(sess.UserID)
 	ClearSessionCookie(w)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRegenHelperToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "POST required")
+		return
+	}
+	sess, _ := s.sessions.SessionFromRequest(r)
+	tok, err := s.store.RegenerateHelperToken(sess.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to regenerate token")
+		return
+	}
+	s.audit(r, store.AuditInfo, AuditUserHelperTokenRegen, sess.Username, sess.Username, "")
+	writeJSON(w, http.StatusOK, map[string]any{"helper_token": tok})
 }
 
 // ----- /api/me settings/qsos/operators -----
@@ -1576,8 +1604,13 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 // ----- feature requests -----
 
 func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFor(s, r)
 	switch r.Method {
 	case http.MethodGet:
+		if !HasPermission(sess.Permissions, PermFeatureRequestsRead) {
+			writeError(w, http.StatusForbidden, "missing permission: "+PermFeatureRequestsRead)
+			return
+		}
 		list, err := s.store.ListFeatureRequests()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -1588,7 +1621,10 @@ func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, list)
 	case http.MethodPost:
-		sess := sessionFor(s, r)
+		if !HasPermission(sess.Permissions, PermFeatureRequestsWrite) {
+			writeError(w, http.StatusForbidden, "missing permission: "+PermFeatureRequestsWrite)
+			return
+		}
 		var in struct {
 			Text string `json:"text"`
 		}
@@ -1612,6 +1648,11 @@ func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFeatureRequestByID(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFor(s, r)
+	if !HasPermission(sess.Permissions, PermFeatureRequestsRead) {
+		writeError(w, http.StatusForbidden, "missing permission: "+PermFeatureRequestsRead)
+		return
+	}
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/feature-requests/")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -1666,7 +1707,10 @@ func (s *Server) handleWSHelper(w http.ResponseWriter, r *http.Request, q map[st
 		http.Error(w, "rig name required", http.StatusBadRequest)
 		return
 	}
-	if s.settings.HelperToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(s.settings.HelperToken)) != 1 {
+	// Accept a per-user helper token or the legacy global token.
+	_, errUser := s.store.GetUserByHelperToken(token)
+	globalOK := s.settings.HelperToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(s.settings.HelperToken)) == 1
+	if errUser != nil && !globalOK {
 		http.Error(w, "invalid helper token", http.StatusUnauthorized)
 		return
 	}
@@ -1733,4 +1777,38 @@ func getQ(q map[string][]string, key string) string {
 		return v[0]
 	}
 	return ""
+}
+
+func (s *Server) handleDownloadsList(w http.ResponseWriter, r *http.Request) {
+	if s.downloadsDir == "" {
+		writeJSON(w, http.StatusOK, []string{})
+		return
+	}
+	entries, err := os.ReadDir(s.downloadsDir)
+	if err != nil {
+		writeJSON(w, http.StatusOK, []string{})
+		return
+	}
+	files := []string{}
+	for _, e := range entries {
+		if !e.IsDir() {
+			files = append(files, e.Name())
+		}
+	}
+	writeJSON(w, http.StatusOK, files)
+}
+
+func (s *Server) handleDownloadsFile(w http.ResponseWriter, r *http.Request) {
+	if s.downloadsDir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	name := strings.TrimPrefix(r.URL.Path, "/downloads/")
+	if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		http.NotFound(w, r)
+		return
+	}
+	fpath := filepath.Join(s.downloadsDir, filepath.Base(name))
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	http.ServeFile(w, r, fpath)
 }

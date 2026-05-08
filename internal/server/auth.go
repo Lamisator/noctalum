@@ -23,25 +23,26 @@ const (
 
 // Permission keys.  Add new ones here, then expose them in the UI.
 const (
-	PermQSOWrite          = "qso.write"
-	PermQSOExport         = "qso.export"
-	PermSettingsWrite     = "settings.write"
-	PermUsersManage       = "users.manage"
-	PermRigUse            = "rig.use"
-	PermContestsManage    = "contests.manage"
-	PermAuditLog          = "audit.log"
-	PermFeatureRequests   = "feature_requests"
+	PermQSOWrite               = "qso.write"
+	PermQSOExport              = "qso.export"
+	PermSettingsWrite          = "settings.write"
+	PermUsersManage            = "users.manage"
+	PermRigUse                 = "rig.use"
+	PermContestsManage         = "contests.manage"
+	PermAuditLog               = "audit.log"
+	PermFeatureRequestsRead    = "feature_requests.read"  // view/manage all requests
+	PermFeatureRequestsWrite   = "feature_requests.write" // submit a request
 )
 
 // AllPermissions is the canonical list (used by UI + role validation).
 var AllPermissions = []string{
-	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermContestsManage, PermAuditLog, PermFeatureRequests,
+	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermContestsManage, PermAuditLog, PermFeatureRequestsRead, PermFeatureRequestsWrite,
 }
 
 // DefaultUserRolePermissions are the permissions assigned to the built-in
 // "user" role on first startup.
 var DefaultUserRolePermissions = []string{
-	PermQSOWrite, PermQSOExport, PermRigUse,
+	PermQSOWrite, PermQSOExport, PermRigUse, PermFeatureRequestsWrite,
 }
 
 // HasPermission returns true if perms grants key (or wildcard).

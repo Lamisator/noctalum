@@ -1,7 +1,9 @@
 package store
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -17,12 +19,21 @@ type User struct {
 	Username       string     `json:"username"`
 	Callsign       string     `json:"callsign"`
 	PasswordHash   string     `json:"-"`
+	HelperToken    string     `json:"-"` // per-user helper auth token, never sent to the browser in user lists
 	FailedAttempts int        `json:"failed_attempts"`
 	LockedUntil    *time.Time `json:"locked_until,omitempty"`
 	Disabled       bool       `json:"disabled"`
 	CreatedAt      time.Time  `json:"created_at"`
 	Roles          []string   `json:"roles"`
 	Permissions    []string   `json:"permissions"`
+}
+
+func generateHelperToken() string {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand unavailable: " + err.Error())
+	}
+	return hex.EncodeToString(b)
 }
 
 // Role groups a set of permission keys.
@@ -73,7 +84,11 @@ func (s *Store) migrateUsers() error {
 			return fmt.Errorf("migrate users: %w", err)
 		}
 	}
-	return nil
+	// Add helper_token column if not present, then populate any empty slots.
+	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN helper_token TEXT NOT NULL DEFAULT ''`)
+	_, err := s.db.Exec(
+		`UPDATE users SET helper_token = lower(hex(randomblob(24))) WHERE helper_token = ''`)
+	return err
 }
 
 // EnsureBuiltinRoles inserts the default "admin" and "user" roles if missing.
@@ -121,9 +136,9 @@ func (s *Store) CreateUser(username, callsign, plainPassword string, roleNames [
 	defer tx.Rollback()
 
 	res, err := tx.Exec(
-		`INSERT INTO users (username, callsign, password_hash, created_at)
-		 VALUES (?, ?, ?, ?)`,
-		username, callsign, string(hash), time.Now().UTC().Format(time.RFC3339))
+		`INSERT INTO users (username, callsign, password_hash, helper_token, created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		username, callsign, string(hash), generateHelperToken(), time.Now().UTC().Format(time.RFC3339))
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return User{}, ErrUsernameTaken
@@ -226,13 +241,13 @@ func (s *Store) GetUserByUsername(username string) (User, error) {
 
 func (s *Store) getUser(where string, arg interface{}) (User, error) {
 	row := s.db.QueryRow(
-		`SELECT id, username, callsign, password_hash, failed_attempts,
+		`SELECT id, username, callsign, password_hash, helper_token, failed_attempts,
 		        locked_until, disabled, created_at FROM users WHERE `+where, arg)
 	var u User
 	var lockStr sql.NullString
 	var createdStr string
 	var disabledInt int
-	err := row.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash,
+	err := row.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash, &u.HelperToken,
 		&u.FailedAttempts, &lockStr, &disabledInt, &createdStr)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
@@ -259,7 +274,7 @@ func (s *Store) getUser(where string, arg interface{}) (User, error) {
 // ListUsers returns every user with roles + permissions populated.
 func (s *Store) ListUsers() ([]User, error) {
 	rows, err := s.db.Query(
-		`SELECT id, username, callsign, password_hash, failed_attempts,
+		`SELECT id, username, callsign, password_hash, helper_token, failed_attempts,
 		        locked_until, disabled, created_at
 		 FROM users ORDER BY username`)
 	if err != nil {
@@ -272,7 +287,7 @@ func (s *Store) ListUsers() ([]User, error) {
 		var lockStr sql.NullString
 		var createdStr string
 		var disabledInt int
-		if err := rows.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash,
+		if err := rows.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash, &u.HelperToken,
 			&u.FailedAttempts, &lockStr, &disabledInt, &createdStr); err != nil {
 			return nil, err
 		}
@@ -500,6 +515,25 @@ func (s *Store) getRoleByID(id int64) (Role, error) {
 		}
 	}
 	return r, nil
+}
+
+// GetUserByHelperToken looks up a user by their personal helper token.
+func (s *Store) GetUserByHelperToken(token string) (User, error) {
+	if token == "" {
+		return User{}, ErrNotFound
+	}
+	return s.getUser(`helper_token = ?`, token)
+}
+
+// RegenerateHelperToken generates a fresh token for the given user, persists it,
+// and returns the new value.
+func (s *Store) RegenerateHelperToken(userID int64) (string, error) {
+	tok := generateHelperToken()
+	_, err := s.db.Exec(`UPDATE users SET helper_token = ? WHERE id = ?`, tok, userID)
+	if err != nil {
+		return "", err
+	}
+	return tok, nil
 }
 
 // CountAdmins returns how many users currently hold the admin role

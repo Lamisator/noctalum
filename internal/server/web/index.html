@@ -48,17 +48,23 @@
 
 <!-- Contest selection screen -->
 <div id="contest-screen" class="screen login-screen hidden">
-  <div class="login-card wide">
-    <h1>Select Contest</h1>
-    <p class="muted">Choose a contest to participate in.</p>
-    <div id="contest-picker-list" class="contest-picker-list"></div>
-    <div id="contest-create-section" class="hidden" style="margin-top:16px">
-      <button id="create-contest-btn" class="primary" style="width:100%">+ New Contest</button>
+  <div class="contest-screen-layout">
+    <div class="login-card wide">
+      <h1>Select Contest</h1>
+      <p class="muted">Choose a contest to participate in.</p>
+      <div id="contest-picker-list" class="contest-picker-list"></div>
+      <div id="contest-create-section" class="hidden" style="margin-top:16px">
+        <button id="create-contest-btn" class="primary" style="width:100%">+ New Contest</button>
+      </div>
+      <div id="contest-pick-error" class="error" style="margin-top:10px"></div>
+      <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
+        <button id="global-settings-btn" class="ghost perm-required" data-perm="settings.write" style="font-size:12px">&#9881; Global Settings</button>
+        <button id="contest-logout-btn" class="ghost" style="font-size:12px">Sign out</button>
+      </div>
     </div>
-    <div id="contest-pick-error" class="error" style="margin-top:10px"></div>
-    <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
-      <button id="global-settings-btn" class="ghost perm-required" data-perm="settings.write" style="font-size:12px">&#9881; Global Settings</button>
-      <button id="contest-logout-btn" class="ghost" style="font-size:12px">Sign out</button>
+    <div class="downloads-panel" id="downloads-panel">
+      <div class="downloads-panel-title">Download Apps</div>
+      <div id="downloads-list"><p class="muted" style="font-size:12px;margin:0">Loading&#8230;</p></div>
     </div>
   </div>
 </div>
@@ -124,7 +130,7 @@
         <button class="tab tab-perm" data-tab="users" data-perm="users.manage">Users</button>
         <button class="tab tab-perm" data-tab="export" data-perm="qso.export">Export</button>
         <button class="tab tab-perm" data-tab="audit" data-perm="audit.log">Audit Log</button>
-        <button class="tab tab-perm" data-tab="featurerequests" data-perm="feature_requests">Feature Requests</button>
+        <button class="tab tab-perm" data-tab="featurerequests" data-perm="feature_requests.read">Feature Requests</button>
       </nav>
       <div class="rig-status" id="rig-status" title="Selected transceiver">
         <span class="rig-dot"></span>
@@ -347,12 +353,11 @@
             </label>
           </fieldset>
 
-          <fieldset id="helper-fieldset" class="perm-required" data-perm="settings.write">
-            <legend>Helper token</legend>
+          <fieldset id="helper-fieldset">
+            <legend>My helper token</legend>
             <p class="muted small">
-              Give this token to operators along with the
-              <code>contestlog-helper</code> binary.  Each helper presents the
-              token and a rig name (e.g. <code>IC-7300</code>) at startup.
+              Use this personal token with the <code>contestlog-helper</code>
+              binary to connect your transceiver to this station.
             </p>
             <div class="row">
               <input id="s-token" type="text" readonly />

@@ -11,16 +11,15 @@ import (
 var errCancelled = errors.New("cancelled")
 
 type rigPreset struct {
-	label  string
-	model  int
-	device string
-	speed  int
+	label string
+	model int
+	speed int
 }
 
 var builtinPresets = []rigPreset{
-	{"IC-7300", 3073, "/dev/ttyUSB0", 0},
-	{"IC-705", 3085, "/dev/ttyUSB0", 0},
-	{"Custom", 0, "", 0},
+	{"IC-7300", 3073, 0},
+	{"IC-705", 3085, 0},
+	{"Custom", 0, 0},
 }
 
 type tuiConfig struct {
@@ -71,6 +70,33 @@ func runTUI() (tuiConfig, error) {
 			initialPreset = i
 			break
 		}
+	}
+
+	// Detect available serial ports for the rig device field.
+	detectedPorts := detectSerialPorts()
+	usePortDropdown := len(detectedPorts) > 0
+
+	// Build the dropdown option list, ensuring the saved device is always present.
+	var portOptions []string
+	initialPortIdx := 0
+	var selectedDevice string
+	if usePortDropdown {
+		portOptions = append(portOptions, detectedPorts...)
+		if saved.RigDevice != "" {
+			found := false
+			for i, p := range portOptions {
+				if p == saved.RigDevice {
+					initialPortIdx = i
+					found = true
+					break
+				}
+			}
+			if !found {
+				portOptions = append(portOptions, saved.RigDevice)
+				initialPortIdx = len(portOptions) - 1
+			}
+		}
+		selectedDevice = portOptions[initialPortIdx]
 	}
 
 	app := tview.NewApplication()
@@ -126,7 +152,6 @@ func runTUI() (tuiConfig, error) {
 			}
 			set("Rig Name", p.label)
 			set("Rig Model", strconv.Itoa(p.model))
-			set("Serial Device", p.device)
 			if p.speed != 0 {
 				set("Serial Speed", strconv.Itoa(p.speed))
 			} else {
@@ -136,10 +161,19 @@ func runTUI() (tuiConfig, error) {
 		AddInputField("Server URL", str(saved.Server, "http://localhost:8080"), 40, nil, nil).
 		AddInputField("Rig Name", str(saved.Name, p0.label), 30, nil, nil).
 		AddPasswordField("Helper Token", saved.Token, 40, '*', nil).
-		AddInputField("Rig Model", intStr(saved.RigModel, p0.model), 10, tview.InputFieldInteger, nil).
-		AddInputField("Serial Device", str(saved.RigDevice, p0.device), 30, nil, nil).
+		AddInputField("Rig Model", intStr(saved.RigModel, p0.model), 10, tview.InputFieldInteger, nil)
+
+	if usePortDropdown {
+		form.AddDropDown("Serial Device", portOptions, initialPortIdx, func(option string, _ int) {
+			selectedDevice = option
+		})
+	} else {
+		form.AddInputField("Serial Device", str(saved.RigDevice, ""), 30, nil, nil)
+	}
+
+	form.
 		AddInputField("Serial Speed", intStr(saved.RigSpeed, p0.speed), 10, intOrEmpty, nil).
-		AddInputField("rigctld path", str(saved.RigctldBin, "rigctld"), 30, nil, nil).
+		AddInputField("rigctld path", str(saved.RigctldBin, defaultRigctldBin()), 40, nil, nil).
 		AddInputField("Interval (ms)", intStr(saved.IntervalMs, 1000), 10, tview.InputFieldInteger, nil).
 		AddButton("Start", func() {
 			server := inp("Server URL").GetText()
@@ -162,12 +196,18 @@ func runTUI() (tuiConfig, error) {
 			if interval < 250 {
 				interval = 250
 			}
+			var device string
+			if usePortDropdown {
+				device = selectedDevice
+			} else {
+				device = inp("Serial Device").GetText()
+			}
 			result = tuiConfig{
 				Server:     server,
 				Name:       name,
 				Token:      token,
 				RigModel:   model,
-				RigDevice:  inp("Serial Device").GetText(),
+				RigDevice:  device,
 				RigSpeed:   speed,
 				RigctldBin: inp("rigctld path").GetText(),
 				IntervalMs: interval,

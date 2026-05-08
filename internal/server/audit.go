@@ -23,8 +23,9 @@ const (
 	AuditUserDisable        = "user.disable"
 	AuditUserEnable         = "user.enable"
 	AuditUserUnlock         = "user.unlock"
-	AuditUserPasswordReset  = "user.password_reset"
-	AuditUserPasswordChange = "user.password_change"
+	AuditUserPasswordReset   = "user.password_reset"
+	AuditUserPasswordChange  = "user.password_change"
+	AuditUserHelperTokenRegen = "user.helper_token_regen"
 	AuditUserRolesChange    = "user.roles_change"
 	AuditRoleCreate         = "role.create"
 	AuditRoleDelete         = "role.delete"
@@ -41,7 +42,7 @@ var AllAuditActions = []string{
 	AuditLoginSuccess, AuditLoginFailure, AuditLoginLocked, AuditLoginDisabled,
 	AuditLogout,
 	AuditUserCreate, AuditUserDelete, AuditUserDisable, AuditUserEnable,
-	AuditUserUnlock, AuditUserPasswordReset, AuditUserPasswordChange, AuditUserRolesChange,
+	AuditUserUnlock, AuditUserPasswordReset, AuditUserPasswordChange, AuditUserHelperTokenRegen, AuditUserRolesChange,
 	AuditRoleCreate, AuditRoleDelete, AuditRolePermsChange,
 	AuditSettingsChange,
 	AuditContestCreate, AuditContestUpdate,

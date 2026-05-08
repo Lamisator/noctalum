@@ -1,9 +1,10 @@
 services:
   contestlogger:
     image: debian:bookworm-slim
-    command: /app/contestlog-server -addr :8675 -db /data/contestlog.db
+    command: /app/contestlog-server -addr :8675 -db /data/contestlog.db -downloads-dir /downloads
     volumes:
       - ./app/contestlog-server:/app/contestlog-server:ro
+      - ./app/downloads:/downloads:ro
       - ./data:/data
       - /etc/ssl/certs:/etc/ssl/certs:ro
     ports:

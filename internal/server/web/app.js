@@ -540,10 +540,59 @@
 
   async function showContestScreen() {
     $('contest-pick-error').textContent = '';
-    const res = await api('/api/contests');
-    if (res.ok) allContests = await res.json();
+    const [cres, dres] = await Promise.all([
+      api('/api/contests'),
+      fetch('/api/downloads'),
+    ]);
+    if (cres.ok) allContests = await cres.json();
+    let downloads = [];
+    if (dres.ok) downloads = await dres.json().catch(() => []);
     renderContestPicker();
+    renderDownloads(downloads);
     show('contest-screen');
+  }
+
+  function renderDownloads(files) {
+    const list = $('downloads-list');
+    const panel = $('downloads-panel');
+    if (!files || files.length === 0) {
+      panel.classList.add('hidden');
+      return;
+    }
+    panel.classList.remove('hidden');
+
+    const OS_LABELS = {
+      'linux-amd64':   'Linux (x86-64)',
+      'linux-arm64':   'Linux (ARM64)',
+      'darwin-amd64':  'macOS (Intel)',
+      'darwin-arm64':  'macOS (Apple Silicon)',
+      'windows-amd64': 'Windows (x86-64)',
+    };
+    const GROUP_LABELS = {
+      'helper': 'Rig Control Helper',
+      'wsjtx':  'WSJT-X Bridge',
+    };
+
+    const groups = {};
+    for (const f of files) {
+      const m = f.match(/^contestlog-(helper|wsjtx)-(.+?)(?:\.exe)?$/);
+      if (!m) continue;
+      const [, type, platform] = m;
+      if (!groups[type]) groups[type] = [];
+      groups[type].push({ file: f, platform });
+    }
+
+    let html = '';
+    for (const [type, items] of Object.entries(groups)) {
+      const groupName = GROUP_LABELS[type] || type;
+      html += `<div class="downloads-group"><div class="downloads-group-name">${escHtml(groupName)}</div>`;
+      for (const { file, platform } of items) {
+        const label = OS_LABELS[platform] || platform;
+        html += `<a class="downloads-link" href="/downloads/${encodeURIComponent(file)}" download>${escHtml(label)}</a>`;
+      }
+      html += '</div>';
+    }
+    list.innerHTML = html || '<p class="muted" style="font-size:12px;margin:0">No files available.</p>';
   }
 
   function renderContestPicker() {
@@ -847,7 +896,7 @@
       if (hasPerm(el.dataset.perm)) el.removeAttribute('data-perm-denied');
       else el.setAttribute('data-perm-denied', '1');
     });
-    $('feature-request-btn').classList.toggle('hidden', !hasPerm('feature_requests'));
+    $('feature-request-btn').classList.toggle('hidden', !hasPerm('feature_requests.write'));
   }
 
   // ----- mode/band fillers -----
@@ -1007,6 +1056,7 @@
 
   // ----- QRZ lookup -----
   let qrzLookupTimer = null;
+  let renderQsosTimer = null;
 
   function clearQRZInfo() {
     $('q-name').value = '';
@@ -1121,7 +1171,8 @@
     const call = $('q-call').value.trim().toUpperCase();
     if (editingQsoId === null) {
       callsignFilter = call || null;
-      renderQsos();
+      clearTimeout(renderQsosTimer);
+      renderQsosTimer = setTimeout(renderQsos, 150);
     }
     updateDuplicateBadge();
     updateCallCountry(call);
@@ -1489,10 +1540,8 @@
     settings = await res.json();
     fillSelect($('s-mode'), MODES, settings.default_mode || 'SSB');
     fillSelect($('s-band'), BANDS, settings.default_band || '20m');
-    if ('helper_token' in settings) {
-      $('s-token').value = settings.helper_token || '';
-      $('hint-token').textContent = settings.helper_token || '...';
-    }
+    $('s-token').value = me?.helper_token || '';
+    $('hint-token').textContent = me?.helper_token || '...';
     $('hint-server').textContent = location.origin;
     if ('qrz_username' in settings) {
       $('s-qrz-user').value = settings.qrz_username || '';
@@ -1546,15 +1595,12 @@
     }
   });
   $('regen-token').addEventListener('click', async () => {
-    if (!confirm('Generate a new helper token?  All existing helpers will need to be restarted with the new value.')) return;
-    const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify({
-      default_mode: $('s-mode').value,
-      default_band: $('s-band').value,
-      regen_helper_token: true,
-    })});
+    if (!confirm('Generate a new helper token?  Your helper will need to be restarted with the new value.')) return;
+    const res = await api('/api/me/helper-token', { method: 'POST' });
     if (res.ok) {
       const j = await res.json();
       if (j.helper_token) {
+        if (me) me.helper_token = j.helper_token;
         $('s-token').value = j.helper_token;
         $('hint-token').textContent = j.helper_token;
       }
@@ -2392,7 +2438,7 @@
   }
 
   async function refreshFeatureRequests() {
-    if (!hasPerm('feature_requests')) return;
+    if (!hasPerm('feature_requests.read')) return;
     const res = await api('/api/feature-requests');
     if (!res.ok) return;
     featureRequests = await res.json();
