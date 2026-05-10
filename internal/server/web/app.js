@@ -589,14 +589,20 @@
       'darwin-arm64':  'macOS (Apple Silicon)',
       'windows-amd64': 'Windows (x86-64)',
     };
+    // Three types matched in one regex: helper-gui must come BEFORE helper
+    // (greedy alternation), or "contestlog-helper-gui-linux-amd64" lands in
+    // the plain-helper bucket with platform=="gui-linux-amd64", and the user
+    // sees an unlabelled link they can't distinguish from the curses CLI.
     const GROUP_LABELS = {
-      'helper': 'Rig Control Helper',
-      'wsjtx':  'WSJT-X Bridge',
+      'helper-gui': 'Rig Control Helper — GUI (recommended)',
+      'helper':     'Rig Control Helper — CLI / curses',
+      'wsjtx':      'WSJT-X Bridge',
     };
+    const GROUP_ORDER = ['helper-gui', 'helper', 'wsjtx'];
 
     const groups = {};
     for (const f of files) {
-      const m = f.match(/^contestlog-(helper|wsjtx)-(.+?)(?:\.exe)?$/);
+      const m = f.match(/^contestlog-(helper-gui|helper|wsjtx)-(.+?)(?:\.exe)?$/);
       if (!m) continue;
       const [, type, platform] = m;
       if (!groups[type]) groups[type] = [];
@@ -604,7 +610,9 @@
     }
 
     let html = '';
-    for (const [type, items] of Object.entries(groups)) {
+    for (const type of GROUP_ORDER) {
+      const items = groups[type];
+      if (!items || items.length === 0) continue;
       const groupName = GROUP_LABELS[type] || type;
       html += `<div class="downloads-group"><div class="downloads-group-name">${escHtml(groupName)}</div>`;
       for (const { file, platform } of items) {
