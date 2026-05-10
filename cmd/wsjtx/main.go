@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 const (
@@ -67,26 +69,32 @@ func main() {
 		os.Exit(1)
 	}
 
+	server := *serverFlag
+	if !strings.HasPrefix(server, "http://") && !strings.HasPrefix(server, "https://") {
+		server = "https://" + server
+	}
+
 	pass := *passFlag
 	if pass == "" {
 		fmt.Fprint(os.Stderr, "Password: ")
-		p, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		pBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(os.Stderr)
 		if err != nil {
 			log.Fatalf("read password: %v", err)
 		}
-		pass = strings.TrimRight(p, "\r\n")
+		pass = string(pBytes)
 	}
 
 	jar, _ := cookiejar.New(nil)
 	hc := &http.Client{Jar: jar, Timeout: 15 * time.Second}
 
-	csrfToken, err := doLogin(hc, *serverFlag, *userFlag, pass)
+	csrfToken, err := doLogin(hc, server, *userFlag, pass)
 	if err != nil {
 		log.Fatalf("login failed: %v", err)
 	}
 	log.Printf("logged in as %s", *userFlag)
 
-	contests, err := getContests(hc, *serverFlag)
+	contests, err := getContests(hc, server)
 	if err != nil {
 		log.Fatalf("list contests: %v", err)
 	}
@@ -95,7 +103,7 @@ func main() {
 	}
 
 	contestID := pickContest(contests)
-	if err := doSelectContest(hc, *serverFlag, csrfToken, contestID); err != nil {
+	if err := doSelectContest(hc, server, csrfToken, contestID); err != nil {
 		log.Fatalf("select contest: %v", err)
 	}
 	log.Printf("contest selected; listening for WSJT-X on %s", *udpFlag)
@@ -117,7 +125,7 @@ func main() {
 		if err != nil {
 			continue // not a LOG_QSO packet, silently ignore
 		}
-		if err := submitQSO(hc, *serverFlag, csrfToken, msg, *forceDupFlag); err != nil {
+		if err := submitQSO(hc, server, csrfToken, msg, *forceDupFlag); err != nil {
 			log.Printf("submit %s: %v", msg.DxCall, err)
 		} else {
 			log.Printf("logged: %-12s  %-8s  sent=%-4s  rcvd=%s",
