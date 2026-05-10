@@ -6,12 +6,12 @@
 # Windows (so each operator can grab the right binary for their PC).
 #
 # Usage:
-#   ./build.sh                          # build all defaults (no GUI)
+#   ./build.sh                          # build everything (server, helper, wsjtx, GUI)
 #   ./build.sh --server-only            # only the contestlog server
 #   ./build.sh --helper-only            # only the contestlog-helper
 #   ./build.sh --wsjtx-only             # only the contestlog-wsjtx bridge
 #   ./build.sh --gui-only               # only the contestlog-helper-gui (linux/amd64)
-#   ./build.sh --with-gui               # defaults plus the GUI helper
+#   ./build.sh --no-gui                 # skip the GUI helper
 #   ./build.sh --target linux/amd64     # restrict to one OS/arch
 #   ./build.sh --image golang:1.23      # use a different builder image
 #
@@ -40,7 +40,7 @@ usage() {
 build_server=true
 build_helper=true
 build_wsjtx=true
-build_gui=false
+build_gui=true
 single_target=""
 
 while [ $# -gt 0 ]; do
@@ -49,7 +49,7 @@ while [ $# -gt 0 ]; do
     --helper-only) build_server=false; build_wsjtx=false; build_gui=false; shift ;;
     --wsjtx-only)  build_server=false; build_helper=false; build_gui=false; shift ;;
     --gui-only)    build_server=false; build_helper=false; build_wsjtx=false; build_gui=true; shift ;;
-    --with-gui)    build_gui=true; shift ;;
+    --no-gui)      build_gui=false; shift ;;
     --target)      single_target="$2"; shift 2 ;;
     --image)       GO_IMAGE="$2"; shift 2 ;;
     -h|--help)     usage; exit 0 ;;
