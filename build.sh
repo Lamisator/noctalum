@@ -154,7 +154,8 @@ DOCKERFILE
     -e GOMODCACHE=/go/pkg/mod \
     -e CGO_ENABLED=1 \
     "$gui_image" \
-    go build -trimpath -tags webkit2_41 -ldflags="$LDFLAGS" \
+    go build -trimpath -tags "desktop,production,webkit2_41" \
+      -ldflags="$LDFLAGS" \
       -o "/src/dist/$out" .
 }
 
