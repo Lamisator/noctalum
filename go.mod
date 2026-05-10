@@ -6,6 +6,7 @@ require (
 	github.com/go-webauthn/webauthn v0.10.2
 	github.com/gorilla/websocket v1.5.3
 	github.com/rivo/tview v0.42.0
+	github.com/wailsapp/wails/v2 v2.9.2
 	golang.org/x/crypto v0.23.0
 	golang.org/x/term v0.28.0
 	modernc.org/sqlite v1.28.0

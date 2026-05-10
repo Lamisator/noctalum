@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>ContestLog Helper</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">ContestLog<span class="brand-dot">•</span>Helper</span>
+    <span class="version" id="version">v0.1.0</span>
+  </header>
+
+  <main class="shell">
+    <!-- ============ Profile bar ============ -->
+    <section class="profile-bar card">
+      <label class="field" style="flex:1; min-width: 220px;">
+        <span class="field-label">Profile</span>
+        <select id="profile-select"></select>
+      </label>
+      <div class="profile-actions">
+        <button id="btn-new-profile" class="btn ghost">New</button>
+        <button id="btn-save-profile" class="btn ghost">Save</button>
+        <button id="btn-delete-profile" class="btn ghost danger">Delete</button>
+      </div>
+    </section>
+
+    <!-- ============ Phase row ============ -->
+    <section class="phases card">
+      <ol class="phase-list" id="phase-list">
+        <!-- populated by JS -->
+      </ol>
+      <div class="phase-message" id="phase-message">Click <strong>Connect</strong> to start.</div>
+    </section>
+
+    <!-- ============ Connect controls ============ -->
+    <section class="controls card">
+      <label class="toggle">
+        <input type="checkbox" id="auto-detect" checked />
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">Auto-detect serial port, transceiver, and baud rate</span>
+      </label>
+      <div class="control-buttons">
+        <button id="btn-connect" class="btn primary">Connect</button>
+        <button id="btn-disconnect" class="btn ghost" disabled>Disconnect</button>
+      </div>
+    </section>
+
+    <!-- ============ Manual configuration ============ -->
+    <section class="card config" id="config-card">
+      <header class="card-header">
+        <h2>Configuration</h2>
+        <span class="muted" id="config-hint">Fields below are used in manual mode and as fallbacks for auto-detect.</span>
+      </header>
+      <div class="grid">
+        <label class="field">
+          <span class="field-label">Profile name</span>
+          <input id="cfg-name" type="text" placeholder="e.g. Shack IC-7300" />
+        </label>
+        <label class="field">
+          <span class="field-label">Server URL</span>
+          <input id="cfg-server" type="text" placeholder="https://contestlog.example.org" />
+        </label>
+        <label class="field">
+          <span class="field-label">Helper Token</span>
+          <input id="cfg-token" type="password" placeholder="from ContestLog → Settings" />
+        </label>
+        <label class="field">
+          <span class="field-label">Rig display name</span>
+          <input id="cfg-rig-name" type="text" placeholder="IC-7300" />
+        </label>
+        <label class="field">
+          <span class="field-label">Rig model (Hamlib)</span>
+          <select id="cfg-rig-model"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Custom model #</span>
+          <input id="cfg-rig-model-custom" type="number" placeholder="auto" />
+        </label>
+        <label class="field">
+          <span class="field-label">Serial device</span>
+          <select id="cfg-rig-device"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Custom device path</span>
+          <input id="cfg-rig-device-custom" type="text" placeholder="/dev/ttyUSB0 or COM3" />
+        </label>
+        <label class="field">
+          <span class="field-label">Baud rate</span>
+          <select id="cfg-rig-speed">
+            <option value="0">auto</option>
+            <option>4800</option>
+            <option>9600</option>
+            <option>19200</option>
+            <option>38400</option>
+            <option>57600</option>
+            <option>115200</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">rigctld binary</span>
+          <input id="cfg-rigctld-bin" type="text" />
+        </label>
+        <label class="field">
+          <span class="field-label">Polling interval (ms)</span>
+          <input id="cfg-interval" type="number" value="1000" />
+        </label>
+      </div>
+    </section>
+
+    <!-- ============ rigctld parameters readout ============ -->
+    <section class="card readout hidden" id="readout-card">
+      <header class="card-header">
+        <h2>rigctld parameters</h2>
+        <span class="muted">These flags are passed to rigctld for the active session.</span>
+      </header>
+      <table class="readout-table">
+        <tbody id="readout-body"></tbody>
+      </table>
+    </section>
+
+    <!-- ============ Log ============ -->
+    <section class="card log-card">
+      <header class="card-header">
+        <h2>Activity log</h2>
+        <button id="btn-clear-log" class="btn tiny ghost">Clear</button>
+      </header>
+      <pre id="log"></pre>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

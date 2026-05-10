@@ -1,0 +1,9 @@
+{
+  "name": "contestlog-helper-gui-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Static (no-build) frontend for contestlog-helper-gui. Files in dist/ are embedded directly into the Go binary via go:embed.",
+  "scripts": {
+    "build": "echo 'no build step - dist/ is hand-written'"
+  }
+}

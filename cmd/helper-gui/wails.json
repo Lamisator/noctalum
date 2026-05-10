@@ -1,0 +1,17 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "contestlog-helper-gui",
+  "outputfilename": "contestlog-helper-gui",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "frontend:dev:serverUrl": "",
+  "author": {
+    "name": "ContestLog"
+  },
+  "info": {
+    "productName": "ContestLog Helper",
+    "productVersion": "0.1.0",
+    "comments": "Auto-configuring rig helper for ContestLog."
+  }
+}
