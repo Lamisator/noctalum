@@ -6,12 +6,6 @@
 
 const PHASES = [
   {
-    id: "detect-trx",
-    label: "Determining TRX",
-    // tabler-icons "broadcast"
-    svg: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.929 19.071a10 10 0 0 1 0 -14.142"/><path d="M7.757 16.243a6 6 0 0 1 0 -8.486"/><path d="M16.243 7.757a6 6 0 0 1 0 8.486"/><path d="M19.071 4.929a10 10 0 0 1 0 14.142"/><circle cx="12" cy="12" r="1.5"/></svg>',
-  },
-  {
     id: "baud",
     label: "Testing baud rate",
     // tabler-icons "gauge"
@@ -255,8 +249,10 @@ $("btn-connect").addEventListener("click", async () => {
   if (!cfg.server)   return appendLog("server URL is required", true);
   if (!cfg.token)    return appendLog("helper token is required", true);
   if (!cfg.rig_name) return appendLog("rig display name is required", true);
-  if (!cfg.auto_detect && !cfg.rig_model) {
-    return appendLog("rig model is required when auto-detect is off", true);
+  if (!cfg.rig_model) return appendLog("rig model is required — pick one from the list", true);
+  if (!cfg.rig_device) return appendLog("serial device is required", true);
+  if (!cfg.auto_detect && !cfg.rig_speed) {
+    return appendLog("baud rate is required when auto-detect is off", true);
   }
   resetPhases();
   try {

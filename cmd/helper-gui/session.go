@@ -14,8 +14,9 @@ import (
 )
 
 // ConnectRequest is what the frontend sends when the operator clicks Connect.
-// AutoDetect=true tells the helper to run the TRX + baud probe phases first;
-// otherwise we go straight to "Connecting" using whatever the request set.
+// The rig model and serial device must always be supplied; AutoDetect=true
+// only triggers the baud-rate probe phase, otherwise the request's RigSpeed
+// is used as-is.
 type ConnectRequest struct {
 	AutoDetect bool   `json:"auto_detect"`
 	Server     string `json:"server"`
@@ -28,8 +29,8 @@ type ConnectRequest struct {
 	IntervalMs int    `json:"interval_ms"`
 }
 
-// runSession is the goroutine started by Connect; it walks the four phases
-// and then runs the rigctld → ContestLog bridge until ctx is cancelled.
+// runSession is the goroutine started by Connect; it walks the phases and
+// then runs the rigctld → ContestLog bridge until ctx is cancelled.
 func (a *App) runSession(ctx context.Context, req ConnectRequest) error {
 	if req.RigctldBin == "" {
 		req.RigctldBin = defaultRigctldBin()
@@ -42,38 +43,37 @@ func (a *App) runSession(ctx context.Context, req ConnectRequest) error {
 		a.emitPhase(PhaseConnecting, StateError, err.Error())
 		return err
 	}
+	if req.RigModel == 0 {
+		err := errors.New("Rig model is required — pick one from the list")
+		a.emitPhase(PhaseBaud, StateError, err.Error())
+		return err
+	}
+	if req.RigDevice == "" {
+		err := errors.New("Serial device is required")
+		a.emitPhase(PhaseBaud, StateError, err.Error())
+		return err
+	}
 
-	// --- Phase 1: Determining TRX ----------------------------------------
+	label := rigByModel(req.RigModel)
+	if label == "" {
+		label = fmt.Sprintf("model %d", req.RigModel)
+	}
+
+	// --- Phase 1: Testing baud rate -------------------------------------
 	if req.AutoDetect {
-		a.emitPhase(PhaseDetectTRX, StateActive, "Detecting transceiver…")
-
-		devices := []string{req.RigDevice}
-		if req.RigDevice == "" {
-			devices = detectSerialPorts()
-		}
-		res, err := a.detectTRX(ctx, req.RigctldBin, devices)
+		a.emitPhase(PhaseBaud, StateActive, "Searching for the best baud rate…")
+		best, err := a.detectBestBaud(ctx, req.RigctldBin, req.RigModel, req.RigDevice, label)
 		if err != nil {
-			a.emitPhase(PhaseDetectTRX, StateError, err.Error())
+			a.emitPhase(PhaseBaud, StateError, err.Error())
 			return err
 		}
-		a.emitPhase(PhaseDetectTRX, StateDone,
-			fmt.Sprintf("%s on %s", res.Label, res.Device))
-		req.RigModel = res.Model
-		req.RigDevice = res.Device
-		// Seed speed; the baud phase tries to upgrade from this floor.
-		req.RigSpeed = res.Speed
-
-		// --- Phase 2: Testing baud rate ----------------------------------
-		a.emitPhase(PhaseBaud, StateActive, "Searching for the best baud rate…")
-		best := a.detectBestBaud(ctx, req.RigctldBin, *res)
 		req.RigSpeed = best
 		a.emitPhase(PhaseBaud, StateDone, fmt.Sprintf("%d baud", best))
 	} else {
-		a.emitPhase(PhaseDetectTRX, StateSkipped, "Manual configuration")
-		a.emitPhase(PhaseBaud, StateSkipped, "Manual configuration")
+		a.emitPhase(PhaseBaud, StateSkipped, "Manual baud rate")
 	}
 
-	// --- Phase 3: Connecting --------------------------------------------
+	// --- Phase 2: Connecting --------------------------------------------
 	a.emitPhase(PhaseConnecting, StateActive, "Starting rigctld and joining server…")
 
 	port, err := freePort()
@@ -116,7 +116,7 @@ func (a *App) runSession(ctx context.Context, req ConnectRequest) error {
 
 	a.emitPhase(PhaseConnecting, StateDone, "rigctld is up")
 
-	// --- Phase 4: Connected ---------------------------------------------
+	// --- Phase 3: Connected ---------------------------------------------
 	a.emitPhase(PhaseConnected, StateActive, "Streaming rig state to the server")
 	err = a.bridge(ctx, req, args.Host, args.Port)
 	if errors.Is(err, context.Canceled) {

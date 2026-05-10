@@ -56,11 +56,10 @@ func (a *App) emitLog(format string, args ...any) {
 	}
 }
 
-// Phase is the lifecycle of a Connect attempt as shown by the four step icons.
+// Phase is the lifecycle of a Connect attempt as shown by the step icons.
 type Phase string
 
 const (
-	PhaseDetectTRX  Phase = "detect-trx"
 	PhaseBaud       Phase = "baud"
 	PhaseConnecting Phase = "connecting"
 	PhaseConnected  Phase = "connected"
