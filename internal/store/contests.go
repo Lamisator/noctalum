@@ -12,14 +12,19 @@ var ErrContestNotFound = errors.New("contest not found")
 
 // Contest represents a single ham radio contest event.
 type Contest struct {
-	ID          int64     `json:"id"`
-	Name        string    `json:"name"`
-	StationCall string    `json:"station_call"`
-	QTH         string    `json:"qth"`       // Maidenhead locator of the station
-	Status      string    `json:"status"`    // "open" | "finished"
-	Bands       []string  `json:"bands"`     // active bands for this contest
-	Objective   string    `json:"objective"` // markdown text
-	CreatedAt   time.Time `json:"created_at"`
+	ID           int64     `json:"id"`
+	Name         string    `json:"name"`
+	StationCall  string    `json:"station_call"`
+	StationID    string    `json:"station_id"` // contest-specific operator/station identifier
+	QTH          string    `json:"qth"`        // Maidenhead locator of the station
+	Status       string    `json:"status"`     // "open" | "finished"
+	Bands        []string  `json:"bands"`      // active bands for this contest
+	Objective    string    `json:"objective"`  // markdown text
+	Private      bool      `json:"private"`    // owner-only contest
+	OwnerUserID  int64     `json:"owner_user_id"`
+	CustomFields string    `json:"custom_fields"` // JSON-encoded array of {name,label,type,required,order}
+	QSOLayout    string    `json:"qso_layout"`    // JSON-encoded {cols, items:[{key,x,y,w}]} for the New QSO mask
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 func bandsToString(bands []string) string { return strings.Join(bands, ",") }
@@ -55,6 +60,24 @@ func (s *Store) migrateContests() error {
 	if err := s.addColumnIfMissing("contests", "objective", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return fmt.Errorf("migrate contests objective: %w", err)
 	}
+	if err := s.addColumnIfMissing("contests", "station_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("migrate contests station_id: %w", err)
+	}
+	if err := s.addColumnIfMissing("contests", "private", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("migrate contests private: %w", err)
+	}
+	if err := s.addColumnIfMissing("contests", "owner_user_id", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("migrate contests owner_user_id: %w", err)
+	}
+	if err := s.addColumnIfMissing("contests", "custom_fields", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("migrate contests custom_fields: %w", err)
+	}
+	if err := s.addColumnIfMissing("contests", "qso_layout", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("migrate contests qso_layout: %w", err)
+	}
+	if err := s.addColumnIfMissing("qsos", "extras", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("migrate qsos extras: %w", err)
+	}
 	return s.addColumnIfMissing("qsos", "contest_id", "INTEGER")
 }
 
@@ -85,14 +108,19 @@ func (s *Store) addColumnIfMissing(table, column, colType string) error {
 }
 
 // CreateContest inserts a new contest in 'open' status.
-func (s *Store) CreateContest(name, stationCall, qth string, bands []string, objective string) (*Contest, error) {
+func (s *Store) CreateContest(name, stationCall, qth string, bands []string, objective, stationID string, private bool, ownerUserID int64, customFields, qsoLayout string) (*Contest, error) {
 	name = strings.TrimSpace(name)
 	stationCall = strings.ToUpper(strings.TrimSpace(stationCall))
 	qth = strings.ToUpper(strings.TrimSpace(qth))
+	stationID = strings.TrimSpace(stationID)
+	priv := 0
+	if private {
+		priv = 1
+	}
 	now := time.Now().UTC()
 	res, err := s.db.Exec(
-		`INSERT INTO contests (name, station_call, qth, bands, objective, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)`,
-		name, stationCall, qth, bandsToString(bands), objective, now.Format(time.RFC3339),
+		`INSERT INTO contests (name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
+		name, stationCall, qth, bandsToString(bands), objective, stationID, priv, ownerUserID, customFields, qsoLayout, now.Format(time.RFC3339),
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
@@ -101,13 +129,13 @@ func (s *Store) CreateContest(name, stationCall, qth string, bands []string, obj
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
-	return &Contest{ID: id, Name: name, StationCall: stationCall, QTH: qth, Bands: bands, Objective: objective, Status: "open", CreatedAt: now}, nil
+	return &Contest{ID: id, Name: name, StationCall: stationCall, QTH: qth, Bands: bands, Objective: objective, Status: "open", StationID: stationID, Private: private, OwnerUserID: ownerUserID, CustomFields: customFields, QSOLayout: qsoLayout, CreatedAt: now}, nil
 }
 
 // ListContests returns all contests, newest first.
 func (s *Store) ListContests() ([]Contest, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, station_call, qth, bands, objective, status, created_at FROM contests ORDER BY created_at DESC`)
+		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, created_at FROM contests ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -116,9 +144,11 @@ func (s *Store) ListContests() ([]Contest, error) {
 	for rows.Next() {
 		var c Contest
 		var t, bandsStr string
-		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &t); err != nil {
+		var priv int
+		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &t); err != nil {
 			return nil, err
 		}
+		c.Private = priv != 0
 		c.Bands = bandsFromString(bandsStr)
 		c.CreatedAt, _ = time.Parse(time.RFC3339, t)
 		out = append(out, c)
@@ -129,26 +159,29 @@ func (s *Store) ListContests() ([]Contest, error) {
 // GetContest returns a single contest by ID.
 func (s *Store) GetContest(id int64) (*Contest, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, station_call, qth, bands, objective, status, created_at FROM contests WHERE id = ?`, id)
+		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, created_at FROM contests WHERE id = ?`, id)
 	var c Contest
 	var t, bandsStr string
-	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &t); err != nil {
+	var priv int
+	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &t); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrContestNotFound
 		}
 		return nil, err
 	}
+	c.Private = priv != 0
 	c.Bands = bandsFromString(bandsStr)
 	c.CreatedAt, _ = time.Parse(time.RFC3339, t)
 	return &c, nil
 }
 
 // UpdateContest updates name, station_call, qth, bands, objective and status of an existing contest.
-func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, bands []string, objective string) error {
+func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, bands []string, objective, stationID, customFields, qsoLayout string) error {
 	_, err := s.db.Exec(
-		`UPDATE contests SET name = ?, station_call = ?, qth = ?, bands = ?, objective = ?, status = ? WHERE id = ?`,
+		`UPDATE contests SET name = ?, station_call = ?, qth = ?, bands = ?, objective = ?, status = ?, station_id = ?, custom_fields = ?, qso_layout = ? WHERE id = ?`,
 		strings.TrimSpace(name), strings.ToUpper(strings.TrimSpace(stationCall)),
-		strings.ToUpper(strings.TrimSpace(qth)), bandsToString(bands), objective, status, id,
+		strings.ToUpper(strings.TrimSpace(qth)), bandsToString(bands), objective, status,
+		strings.TrimSpace(stationID), customFields, qsoLayout, id,
 	)
 	return err
 }

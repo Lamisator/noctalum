@@ -34,6 +34,7 @@ type QSO struct {
 	StationCall string    `json:"station_call"`
 	Notes       string    `json:"notes"`
 	ContestName string    `json:"contest_name"`
+	Extras      string    `json:"extras,omitempty"` // JSON-encoded custom-field values
 }
 
 // Settings holds global defaults; station/contest info lives in each Contest.
@@ -168,8 +169,8 @@ func (s *Store) InsertQSO(q *QSO) (int64, error) {
 	res, err := s.db.Exec(
 		`INSERT INTO qsos (time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
 			nr_sent, nr_received, dok,
-			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, contest_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, contest_id, extras)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		q.Time.Format(time.RFC3339),
 		strings.ToUpper(q.Callsign),
 		q.Name,
@@ -177,7 +178,7 @@ func (s *Store) InsertQSO(q *QSO) (int64, error) {
 		q.NrSent, q.NrReceived, strings.ToUpper(q.DOK),
 		strings.ToUpper(q.Locator), q.ITUZone, q.CQZone, q.Lighthouse,
 		strings.ToUpper(q.Operator), strings.ToUpper(q.StationCall), q.Notes, q.ContestName,
-		q.ContestID,
+		q.ContestID, q.Extras,
 	)
 	if err != nil {
 		return 0, err
@@ -195,7 +196,7 @@ func (s *Store) ListQSOs(contestID int64, limit int) ([]QSO, error) {
 	rows, err := s.db.Query(
 		`SELECT id, contest_id, time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
 			nr_sent, nr_received, dok,
-			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name
+			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, extras
 		 FROM qsos WHERE contest_id = ? ORDER BY id DESC LIMIT ?`, contestID, limit)
 	if err != nil {
 		return nil, err
@@ -208,7 +209,7 @@ func (s *Store) ListQSOs(contestID int64, limit int) ([]QSO, error) {
 		if err := rows.Scan(&q.ID, &q.ContestID, &t, &q.Callsign, &q.Name, &q.Band, &q.FreqHz, &q.Mode,
 			&q.RSTSent, &q.RSTReceived, &q.NrSent, &q.NrReceived, &q.DOK,
 			&q.Locator, &q.ITUZone, &q.CQZone,
-			&q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName); err != nil {
+			&q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName, &q.Extras); err != nil {
 			return nil, err
 		}
 		q.Time, _ = time.Parse(time.RFC3339, t)
@@ -222,7 +223,7 @@ func (s *Store) AllQSOs(contestID int64) ([]QSO, error) {
 	rows, err := s.db.Query(
 		`SELECT id, contest_id, time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
 			nr_sent, nr_received, dok,
-			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name
+			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, extras
 		 FROM qsos WHERE contest_id = ? ORDER BY time_utc ASC, id ASC`, contestID)
 	if err != nil {
 		return nil, err
@@ -235,7 +236,7 @@ func (s *Store) AllQSOs(contestID int64) ([]QSO, error) {
 		if err := rows.Scan(&q.ID, &q.ContestID, &t, &q.Callsign, &q.Name, &q.Band, &q.FreqHz, &q.Mode,
 			&q.RSTSent, &q.RSTReceived, &q.NrSent, &q.NrReceived, &q.DOK,
 			&q.Locator, &q.ITUZone, &q.CQZone,
-			&q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName); err != nil {
+			&q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName, &q.Extras); err != nil {
 			return nil, err
 		}
 		q.Time, _ = time.Parse(time.RFC3339, t)
@@ -278,13 +279,13 @@ func (s *Store) UpdateQSO(q *QSO) error {
 	_, err := s.db.Exec(
 		`UPDATE qsos SET time_utc=?, callsign=?, name=?, band=?, freq_hz=?, mode=?,
 			rst_sent=?, rst_received=?, nr_sent=?, nr_received=?, dok=?,
-			locator=?, itu_zone=?, cq_zone=?, lighthouse=?, notes=?
+			locator=?, itu_zone=?, cq_zone=?, lighthouse=?, notes=?, extras=?
 		 WHERE id=?`,
 		q.Time.Format(time.RFC3339),
 		strings.ToUpper(q.Callsign), q.Name,
 		q.Band, q.FreqHz, q.Mode, q.RSTSent, q.RSTReceived,
 		q.NrSent, q.NrReceived, strings.ToUpper(q.DOK),
-		strings.ToUpper(q.Locator), q.ITUZone, q.CQZone, q.Lighthouse, q.Notes,
+		strings.ToUpper(q.Locator), q.ITUZone, q.CQZone, q.Lighthouse, q.Notes, q.Extras,
 		q.ID,
 	)
 	return err
@@ -294,13 +295,13 @@ func (s *Store) GetQSO(id int64) (*QSO, error) {
 	row := s.db.QueryRow(
 		`SELECT id, contest_id, time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
 			nr_sent, nr_received, dok,
-			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name
+			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, extras
 		 FROM qsos WHERE id = ?`, id)
 	var q QSO
 	var ts string
 	err := row.Scan(&q.ID, &q.ContestID, &ts, &q.Callsign, &q.Name, &q.Band, &q.FreqHz, &q.Mode,
 		&q.RSTSent, &q.RSTReceived, &q.NrSent, &q.NrReceived, &q.DOK,
-		&q.Locator, &q.ITUZone, &q.CQZone, &q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName)
+		&q.Locator, &q.ITUZone, &q.CQZone, &q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName, &q.Extras)
 	if err != nil {
 		return nil, err
 	}

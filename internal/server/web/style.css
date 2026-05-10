@@ -103,13 +103,15 @@ a { color: var(--accent); text-decoration: none; }
   flex-shrink: 0;
 }
 .station-area {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 8px;
   pointer-events: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 .topbar-right {
   display: flex;
@@ -127,12 +129,7 @@ a { color: var(--accent); text-decoration: none; }
   white-space: nowrap;
 }
 
-/* Station area wraps feature-request button + pill */
-.station-area {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
+/* (Station-area declared above; this block intentionally left empty.) */
 .fr-btn {
   font-size: 12px;
   padding: 4px 10px;
@@ -152,6 +149,15 @@ a { color: var(--accent); text-decoration: none; }
   cursor: pointer;
   user-select: none;
   transition: background .15s, border-color .15s;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+.station-pill .station-call,
+.station-pill .station-contest-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .station-pill:hover {
   background: var(--accent-dim);
@@ -223,20 +229,58 @@ a { color: var(--accent); text-decoration: none; }
 .tab-pane { display: none; height: 100%; padding: 16px; overflow: auto; }
 .tab-pane.active { display: block; }
 
-.layout-grid {
-  display: grid;
-  grid-template-columns: 210px 1fr 280px;
-  grid-template-rows: auto 1fr;
-  grid-template-areas:
-    "left entry ops"
-    "left history ops";
-  gap: 14px;
-  height: 100%;
+/* Logging tab overrides — must not scroll at the tab level */
+#tab-log { padding: 14px; overflow: hidden; }
+#tab-log.active { display: flex; flex-direction: column; }
+
+.layout-outer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  gap: 0;
 }
-.left-panel  { grid-area: left; display: flex; flex-direction: column; align-items: center; gap: 12px; overflow-y: auto; }
-.entry-panel { grid-area: entry; }
-.history-panel { grid-area: history; display: flex; flex-direction: column; min-height: 0; }
-.ops-panel { grid-area: ops; }
+
+/* Panel resizer handles */
+.panel-resizer {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  background: transparent;
+}
+.panel-resizer::after {
+  content: '';
+  position: absolute;
+  background: var(--border);
+  transition: background .15s;
+  border-radius: 2px;
+}
+.panel-resizer:hover::after,
+.panel-resizer.dragging::after { background: var(--accent); }
+.panel-resizer-v {
+  width: 14px;
+  cursor: col-resize;
+}
+.panel-resizer-v::after {
+  top: 40%; bottom: 40%;
+  left: 6px;
+  width: 2px;
+}
+.panel-resizer-h {
+  height: 14px;
+  cursor: row-resize;
+}
+.panel-resizer-h::after {
+  left: 40%; right: 40%;
+  top: 6px;
+  height: 2px;
+}
+
+.left-panel  { width: var(--left-w, 210px); min-width: 80px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; overflow-y: auto; }
+.center-col  { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.entry-panel { height: var(--entry-h, auto); min-height: fit-content; flex-shrink: 0; overflow-y: auto; }
+.history-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ops-panel   { width: var(--right-w, 280px); min-width: 120px; flex-shrink: 0; overflow-y: auto; display: flex; flex-direction: column; }
 
 /* ==== Cards ==== */
 .card {
@@ -656,7 +700,13 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
   padding: 20px 24px;
   min-width: 360px;
   max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: var(--shadow);
+}
+.modal-card.modal-wide {
+  max-width: min(860px, 92vw);
+  width: min(860px, 92vw);
 }
 .modal-card h3 { margin: 0 0 12px; color: var(--accent); }
 .modal-card label { display: block; margin: 10px 0 4px; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -793,6 +843,53 @@ code {
 .downloads-link:last-child { border-bottom: none; }
 .downloads-link:hover { color: var(--accent); }
 
+/* ==== Admin entries on contest selection screen ==== */
+.contest-admin-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.contest-admin-actions button {
+  font-size: 12px;
+  padding: 8px 10px;
+  margin: 0;
+}
+
+/* ==== Admin screens (Contests, Users, Audit, Feature Requests) ==== */
+.admin-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  overflow: hidden;
+}
+.admin-screen-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 24px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.admin-screen-header h1 {
+  margin: 0;
+  font-size: 20px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.admin-screen-header .admin-back-btn {
+  font-size: 13px;
+}
+.admin-screen-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 24px;
+}
+
 /* ==== Contest readonly banner ==== */
 .contest-readonly-banner {
   background: rgba(255, 183, 77, 0.12);
@@ -861,22 +958,17 @@ code {
 button.small { padding: 4px 8px; font-size: 12px; }
 
 @media (max-width: 1180px) {
-  .layout-grid {
-    grid-template-columns: 1fr 280px;
-    grid-template-areas:
-      "entry ops"
-      "history ops";
-  }
-  .left-panel { display: none; }
+  .left-panel, #resizer-left { display: none; }
 }
 
 @media (max-width: 880px) {
-  .layout-grid {
-    grid-template-columns: 1fr;
-    grid-template-areas: "entry" "ops" "history";
-  }
+  .layout-outer { flex-direction: column; overflow-y: auto; }
+  .left-panel { display: none; }
+  #resizer-left, #resizer-right, #resizer-mid { display: none; }
+  .ops-panel { width: 100% !important; height: auto; }
+  .entry-panel { height: auto !important; }
   .topbar { flex-wrap: wrap; }
-  .station-area { position: static; transform: none; order: -1; width: 100%; justify-content: center; margin: 0; }
+  .station-area { order: -1; width: 100%; justify-content: center; margin: 0; flex: 0 0 auto; }
   .topbar-right { flex-wrap: wrap; margin-left: 0; }
 }
 
@@ -1059,4 +1151,329 @@ button.small { padding: 4px 8px; font-size: 12px; }
   color: var(--accent);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
+}
+
+/* ===== Feature additions ===== */
+
+/* Contest station identifier — separate, smaller pill to the LEFT of the station pill. */
+.station-id-pill {
+  display: flex;
+  align-items: center;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--accent-dim);
+  border-radius: 10px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.station-id-pill.hidden { display: none; }
+
+/* Operator list — release-rig button */
+.op-release-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  cursor: pointer;
+}
+.op-release-btn:hover {
+  background: var(--error);
+  color: white;
+  border-color: var(--error);
+}
+
+/* QSO form — required custom field gets a light-red rim */
+.qso-cf {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 100px;
+  min-width: 100px;
+  font-size: 12px;
+}
+.qso-cf input,
+.qso-cf select {
+  margin-top: 2px;
+}
+.qso-cf-required input,
+.qso-cf-required select {
+  border: 1px solid #ef9a9a !important;
+  box-shadow: 0 0 0 1px rgba(239, 154, 154, 0.3);
+}
+
+/* Custom-fields editor inside contest modal */
+.cf-editor {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px;
+  background: var(--bg-elev-2);
+  margin-bottom: 6px;
+}
+.cf-editor-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cf-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 90px 1fr auto auto;
+  gap: 4px;
+  align-items: center;
+}
+.cf-row .cf-req {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.cf-row input,
+.cf-row select {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.cf-row .cf-del {
+  font-size: 12px;
+  padding: 2px 6px;
+}
+.cf-add-btn {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+/* Chat panel */
+.chat-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-msg {
+  font-size: 12px;
+  line-height: 1.35;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.chat-msg .chat-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.chat-msg .chat-meta strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+.chat-msg .chat-body { white-space: pre-wrap; word-break: break-word; }
+.chat-input-row {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  align-items: stretch;
+}
+.chat-input-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-elev-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+.chat-input-row input::placeholder { color: var(--text-muted); }
+.chat-input-row button {
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+/* Statistics tab */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  padding: 12px;
+}
+.stats-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  color: var(--text);
+}
+.stats-card h3 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: var(--accent);
+}
+.stats-num {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.stats-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* ===== New QSO mask grid ===== */
+.qso-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: auto;
+  gap: 8px 10px;
+  align-items: start;
+}
+.qso-grid > label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-width: 0;
+  /* Fallback: items without explicit grid placement span 3 columns */
+  grid-column: span 3;
+}
+.qso-grid > label > input,
+.qso-grid > label > select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ===== Layout editor (in contest modal) ===== */
+.layout-editor {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: 44px;
+  gap: 6px;
+  background:
+    repeating-linear-gradient(0deg,  transparent 0, transparent 43px, var(--border) 43px, var(--border) 44px),
+    repeating-linear-gradient(90deg, transparent 0, transparent calc((100% - 66px) / 12 - 1px), var(--border) calc((100% - 66px) / 12 - 1px), var(--border) calc((100% - 66px) / 12));
+  background-size: 100% 50px, 100% 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  user-select: none;
+  touch-action: none;
+}
+.layout-tile {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--accent-dim);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  cursor: grab;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.layout-tile.mandatory {
+  border-color: var(--accent);
+}
+.layout-tile.dragging {
+  cursor: grabbing;
+  z-index: 5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+.layout-tile-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+}
+.layout-tile-resize {
+  cursor: ew-resize;
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 0 2px;
+  flex: 0 0 auto;
+}
+.layout-editor-help {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.layout-suggested-wrap {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--bg-elev-2);
+}
+.layout-suggested-title {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+.layout-suggested {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 24px;
+}
+.layout-suggested-tile {
+  background: var(--bg-elev);
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text);
+  cursor: grab;
+  user-select: none;
+  white-space: nowrap;
+}
+.layout-suggested-tile:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.layout-suggested-tile:active { cursor: grabbing; }
+.layout-context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  padding: 4px 0;
+  min-width: 120px;
+}
+.layout-context-item {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.layout-context-item:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
 }

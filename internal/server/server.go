@@ -156,6 +156,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/operators", s.requireAuth(s.handleOperators))
 	mux.HandleFunc("/api/rigs", s.requireAuth(s.handleRigs))
 	mux.HandleFunc("/api/rigs/select", s.requireAuth(s.handleSelectRig))
+	mux.HandleFunc("/api/rigs/release", s.requireAuth(s.handleReleaseRig))
 
 	// Permission-gated
 	mux.HandleFunc("/api/settings", s.requireAuth(s.handleSettings))
@@ -172,6 +173,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/export/adif", s.requirePerm(PermQSOExport, s.handleExportADIF))
 	mux.HandleFunc("/api/export/cabrillo", s.requirePerm(PermQSOExport, s.handleExportCabrillo))
 	mux.HandleFunc("/api/export/csv", s.requirePerm(PermQSOExport, s.handleExportCSV))
+	mux.HandleFunc("/api/export/edi", s.requirePerm(PermQSOExport, s.handleExportEDI))
 	mux.HandleFunc("/api/audit", s.requirePerm(PermAuditLog, s.handleAuditLog))
 	mux.HandleFunc("/api/feature-requests", s.requireAuth(s.handleFeatureRequests))
 	mux.HandleFunc("/api/feature-requests/", s.requireAuth(s.handleFeatureRequestByID))
@@ -199,6 +201,7 @@ type wsMsg struct {
 	Mode   string `json:"mode"`
 	Error  string `json:"error"`
 	Name   string `json:"name"`
+	Text   string `json:"text"`
 }
 
 func (s *Server) handleInbound(c *client, raw []byte) {
@@ -210,14 +213,51 @@ func (s *Server) handleInbound(c *client, raw []byte) {
 	case c.role == RoleHelper && m.Type == "rig_update":
 		s.rigs.Update(c.rigName, m.FreqHz, m.Mode, m.Error)
 		s.broadcastRigs()
+		// Band display in operator list depends on current rig band.
+		s.broadcastOperators()
 	case c.role == RoleBrowser && m.Type == "select_rig":
-		c.session.SetSelectedRig(m.Name)
+		// Single-claim enforcement: deny if another operator already holds this rig.
+		desired := strings.TrimSpace(m.Name)
+		if desired != "" {
+			holders := s.hub.BrowsersSelectingRig(desired)
+			myCall := c.session.Callsign
+			for _, h := range holders {
+				if h != myCall {
+					s.hub.SendToSession(c.session.ID, Event{Type: "rig_select_denied", Payload: map[string]any{
+						"name":   desired,
+						"reason": "rig already in use by " + h,
+					}})
+					return
+				}
+			}
+		}
+		c.session.SetSelectedRig(desired)
 		s.broadcastRigs()
+		s.broadcastOperators()
+	case c.role == RoleBrowser && m.Type == "chat":
+		text := strings.TrimSpace(m.Text)
+		if text == "" {
+			return
+		}
+		if len(text) > 500 {
+			text = text[:500]
+		}
+		contestID, _, _, _ := c.session.ContestInfo()
+		if contestID == 0 {
+			return
+		}
+		payload := map[string]any{
+			"from":    c.session.Callsign,
+			"user":    c.session.Username,
+			"text":    text,
+			"time":    time.Now().UTC().Format(time.RFC3339),
+		}
+		s.hub.BroadcastToContest(contestID, Event{Type: "chat", Payload: payload})
 	}
 }
 
 func (s *Server) handleBrowserGone(_, selectedRig string) {
-	s.hub.Broadcast(Event{Type: "operators", Payload: s.hub.Operators()})
+	s.broadcastOperators()
 	if selectedRig != "" {
 		s.broadcastRigs()
 	}
@@ -233,6 +273,49 @@ func (s *Server) handleHelperGone(rigName string) {
 func (s *Server) broadcastRigs() {
 	rigs := s.rigs.All(s.hub.BrowsersSelectingRig)
 	s.hub.Broadcast(Event{Type: "rigs", Payload: rigs})
+}
+
+// validateExtras enforces mandatory contest-defined custom fields against the
+// JSON-encoded extras blob.  fieldsJSON is the contest's stored schema.
+func validateExtras(fieldsJSON, extrasJSON string) error {
+	if fieldsJSON == "" {
+		return nil
+	}
+	var schema []struct {
+		Name     string `json:"name"`
+		Required bool   `json:"required"`
+	}
+	if err := json.Unmarshal([]byte(fieldsJSON), &schema); err != nil {
+		return nil // bad schema — don't block writes
+	}
+	values := map[string]string{}
+	if extrasJSON != "" {
+		_ = json.Unmarshal([]byte(extrasJSON), &values)
+	}
+	for _, f := range schema {
+		if f.Required {
+			if v, ok := values[f.Name]; !ok || strings.TrimSpace(v) == "" {
+				return errors.New("required field missing: " + f.Name)
+			}
+		}
+	}
+	return nil
+}
+
+// rigBand returns the band string for a rig name (or "" if not connected).
+func (s *Server) rigBand(name string) string {
+	if name == "" {
+		return ""
+	}
+	if rig, ok := s.rigs.Get(name); ok {
+		return rig.Band
+	}
+	return ""
+}
+
+// broadcastOperators pushes a per-contest operator list to every browser.
+func (s *Server) broadcastOperators() {
+	s.hub.BroadcastOperators(s.rigBand)
 }
 
 // ----- middleware -----
@@ -465,18 +548,22 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 func sessionInfo(sess *Session) map[string]any {
 	contestID, contestStatus, contestCall, contestName := sess.ContestInfo()
 	return map[string]any{
-		"username":       sess.Username,
-		"callsign":       sess.Callsign,
-		"permissions":    sess.Permissions,
-		"selected_rig":   sess.SelectedRig(),
-		"csrf_token":     sess.CSRFToken,
-		"contest_id":     contestID,
-		"contest_status": contestStatus,
-		"contest_call":   contestCall,
-		"contest_name":   contestName,
-		"contest_qth":       sess.ContestQTH(),
-		"contest_bands":     sess.ContestBands(),
-		"contest_objective": sess.ContestObjective(),
+		"username":           sess.Username,
+		"callsign":           sess.Callsign,
+		"permissions":        sess.Permissions,
+		"selected_rig":       sess.SelectedRig(),
+		"csrf_token":         sess.CSRFToken,
+		"contest_id":         contestID,
+		"contest_status":     contestStatus,
+		"contest_call":       contestCall,
+		"contest_name":       contestName,
+		"contest_qth":        sess.ContestQTH(),
+		"contest_bands":      sess.ContestBands(),
+		"contest_objective":  sess.ContestObjective(),
+		"contest_station_id": sess.ContestStationID(),
+		"contest_private":    sess.ContestPrivate(),
+		"contest_fields":     sess.ContestFields(),
+		"contest_qso_layout": sess.ContestQSOLayout(),
 	}
 }
 
@@ -532,7 +619,9 @@ func (s *Server) handleRegenHelperToken(w http.ResponseWriter, r *http.Request) 
 // ----- /api/me settings/qsos/operators -----
 
 func (s *Server) handleOperators(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.hub.Operators())
+	sess := sessionFor(s, r)
+	contestID, _, _, _ := sess.ContestInfo()
+	writeJSON(w, http.StatusOK, s.hub.OperatorsForContest(contestID, s.rigBand))
 }
 
 func (s *Server) handlePermissions(w http.ResponseWriter, r *http.Request) {
@@ -679,6 +768,10 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 	if in.Time.IsZero() {
 		in.Time = time.Now().UTC()
 	}
+	if err := validateExtras(sess.ContestFields(), in.Extras); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	dup, err := s.store.FindDuplicate(contestID, in.Callsign, in.Band, in.Mode, dupWindow)
 	if err == nil && dup && r.URL.Query().Get("force") != "1" {
@@ -800,6 +893,10 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.Time.IsZero() {
 			in.Time = existing.Time
+		}
+		if err := validateExtras(sess.ContestFields(), in.Extras); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
 		}
 		if err := s.store.UpdateQSO(&in); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -1053,9 +1150,55 @@ func (s *Server) handleSelectRig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	sess.SetSelectedRig(strings.TrimSpace(body.Name))
+	desired := strings.TrimSpace(body.Name)
+	if desired != "" {
+		for _, h := range s.hub.BrowsersSelectingRig(desired) {
+			if h != sess.Callsign {
+				writeError(w, http.StatusConflict, "rig already in use by "+h)
+				return
+			}
+		}
+	}
+	sess.SetSelectedRig(desired)
 	s.broadcastRigs()
+	s.broadcastOperators()
 	writeJSON(w, http.StatusOK, map[string]string{"selected_rig": sess.SelectedRig()})
+}
+
+// handleReleaseRig clears the rig selection on a session.  Without a body, it
+// releases the caller's own rig.  With {"callsign":"DL1XYZ"}, it forces release
+// on every browser session bound to that callsign — requires PermRigRelease.
+func (s *Server) handleReleaseRig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "POST required")
+		return
+	}
+	sess := sessionFor(s, r)
+	var body struct {
+		Callsign string `json:"callsign"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	target := strings.ToUpper(strings.TrimSpace(body.Callsign))
+	if target != "" && target != strings.ToUpper(sess.Callsign) {
+		if !HasPermission(sess.Permissions, PermRigRelease) {
+			writeError(w, http.StatusForbidden, "missing permission: "+PermRigRelease)
+			return
+		}
+		// Walk every active session; clear rig where callsign matches.
+		s.sessions.mu.RLock()
+		for _, ss := range s.sessions.sessions {
+			if strings.EqualFold(ss.Callsign, target) {
+				ss.SetSelectedRig("")
+			}
+		}
+		s.sessions.mu.RUnlock()
+		s.audit(r, store.AuditWarn, AuditRigRelease, sess.Username, target, "forced rig release")
+	} else {
+		sess.SetSelectedRig("")
+	}
+	s.broadcastRigs()
+	s.broadcastOperators()
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleSetFreq(w http.ResponseWriter, r *http.Request) {
@@ -1385,10 +1528,15 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if contests == nil {
-			contests = []store.Contest{}
+		sess := sessionFor(s, r)
+		filtered := make([]store.Contest, 0, len(contests))
+		for _, c := range contests {
+			if c.Private && c.OwnerUserID != sess.UserID {
+				continue
+			}
+			filtered = append(filtered, c)
 		}
-		writeJSON(w, http.StatusOK, contests)
+		writeJSON(w, http.StatusOK, filtered)
 	case http.MethodPost:
 		sess := sessionFor(s, r)
 		if !HasPermission(sess.Permissions, PermContestsManage) {
@@ -1396,11 +1544,15 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in struct {
-			Name        string   `json:"name"`
-			StationCall string   `json:"station_call"`
-			QTH         string   `json:"qth"`
-			Bands       []string `json:"bands"`
-			Objective   string   `json:"objective"`
+			Name         string   `json:"name"`
+			StationCall  string   `json:"station_call"`
+			StationID    string   `json:"station_id"`
+			QTH          string   `json:"qth"`
+			Bands        []string `json:"bands"`
+			Objective    string   `json:"objective"`
+			Private      bool     `json:"private"`
+			CustomFields string   `json:"custom_fields"`
+			QSOLayout    string   `json:"qso_layout"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1419,12 +1571,20 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid QTH locator")
 			return
 		}
-		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective)
+		contestSess := sessionFor(s, r)
+		ownerID := int64(0)
+		if in.Private {
+			if !HasPermission(contestSess.Permissions, PermContestsCreatePrivate) {
+				writeError(w, http.StatusForbidden, "missing permission: "+PermContestsCreatePrivate)
+				return
+			}
+			ownerID = contestSess.UserID
+		}
+		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, in.Private, ownerID, in.CustomFields, in.QSOLayout)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		contestSess := sessionFor(s, r)
 		s.audit(r, store.AuditInfo, AuditContestCreate, contestSess.Username, in.Name,
 			"call: "+in.StationCall)
 		writeJSON(w, http.StatusCreated, c)
@@ -1462,17 +1622,27 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
+		// Private contests are visible only to their owner.
+		if c.Private && c.OwnerUserID != sess.UserID {
+			writeError(w, http.StatusForbidden, "this contest is private")
+			return
+		}
 		bandsStr := strings.Join(c.Bands, ",")
-		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective)
-		s.hub.Broadcast(Event{Type: "operators", Payload: s.hub.Operators()})
+		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective, c.StationID, c.Private, c.OwnerUserID, c.CustomFields, c.QSOLayout)
+		// Refresh operator panels: previous contest now lacks this user, new contest gains them.
+		s.broadcastOperators()
 		writeJSON(w, http.StatusOK, map[string]any{
-			"contest_id":        c.ID,
-			"contest_status":    c.Status,
-			"contest_call":      c.StationCall,
-			"contest_name":      c.Name,
-			"contest_qth":       c.QTH,
-			"contest_bands":     c.Bands,
-			"contest_objective": c.Objective,
+			"contest_id":         c.ID,
+			"contest_status":     c.Status,
+			"contest_call":       c.StationCall,
+			"contest_name":       c.Name,
+			"contest_qth":        c.QTH,
+			"contest_bands":      c.Bands,
+			"contest_objective":  c.Objective,
+			"contest_station_id": c.StationID,
+			"contest_private":    c.Private,
+			"contest_fields":     c.CustomFields,
+			"contest_qso_layout": c.QSOLayout,
 		})
 		return
 	}
@@ -1485,12 +1655,15 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in struct {
-			Name        string   `json:"name"`
-			StationCall string   `json:"station_call"`
-			QTH         string   `json:"qth"`
-			Status      string   `json:"status"`
-			Bands       []string `json:"bands"`
-			Objective   string   `json:"objective"`
+			Name         string   `json:"name"`
+			StationCall  string   `json:"station_call"`
+			StationID    string   `json:"station_id"`
+			QTH          string   `json:"qth"`
+			Status       string   `json:"status"`
+			Bands        []string `json:"bands"`
+			Objective    string   `json:"objective"`
+			CustomFields string   `json:"custom_fields"`
+			QSOLayout    string   `json:"qso_layout"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1513,7 +1686,13 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid QTH locator")
 			return
 		}
-		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective); err != nil {
+		// Look up existing contest to preserve private/owner fields (we don't allow changing them via PUT).
+		existing, err := s.store.GetContest(id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "contest not found")
+			return
+		}
+		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -1522,15 +1701,18 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"status: "+in.Status+", call: "+strings.ToUpper(in.StationCall))
 		bandsStrUpd := strings.Join(in.Bands, ",")
 		// Propagate to any sessions that have this contest selected.
-		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH, bandsStrUpd, in.Objective)
+		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH, bandsStrUpd, in.Objective, in.StationID, existing.Private, existing.OwnerUserID, in.CustomFields, in.QSOLayout)
 		s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
-			"id":           id,
-			"name":         in.Name,
-			"station_call": strings.ToUpper(in.StationCall),
-			"qth":          putQTH,
-			"status":       in.Status,
-			"bands":        in.Bands,
-			"objective":    in.Objective,
+			"id":             id,
+			"name":           in.Name,
+			"station_call":   strings.ToUpper(in.StationCall),
+			"station_id":     in.StationID,
+			"qth":            putQTH,
+			"status":         in.Status,
+			"bands":          in.Bands,
+			"objective":      in.Objective,
+			"custom_fields":  in.CustomFields,
+			"qso_layout":     in.QSOLayout,
 		}})
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -1598,6 +1780,26 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="contestlog.csv"`)
 	if err := ExportCSV(w, qsos); err != nil {
 		log.Printf("CSV export error: %v", err)
+	}
+}
+
+func (s *Server) handleExportEDI(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFor(s, r)
+	contestID, _, contestCall, contestName := sess.ContestInfo()
+	if contestID == 0 {
+		writeError(w, http.StatusBadRequest, "no contest selected")
+		return
+	}
+	qsos, err := s.store.AllQSOs(contestID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: EDI")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="contestlog.edi"`)
+	if err := ExportEDI(w, qsos, contestName, contestCall, sess.ContestQTH()); err != nil {
+		log.Printf("EDI export error: %v", err)
 	}
 }
 
@@ -1752,8 +1954,9 @@ func (s *Server) handleWSBrowser(w http.ResponseWriter, r *http.Request) {
 		send:    make(chan []byte, 64),
 	}
 	s.hub.add(c)
-	// Initial state push: operators list, full rig list.
-	if data, err := json.Marshal(Event{Type: "operators", Payload: s.hub.Operators()}); err == nil {
+	// Initial state push: operators list (scoped to this client's contest), full rig list.
+	contestID, _, _, _ := sess.ContestInfo()
+	if data, err := json.Marshal(Event{Type: "operators", Payload: s.hub.OperatorsForContest(contestID, s.rigBand)}); err == nil {
 		select {
 		case c.send <- data:
 		default:
@@ -1766,7 +1969,7 @@ func (s *Server) handleWSBrowser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Re-broadcast operators because a new browser is connecting.
-	s.hub.Broadcast(Event{Type: "operators", Payload: s.hub.Operators()})
+	s.broadcastOperators()
 	go c.writePump()
 	go c.readPump()
 	_ = fmt.Sprintf

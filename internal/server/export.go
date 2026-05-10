@@ -142,3 +142,118 @@ func cabrilloMode(mode string) string {
 		return "PH"
 	}
 }
+
+// ediMode maps an internal mode to the IARU R1 EDI mode digit:
+// 1=SSB, 2=CW, 3=SSB+CW, 4=RTTY, 5=AM, 6=FM, 7=FAX, 8=SSTV, 9=ATV.
+// Digital modes (FT8 etc.) map to 4 (RTTY/digi).
+func ediMode(mode string) string {
+	switch strings.ToUpper(mode) {
+	case "SSB", "USB", "LSB":
+		return "1"
+	case "CW":
+		return "2"
+	case "RTTY", "PSK31", "PSK63", "FT8", "FT4", "JT65", "JT9", "MFSK", "OLIVIA", "DIGI":
+		return "4"
+	case "AM":
+		return "5"
+	case "FM":
+		return "6"
+	default:
+		return "1"
+	}
+}
+
+// ExportEDI writes the QSO list to w as an IARU Region 1 EDI VHF/UHF contest
+// log.  This is a generic export — operators usually need to fine-tune the
+// header (PCall, PSect, PBand, etc.) before submission.
+func ExportEDI(w io.Writer, qsos []store.QSO, contestName, stationCall, qth string) error {
+	now := time.Now().UTC()
+	contestStart := now
+	contestEnd := now
+	if len(qsos) > 0 {
+		contestStart = qsos[0].Time
+		contestEnd = qsos[len(qsos)-1].Time
+	}
+	band := ""
+	if len(qsos) > 0 {
+		band = qsos[0].Band
+	}
+	header := []string{
+		"[REG1TEST;1]",
+		"TName=" + contestName,
+		"TDate=" + contestStart.Format("20060102") + ";" + contestEnd.Format("20060102"),
+		"PCall=" + strings.ToUpper(stationCall),
+		"PWWLo=" + strings.ToUpper(qth),
+		"PSect=SOMB",
+		"PBand=" + band,
+		"PClub=",
+		"RName=",
+		"RCall=",
+		"RAdr1=",
+		"RAdr2=",
+		"RPoCo=",
+		"RCity=",
+		"RCoun=",
+		"RPhon=",
+		"RHBBS=",
+		"MOpe1=",
+		"MOpe2=",
+		"STXEq=",
+		"SPowe=",
+		"SRXEq=",
+		"SAnte=",
+		"SAntH=",
+		"CQSOs=" + strconv.Itoa(len(qsos)) + ";1",
+		"CQSOP=0",
+		"CWWLs=0;0;0",
+		"CWWLB=0",
+		"CExcs=0;0;0",
+		"CExcB=0",
+		"CDXCs=0;0;0",
+		"CDXCB=0",
+		"CToSc=0",
+		"CODXC=;;0",
+		"[Remarks]",
+		"",
+		"[QSORecords;" + strconv.Itoa(len(qsos)) + "]",
+	}
+	for _, h := range header {
+		if _, err := fmt.Fprintln(w, h); err != nil {
+			return err
+		}
+	}
+	// QSO record format (semi-colon separated):
+	// YYMMDD;HHMM;Call;Mode;RSTSent;NrSent;RSTRecv;NrRecv;Exch;WWL;Pts;ITUZ;DXCC;NewWWL;Multi
+	for _, q := range qsos {
+		t := q.Time.UTC()
+		nrSent := ""
+		if q.NrSent > 0 {
+			nrSent = fmt.Sprintf("%03d", q.NrSent)
+		}
+		nrRcvd := ""
+		if q.NrReceived > 0 {
+			nrRcvd = fmt.Sprintf("%03d", q.NrReceived)
+		}
+		fields := []string{
+			t.Format("060102"),
+			t.Format("1504"),
+			strings.ToUpper(q.Callsign),
+			ediMode(q.Mode),
+			q.RSTSent,
+			nrSent,
+			q.RSTReceived,
+			nrRcvd,
+			"",
+			strings.ToUpper(q.Locator),
+			"0",
+			"",
+			"",
+			"",
+			"",
+		}
+		if _, err := fmt.Fprintln(w, strings.Join(fields, ";")); err != nil {
+			return err
+		}
+	}
+	return nil
+}

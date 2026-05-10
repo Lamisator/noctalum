@@ -97,20 +97,43 @@ func (h *Hub) remove(c *client) {
 type OperatorInfo struct {
 	Username string `json:"username"`
 	Callsign string `json:"callsign"`
+	Rig      string `json:"rig,omitempty"`
+	Band     string `json:"band,omitempty"`
 }
 
-// Operators returns the de-duplicated, sorted list of currently logged-in
-// browser operators.
-func (h *Hub) Operators() []OperatorInfo {
+// OperatorsForContest returns the de-duplicated, sorted list of currently
+// logged-in browser operators that have the given contest selected.  If
+// contestID is zero, every connected browser is included (legacy behaviour).
+// rigBand resolves a rig name to its current band string for the Band field.
+func (h *Hub) OperatorsForContest(contestID int64, rigBand func(name string) string) []OperatorInfo {
 	h.mu.Lock()
 	seen := map[string]OperatorInfo{}
 	for c := range h.clients {
-		if c.role == RoleBrowser && c.session != nil && c.session.Callsign != "" {
-			cs := c.session.Callsign
-			if _, ok := seen[cs]; !ok {
-				seen[cs] = OperatorInfo{Username: c.session.Username, Callsign: cs}
+		if c.role != RoleBrowser || c.session == nil || c.session.Callsign == "" {
+			continue
+		}
+		if contestID != 0 {
+			cid, _, _, _ := c.session.ContestInfo()
+			if cid != contestID {
+				continue
 			}
 		}
+		cs := c.session.Callsign
+		rig := c.session.SelectedRig()
+		band := ""
+		if rig != "" && rigBand != nil {
+			band = rigBand(rig)
+		}
+		if existing, ok := seen[cs]; ok {
+			// If multiple sessions share a callsign, prefer the entry that has a rig/band.
+			if existing.Rig == "" && rig != "" {
+				existing.Rig = rig
+				existing.Band = band
+				seen[cs] = existing
+			}
+			continue
+		}
+		seen[cs] = OperatorInfo{Username: c.session.Username, Callsign: cs, Rig: rig, Band: band}
 	}
 	h.mu.Unlock()
 	out := make([]OperatorInfo, 0, len(seen))
@@ -119,6 +142,11 @@ func (h *Hub) Operators() []OperatorInfo {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Callsign < out[j].Callsign })
 	return out
+}
+
+// Operators returns operators across all contests (legacy helper).
+func (h *Hub) Operators() []OperatorInfo {
+	return h.OperatorsForContest(0, nil)
 }
 
 // BrowsersSelectingRig returns the unique sorted operator callsigns
@@ -186,6 +214,34 @@ func (h *Hub) Broadcast(ev Event) {
 			continue
 		}
 		h.deliver(c, data)
+	}
+}
+
+// BroadcastOperators sends each browser an "operators" event scoped to its own
+// active contest, so an operator A in contest 1 sees only contest-1 ops, etc.
+func (h *Hub) BroadcastOperators(rigBand func(name string) string) {
+	// Group clients by contestID then send each group its own payload.
+	h.mu.Lock()
+	byContest := map[int64][]*client{}
+	for c := range h.clients {
+		if c.role != RoleBrowser || c.session == nil {
+			continue
+		}
+		id, _, _, _ := c.session.ContestInfo()
+		byContest[id] = append(byContest[id], c)
+	}
+	h.mu.Unlock()
+	for cid, clients := range byContest {
+		ops := h.OperatorsForContest(cid, rigBand)
+		data, err := json.Marshal(Event{Type: "operators", Payload: ops})
+		if err != nil {
+			continue
+		}
+		h.mu.Lock()
+		for _, c := range clients {
+			h.deliver(c, data)
+		}
+		h.mu.Unlock()
 	}
 }
 

@@ -404,7 +404,9 @@
 
   // ----- screens -----
   function show(which) {
-    ['setup-screen', 'login-screen', 'contest-screen', 'global-settings-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
+    ['setup-screen', 'login-screen', 'contest-screen', 'global-settings-screen',
+     'contests-admin-screen', 'users-admin-screen', 'audit-admin-screen', 'featurerequests-admin-screen',
+     'app'].forEach(id => $(id).classList.add('hidden'));
     $(which).classList.remove('hidden');
     if (which === 'setup-screen') $('setup-username').focus();
     if (which === 'login-screen') $('login-username').focus();
@@ -484,6 +486,21 @@
     show('login-screen');
   }
 
+  // ----- admin screens (accessed from contest selection) -----
+  $('contests-admin-btn').addEventListener('click', () => showAdminScreen('contests-admin-screen', refreshContests));
+  $('users-admin-btn').addEventListener('click', () => showAdminScreen('users-admin-screen', refreshUsers));
+  $('audit-admin-btn').addEventListener('click', () => showAdminScreen('audit-admin-screen', () => refreshAuditLog(true)));
+  $('featurerequests-admin-btn').addEventListener('click', () => showAdminScreen('featurerequests-admin-screen', refreshFeatureRequests));
+
+  document.querySelectorAll('.admin-back-btn').forEach(btn => {
+    btn.addEventListener('click', () => showContestScreen());
+  });
+
+  function showAdminScreen(id, loader) {
+    show(id);
+    if (loader) try { loader(); } catch {}
+  }
+
   // ----- global settings screen -----
   $('global-settings-btn').addEventListener('click', () => showGlobalSettings());
   $('global-settings-back-btn').addEventListener('click', () => showContestScreen());
@@ -540,6 +557,10 @@
 
   async function showContestScreen() {
     $('contest-pick-error').textContent = '';
+    // Cede control over any selected rig when entering the contest overview.
+    if (me?.selected_rig) {
+      try { await api('/api/rigs/release', { method: 'POST' }); me.selected_rig = ''; } catch {}
+    }
     const [cres, dres] = await Promise.all([
       api('/api/contests'),
       fetch('/api/downloads'),
@@ -658,6 +679,7 @@
     clearLeftPanel();
     renderBandPills();
     renderObjective();
+    renderCustomFields();
     // Initialize Leaflet after the container is visible and laid out
     requestAnimationFrame(() => {
       initLeafletMap();
@@ -671,7 +693,19 @@
   function updateContestDisplay() {
     const call = me?.contest_call || '—';
     const name = me?.contest_name || '';
+    const stationID = me?.contest_station_id || '';
     $('station-call').textContent = fmtCall(call);
+    const sidEl = $('station-id');
+    const sidPill = $('station-id-pill');
+    if (sidEl) {
+      if (stationID) {
+        sidEl.textContent = '#' + stationID;
+        if (sidPill) sidPill.classList.remove('hidden');
+      } else {
+        sidEl.textContent = '';
+        if (sidPill) sidPill.classList.add('hidden');
+      }
+    }
     $('station-contest-name').textContent = name;
     $('ops-station-call').textContent = fmtCall(call);
   }
@@ -697,13 +731,118 @@
         $('q-call').focus();
         requestAnimationFrame(() => { if (leafletMap) leafletMap.invalidateSize(); });
       }
-      if (t.dataset.tab === 'users') refreshUsers();
-      if (t.dataset.tab === 'contests') refreshContests();
       if (t.dataset.tab === 'settings') loadPasskeys();
-      if (t.dataset.tab === 'audit') refreshAuditLog(true);
-      if (t.dataset.tab === 'featurerequests') refreshFeatureRequests();
+      if (t.dataset.tab === 'statistics') renderStatistics();
     });
   });
+
+  // ----- statistics -----
+  function _statsEscape(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function _statsSvgBars(items, color) {
+    if (!items.length) return '<div class="muted small">No data.</div>';
+    const max = Math.max(...items.map(i => i.value)) || 1;
+    const rowH = 18, gap = 4, padL = 90, padR = 40;
+    const w = 320, h = items.length * (rowH + gap) + 8;
+    let svg = `<svg class="stats-svg" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">`;
+    items.forEach((it, i) => {
+      const y = 4 + i * (rowH + gap);
+      const bw = Math.max(1, Math.round((w - padL - padR) * (it.value / max)));
+      const label = String(it.label).slice(0, 12);
+      svg += `<text x="${padL - 4}" y="${y + rowH / 2 + 4}" text-anchor="end" font-size="11" fill="currentColor">${_statsEscape(label)}</text>`;
+      svg += `<rect x="${padL}" y="${y}" width="${bw}" height="${rowH}" fill="${color}" rx="2"/>`;
+      svg += `<text x="${padL + bw + 4}" y="${y + rowH / 2 + 4}" font-size="11" fill="currentColor">${it.value}</text>`;
+    });
+    svg += '</svg>';
+    return svg;
+  }
+  function _statsSvgPie(items, palette) {
+    if (!items.length) return '<div class="muted small">No data.</div>';
+    const total = items.reduce((s, i) => s + i.value, 0) || 1;
+    const cx = 80, cy = 80, r = 70;
+    let a0 = -Math.PI / 2;
+    let svg = `<svg class="stats-svg" viewBox="0 0 320 170" xmlns="http://www.w3.org/2000/svg">`;
+    items.forEach((it, i) => {
+      const frac = it.value / total;
+      const a1 = a0 + frac * Math.PI * 2;
+      const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+      const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+      const large = frac > 0.5 ? 1 : 0;
+      const color = palette[i % palette.length];
+      if (items.length === 1) {
+        svg += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}"/>`;
+      } else {
+        svg += `<path d="M${cx},${cy} L${x0.toFixed(2)},${y0.toFixed(2)} A${r},${r} 0 ${large} 1 ${x1.toFixed(2)},${y1.toFixed(2)} Z" fill="${color}"/>`;
+      }
+      a0 = a1;
+    });
+    items.forEach((it, i) => {
+      const ly = 14 + i * 14;
+      const color = palette[i % palette.length];
+      svg += `<rect x="170" y="${ly - 9}" width="10" height="10" fill="${color}"/>`;
+      const pct = ((it.value / total) * 100).toFixed(1);
+      svg += `<text x="186" y="${ly}" font-size="11" fill="currentColor">${_statsEscape(it.label)} · ${it.value} (${pct}%)</text>`;
+    });
+    svg += '</svg>';
+    return svg;
+  }
+  function _statsTally(arr, key) {
+    const m = new Map();
+    for (const q of arr) {
+      const v = (q[key] || '').toString().trim() || '—';
+      m.set(v, (m.get(v) || 0) + 1);
+    }
+    return [...m.entries()].map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value);
+  }
+  function _statsByHour(arr) {
+    const m = new Map();
+    for (const q of arr) {
+      const d = new Date(q.time_utc || q.time || 0);
+      if (isNaN(d.getTime())) continue;
+      const hh = String(d.getUTCHours()).padStart(2, '0');
+      m.set(hh, (m.get(hh) || 0) + 1);
+    }
+    return [...m.entries()].map(([label, value]) => ({ label: label + 'Z', value }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+  function _statsByCountry(arr) {
+    const m = new Map();
+    for (const q of arr) {
+      const call = (q.callsign || '').toUpperCase();
+      const dx = (typeof callsignToInfo === 'function') ? callsignToInfo(call) : null;
+      const label = (dx && dx.country) ? dx.country : '—';
+      m.set(label, (m.get(label) || 0) + 1);
+    }
+    return [...m.entries()].map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value);
+  }
+  function renderStatistics() {
+    const grid = $('stats-grid');
+    const sum = $('stats-summary');
+    if (!grid) return;
+    if (!qsos.length) {
+      sum.textContent = '';
+      grid.innerHTML = '<div class="muted small">No QSOs logged yet.</div>';
+      return;
+    }
+    const total = qsos.length;
+    const uniqueCalls = new Set(qsos.map(q => (q.callsign || '').toUpperCase())).size;
+    sum.textContent = `${total} QSOs · ${uniqueCalls} unique callsigns`;
+    const palette = ['#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'];
+    const bands = _statsTally(qsos, 'band');
+    const modes = _statsTally(qsos, 'mode');
+    const hours = _statsByHour(qsos);
+    const countries = _statsByCountry(qsos).slice(0, 12);
+    const card = (title, body) =>
+      `<div class="stats-card"><h3>${title}</h3>${body}</div>`;
+    grid.innerHTML =
+      card('QSOs per band', _statsSvgBars(bands, '#4e79a7')) +
+      card('QSOs per mode', _statsSvgPie(modes, palette)) +
+      card('QSOs per hour (UTC)', _statsSvgBars(hours, '#59a14f')) +
+      card('Top countries', _statsSvgBars(countries, '#f28e2c'));
+  }
 
   // ----- ops panel tabs -----
   document.querySelectorAll('.ops-tab').forEach(t => {
@@ -713,8 +852,59 @@
       t.classList.add('active');
       $('ops-tab-' + t.dataset.opsTab).classList.add('active');
       if (t.dataset.opsTab === 'cluster') loadClusterSpots();
+      if (t.dataset.opsTab === 'chat') {
+        const inp = $('chat-input');
+        if (inp) inp.focus();
+        const list = $('chat-list');
+        if (list) list.scrollTop = list.scrollHeight;
+      }
     });
   });
+
+  // ----- chat -----
+  const chatHistory = [];
+  function appendChatMessage(payload) {
+    if (!payload) return;
+    chatHistory.push(payload);
+    if (chatHistory.length > 200) chatHistory.shift();
+    const list = $('chat-list');
+    if (!list) return;
+    const li = document.createElement('li');
+    li.className = 'chat-msg';
+    const t = payload.time ? new Date(payload.time) : new Date();
+    const hh = String(t.getUTCHours()).padStart(2, '0');
+    const mm = String(t.getUTCMinutes()).padStart(2, '0');
+    const meta = document.createElement('div');
+    meta.className = 'chat-meta';
+    const who = document.createElement('strong');
+    who.textContent = payload.from || payload.user || '?';
+    meta.appendChild(who);
+    meta.appendChild(document.createTextNode(` · ${hh}:${mm}Z`));
+    const body = document.createElement('div');
+    body.className = 'chat-body';
+    body.textContent = payload.text || '';
+    li.appendChild(meta);
+    li.appendChild(body);
+    list.appendChild(li);
+    list.scrollTop = list.scrollHeight;
+  }
+  function onChatMessage(payload) { appendChatMessage(payload); }
+  function sendChat() {
+    const inp = $('chat-input');
+    if (!inp || !ws || ws.readyState !== WebSocket.OPEN) return;
+    const text = (inp.value || '').trim();
+    if (!text) return;
+    try { ws.send(JSON.stringify({ type: 'chat', text })); } catch {}
+    inp.value = '';
+  }
+  {
+    const btn = $('chat-send-btn');
+    const inp = $('chat-input');
+    if (btn) btn.addEventListener('click', sendChat);
+    if (inp) inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); sendChat(); }
+    });
+  }
 
   // ----- DX Cluster -----
   let clusterSpots = [];
@@ -750,8 +940,22 @@
     const curBand = bandSel.value;
     const curMode = modeSel.value;
 
-    const bands = [...new Set(clusterSpots.map(s => s.band).filter(Boolean))].sort();
-    const modes = [...new Set(clusterSpots.map(s => s.mode).filter(Boolean))].sort();
+    // Bands: prefer the contest's configured bands; fall back to the bands present in spots.
+    const contestBands = (me?.contest_bands || '').split(',').map(s => s.trim()).filter(Boolean);
+    const spotBands = [...new Set(clusterSpots.map(s => s.band).filter(Boolean))];
+    let bands;
+    if (contestBands.length) {
+      bands = contestBands.slice();
+    } else {
+      bands = spotBands.sort();
+    }
+
+    // Modes: include digimodes explicitly so users can filter by FT8/FT4/etc even
+    // when no current spot uses that mode.
+    const digimodes = ['FT8', 'FT4', 'RTTY', 'PSK31', 'PSK63', 'JT65', 'JT9', 'DIGI'];
+    const modeSet = new Set(clusterSpots.map(s => (s.mode || '').toUpperCase()).filter(Boolean));
+    ['CW', 'SSB', 'USB', 'LSB', 'FM', 'AM', ...digimodes].forEach(m => modeSet.add(m));
+    const modes = [...modeSet].sort();
 
     bandSel.innerHTML = '<option value="">All bands</option>' +
       bands.map(b => `<option value="${escHtml(b)}"${b === curBand ? ' selected' : ''}>${escHtml(b)}</option>`).join('');
@@ -1268,10 +1472,20 @@
     };
     const t = $('q-time').value;
     if (t) body.time = new Date(t + 'Z').toISOString();
+    // Custom fields: enforce mandatory ones and attach to body.extras as a JSON string.
+    const cfResult = collectCustomFieldsValues();
+    if (cfResult.error) {
+      $('qso-error').textContent = cfResult.error;
+      return;
+    }
+    if (cfResult.values && Object.keys(cfResult.values).length) {
+      body.extras = JSON.stringify(cfResult.values);
+    }
 
     $('qso-error').textContent = '';
 
     if (editingQsoId !== null) {
+      if (!confirm('Save changes to this QSO?')) return;
       const res = await api('/api/qsos/' + editingQsoId, { method: 'PUT', body: JSON.stringify(body) });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -1408,11 +1622,35 @@
   function renderOperators() {
     const list = $('ops-list');
     list.innerHTML = '';
+    const canRelease = hasPerm('rig.release');
     for (const op of operators) {
       const li = document.createElement('li');
       const rigForOp = rigs.find(r => Array.isArray(r.in_use_by) && r.in_use_by.includes(op.callsign));
-      li.textContent = fmtCall(op.callsign) + (rigForOp ? ' · ' + rigForOp.name : '');
+      const rigName = (op.rig && rigForOp) ? rigForOp.name : (op.rig || (rigForOp ? rigForOp.name : ''));
+      // Prefer the band reported by the server (op.band derives from the helper-reported rig
+      // band) and fall back to what the rig list says.
+      const band = op.band || (rigForOp ? rigForOp.band : '');
+      let label = fmtCall(op.callsign);
+      if (rigName) label += ' · ' + rigName;
+      if (band) label += ' (' + band + ')';
+      const span = document.createElement('span');
+      span.textContent = label;
+      li.appendChild(span);
       if (me && op.callsign === me.callsign) li.classList.add('me');
+      // Allow admins with rig.release to forcibly release another op's rig.
+      if (canRelease && rigName && me && op.callsign !== me.callsign) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'op-release-btn';
+        btn.title = 'Release ' + rigName + ' from ' + op.callsign;
+        btn.textContent = '✕';
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!confirm('Release ' + rigName + ' from ' + op.callsign + '?')) return;
+          await api('/api/rigs/release', { method: 'POST', body: JSON.stringify({ callsign: op.callsign }) });
+        });
+        li.appendChild(btn);
+      }
       list.appendChild(li);
     }
   }
@@ -1454,6 +1692,7 @@
   updateSortHeaders();
 
   function renderQsos(highlightId) {
+    if ($('tab-statistics')?.classList.contains('active')) renderStatistics();
     const textFilter = $('history-filter').value.trim().toLowerCase();
     const tbody = $('qso-tbody');
     tbody.innerHTML = '';
@@ -1669,7 +1908,7 @@
       if (!confirm(label)) return;
       api('/api/contests/' + c.id, {
         method: 'PUT',
-        body: JSON.stringify({ name: c.name, station_call: c.station_call, qth: c.qth || '', status: newStatus, bands: c.bands || [], objective: c.objective || '' }),
+        body: JSON.stringify({ name: c.name, station_call: c.station_call, station_id: c.station_id || '', qth: c.qth || '', status: newStatus, bands: c.bands || [], objective: c.objective || '', custom_fields: c.custom_fields || '', qso_layout: c.qso_layout || '' }),
       }).then(r => { if (r.ok) refreshContests(); });
     }
   }
@@ -1692,6 +1931,7 @@
   }
 
   function contestCreateModal() {
+    const canPriv = hasPerm('contests.create_private');
     showModal(`
       <h3>New Contest</h3>
       <form>
@@ -1699,9 +1939,16 @@
         <input name="name" placeholder="e.g. CQ-WW-DX-CW 2025" required />
         <label>Station callsign</label>
         <input name="station_call" autocapitalize="characters" placeholder="e.g. DK0XYZ" required />
+        <label>Station identifier <span class="muted small">(optional, e.g. operator number)</span></label>
+        <input name="station_id" placeholder="e.g. 042" />
         <label>QTH locator (optional)</label>
         <input name="qth" placeholder="e.g. JO50de" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
         ${buildBandSelectHTML([])}
+        ${canPriv ? '<label style="margin-top:10px"><input type="checkbox" name="private" /> Private contest <span class="muted small">(only visible to you)</span></label>' : ''}
+        <label style="margin-top:10px">Custom fields <span class="muted small">(per-QSO; optional)</span></label>
+        ${buildCustomFieldsEditorHTML([])}
+        <label style="margin-top:10px">New QSO mask layout <span class="muted small">(drag tiles to arrange)</span></label>
+        ${buildLayoutEditorHTML()}
         <label style="margin-top:10px">Objective <span class="muted small">(Markdown, optional)</span></label>
         <div class="md-editor-wrap">
           <textarea name="objective" placeholder="Describe the contest objective…"></textarea>
@@ -1719,9 +1966,13 @@
         body: JSON.stringify({
           name: form.name.value.trim(),
           station_call: form.station_call.value.trim().toUpperCase(),
+          station_id: (form.station_id?.value || '').trim(),
           qth: form.qth.value.trim().toUpperCase(),
           bands: selectedBandsFromModal(),
           objective: form.objective.value,
+          private: !!(form.private && form.private.checked),
+          custom_fields: serializeCustomFieldsEditor(),
+          qso_layout: serializeQSOLayout(),
         }),
       });
       if (!res.ok) {
@@ -1735,8 +1986,10 @@
         if (r.ok) allContests = await r.json();
         renderContestPicker();
       }
-    });
+    }, { wide: true });
     attachBandSelectListeners();
+    attachCustomFieldsEditorListeners();
+    attachLayoutEditorListeners('');
     const taC = document.querySelector('#modal-card textarea[name=objective]');
     const previewC = $('modal-md-preview');
     if (taC && previewC) {
@@ -1745,6 +1998,7 @@
   }
 
   function contestEditModal(c) {
+    const existingFields = parseCustomFields(c.custom_fields);
     showModal(`
       <h3>Edit Contest</h3>
       <form>
@@ -1752,9 +2006,15 @@
         <input name="name" value="${escHtml(c.name)}" required />
         <label>Station callsign</label>
         <input name="station_call" value="${escHtml(c.station_call)}" autocapitalize="characters" required />
+        <label>Station identifier <span class="muted small">(optional)</span></label>
+        <input name="station_id" value="${escHtml(c.station_id || '')}" placeholder="e.g. 042" />
         <label>QTH locator (optional)</label>
         <input name="qth" value="${escHtml(c.qth || '')}" placeholder="e.g. JO50de" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
         ${buildBandSelectHTML(c.bands || [])}
+        <label style="margin-top:10px">Custom fields <span class="muted small">(per-QSO)</span></label>
+        ${buildCustomFieldsEditorHTML(existingFields)}
+        <label style="margin-top:10px">New QSO mask layout <span class="muted small">(drag tiles to arrange)</span></label>
+        ${buildLayoutEditorHTML()}
         <label style="margin-top:10px">Objective <span class="muted small">(Markdown)</span></label>
         <div class="md-editor-wrap">
           <textarea name="objective" placeholder="Describe the contest objective…">${escHtml(c.objective || '')}</textarea>
@@ -1772,10 +2032,13 @@
         body: JSON.stringify({
           name: form.name.value.trim(),
           station_call: form.station_call.value.trim().toUpperCase(),
+          station_id: (form.station_id?.value || '').trim(),
           qth: form.qth.value.trim().toUpperCase(),
           status: c.status,
           bands: selectedBandsFromModal(),
           objective: form.objective.value,
+          custom_fields: serializeCustomFieldsEditor(),
+          qso_layout: serializeQSOLayout(),
         }),
       });
       if (!res.ok) {
@@ -1783,8 +2046,10 @@
         throw new Error(j.error || 'Failed to update contest');
       }
       await refreshContests();
-    });
+    }, { wide: true });
     attachBandSelectListeners();
+    attachCustomFieldsEditorListeners();
+    attachLayoutEditorListeners(c.qso_layout || '');
     // Live markdown preview
     const ta = document.querySelector('#modal-card textarea[name=objective]');
     const preview = $('modal-md-preview');
@@ -1793,6 +2058,510 @@
       updatePreview();
       ta.addEventListener('input', updatePreview);
     }
+  }
+
+  // ----- Custom fields editor -----
+  function parseCustomFields(json) {
+    if (!json) return [];
+    try {
+      const arr = JSON.parse(json);
+      if (!Array.isArray(arr)) return [];
+      return arr.filter(f => f && f.name);
+    } catch { return []; }
+  }
+  function buildCustomFieldsEditorHTML(fields) {
+    const rows = (fields || []).map((f, i) => customFieldRowHTML(f, i)).join('');
+    return `
+      <div class="cf-editor" id="cf-editor">
+        <div class="cf-editor-rows">${rows}</div>
+        <button type="button" class="ghost cf-add-btn" id="cf-add-btn">+ Add field</button>
+      </div>`;
+  }
+  function customFieldRowHTML(f, i) {
+    const types = ['text', 'number', 'select'];
+    const tOpt = types.map(t => `<option value="${t}"${f.type === t ? ' selected' : ''}>${t}</option>`).join('');
+    return `
+      <div class="cf-row" data-i="${i}">
+        <input class="cf-name" placeholder="name (e.g. exchange)" value="${escHtml(f.name || '')}" />
+        <input class="cf-label" placeholder="label" value="${escHtml(f.label || '')}" />
+        <select class="cf-type">${tOpt}</select>
+        <input class="cf-options" placeholder="options (comma-separated, for select)" value="${escHtml((f.options || []).join(','))}" />
+        <label class="cf-req"><input type="checkbox" class="cf-required"${f.required ? ' checked' : ''} /> required</label>
+        <button type="button" class="ghost cf-del">✕</button>
+      </div>`;
+  }
+  function attachCustomFieldsEditorListeners() {
+    const editor = document.getElementById('cf-editor');
+    if (!editor) return;
+    const addBtn = document.getElementById('cf-add-btn');
+    if (addBtn) addBtn.addEventListener('click', () => {
+      const rows = editor.querySelector('.cf-editor-rows');
+      const idx = rows.querySelectorAll('.cf-row').length;
+      rows.insertAdjacentHTML('beforeend', customFieldRowHTML({}, idx));
+    });
+    editor.addEventListener('click', (e) => {
+      if (e.target && e.target.classList.contains('cf-del')) {
+        const row = e.target.closest('.cf-row');
+        if (row) row.remove();
+      }
+    });
+  }
+  // ----- New QSO mask layout -----
+  const QSO_FIELD_DEFS = [
+    { key: 'callsign',     label: 'Callsign',     defaultW: 3, defaultPos: { x: 0, y: 0 } },
+    { key: 'rst_sent',     label: 'RST sent',     defaultW: 2, defaultPos: { x: 3, y: 0 } },
+    { key: 'rst_received', label: 'RST rcvd',     defaultW: 2, defaultPos: { x: 5, y: 0 } },
+    { key: 'nr_received',  label: 'Nr rcvd',      defaultW: 2, defaultPos: { x: 7, y: 0 } },
+    { key: 'nr_sent',      label: 'Nr sent',      defaultW: 2, defaultPos: { x: 9, y: 0 } },
+    { key: 'mode',         label: 'Mode',         defaultW: 2, defaultPos: { x: 0, y: 1 } },
+    { key: 'band',         label: 'Band',         defaultW: 2, defaultPos: { x: 2, y: 1 } },
+    { key: 'freq',         label: 'Frequency',    defaultW: 3, defaultPos: { x: 4, y: 1 } },
+    { key: 'name',         label: 'Name',         defaultW: 3, defaultPos: { x: 7, y: 1 } },
+    { key: 'dok',          label: 'DOK',          defaultW: 2, defaultHidden: true, defaultPos: { x: 0, y: 2 } },
+    { key: 'locator',      label: 'Locator',      defaultW: 3, defaultPos: { x: 2, y: 2 } },
+    { key: 'itu',          label: 'ITU',          defaultW: 2, defaultHidden: true, defaultPos: { x: 5, y: 2 } },
+    { key: 'cq',           label: 'CQ',           defaultW: 2, defaultHidden: true, defaultPos: { x: 7, y: 2 } },
+    { key: 'lighthouse',   label: 'Lighthouse',   defaultW: 3, defaultHidden: true, defaultPos: { x: 9, y: 2 } },
+    { key: 'notes',        label: 'Notes',        defaultW: 6, defaultPos: { x: 0, y: 3 } },
+    { key: 'time',         label: 'UTC time',     defaultW: 3, defaultPos: { x: 6, y: 3 } },
+  ];
+  // Mandatory fields cannot be removed from the layout but can be moved/resized.
+  const QSO_MANDATORY_KEYS = new Set([
+    'callsign', 'rst_sent', 'rst_received',
+    'mode', 'band', 'freq', 'time',
+  ]);
+  const LAYOUT_COLS = 12;
+
+  function parseQSOLayout(json) {
+    if (!json) return null;
+    try {
+      const o = JSON.parse(json);
+      if (!o || typeof o !== 'object' || !Array.isArray(o.items)) return null;
+      const items = o.items
+        .filter(it => it && typeof it.key === 'string')
+        .map(it => ({
+          key: it.key,
+          x: Math.max(0, Math.min(LAYOUT_COLS - 1, parseInt(it.x, 10) || 0)),
+          y: Math.max(0, parseInt(it.y, 10) || 0),
+          w: Math.max(1, Math.min(LAYOUT_COLS, parseInt(it.w, 10) || 1)),
+        }));
+      const removed = Array.isArray(o.removed)
+        ? o.removed.filter(k => typeof k === 'string')
+        : [];
+      return { cols: LAYOUT_COLS, items, removed };
+    } catch { return null; }
+  }
+
+  function defaultQSOLayout(customFields) {
+    const items = QSO_FIELD_DEFS.filter(d => !d.defaultHidden).map(d => ({
+      key: d.key,
+      x: d.defaultPos.x,
+      y: d.defaultPos.y,
+      w: d.defaultW,
+    }));
+    let nextY = 4;
+    for (const cf of (customFields || [])) {
+      items.push({ key: 'cf:' + cf.name, x: 0, y: nextY, w: 3 });
+      nextY++;
+    }
+    return { cols: LAYOUT_COLS, items };
+  }
+
+  function buildEffectiveLayout(layoutJSON, customFields) {
+    const parsed = parseQSOLayout(layoutJSON);
+    const def = defaultQSOLayout(customFields);
+    const layout = parsed || def;
+    const byKey = new Map(layout.items.map(it => [it.key, it]));
+    // Honour the user's explicit removals: fields in `removed` are not auto-added back.
+    // (Mandatory fields are exempt — they always reappear at their default position.)
+    const removedSet = new Set((layout.removed || []).filter(k => !QSO_MANDATORY_KEYS.has(k)));
+    // Ensure every known + cf field has an entry; place missing items at the bottom
+    // (skip defaultHidden built-in fields and explicitly-removed fields).
+    const known = new Set(QSO_FIELD_DEFS.map(d => d.key));
+    const cfKeys = (customFields || []).map(cf => 'cf:' + cf.name);
+    for (const k of cfKeys) known.add(k);
+    let maxY = 0;
+    for (const it of byKey.values()) maxY = Math.max(maxY, it.y);
+    for (const k of known) {
+      if (!byKey.has(k)) {
+        if (removedSet.has(k)) continue;
+        const def = QSO_FIELD_DEFS.find(d => d.key === k);
+        if (def && def.defaultHidden) continue;
+        const w = def ? def.defaultW : 3;
+        byKey.set(k, { key: k, x: 0, y: ++maxY, w });
+      }
+    }
+    // Drop items whose key is no longer known (e.g. removed custom field)
+    for (const k of [...byKey.keys()]) if (!known.has(k)) byKey.delete(k);
+    // Keep `removed` entries that still refer to known keys (drop stale ones)
+    const finalRemoved = [...removedSet].filter(k => known.has(k));
+    return { cols: LAYOUT_COLS, items: [...byKey.values()], removed: finalRemoved };
+  }
+
+  function applyQSOLayout() {
+    const grid = document.getElementById('qso-grid');
+    if (!grid) return;
+    const customFields = parseCustomFields(me?.contest_fields);
+    // Inject/update CF tiles into the grid
+    syncCustomFieldTiles(grid, customFields);
+    const layout = buildEffectiveLayout(me?.contest_qso_layout, customFields);
+    const tiles = grid.querySelectorAll('[data-qso-field]');
+    const present = new Map();
+    for (const t of tiles) present.set(t.dataset.qsoField, t);
+    for (const it of layout.items) {
+      const tile = present.get(it.key);
+      if (!tile) continue;
+      tile.style.gridColumn = `${it.x + 1} / span ${it.w}`;
+      tile.style.gridRow = `${it.y + 1}`;
+      tile.classList.remove('hidden');
+    }
+    // Hide tiles that are not in the layout (shouldn't happen, but defensive)
+    for (const [key, tile] of present) {
+      if (!layout.items.some(it => it.key === key)) tile.classList.add('hidden');
+    }
+  }
+
+  function syncCustomFieldTiles(grid, customFields) {
+    // Remove old CF tiles
+    grid.querySelectorAll('[data-qso-field^="cf:"]').forEach(el => el.remove());
+    for (const f of customFields) {
+      const reqClass = f.required ? ' qso-cf-required' : '';
+      const reqAttr = f.required ? ' required' : '';
+      const inputId = 'qcf-' + cssIdSafe(f.name);
+      let inputHtml = '';
+      if (f.type === 'select' && Array.isArray(f.options) && f.options.length) {
+        const opts = f.options.map(o => `<option value="${escHtml(o)}">${escHtml(o)}</option>`).join('');
+        inputHtml = `<select id="${inputId}" data-cf-name="${escHtml(f.name)}" data-cf-required="${f.required ? '1' : '0'}"${reqAttr}><option value=""></option>${opts}</select>`;
+      } else if (f.type === 'number') {
+        inputHtml = `<input id="${inputId}" type="number" data-cf-name="${escHtml(f.name)}" data-cf-required="${f.required ? '1' : '0'}"${reqAttr} />`;
+      } else {
+        inputHtml = `<input id="${inputId}" type="text" data-cf-name="${escHtml(f.name)}" data-cf-required="${f.required ? '1' : '0'}"${reqAttr} />`;
+      }
+      const label = document.createElement('label');
+      label.className = 'qso-cf' + reqClass;
+      label.dataset.qsoField = 'cf:' + f.name;
+      label.innerHTML = (escHtml(f.label || f.name) + (f.required ? ' *' : '')) + inputHtml;
+      grid.appendChild(label);
+    }
+  }
+
+  // Render the active contest's custom fields and apply layout to the QSO entry form.
+  function renderCustomFields() {
+    applyQSOLayout();
+  }
+  function cssIdSafe(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, '_'); }
+  function collectCustomFieldsValues() {
+    const grid = document.getElementById('qso-grid');
+    if (!grid) return { values: {} };
+    const values = {};
+    const inputs = grid.querySelectorAll('[data-cf-name]');
+    for (const el of inputs) {
+      const name = el.dataset.cfName;
+      const required = el.dataset.cfRequired === '1';
+      const v = (el.value || '').trim();
+      if (required && !v) {
+        return { error: 'Field "' + name + '" is required' };
+      }
+      if (v) values[name] = v;
+    }
+    return { values };
+  }
+
+  function serializeCustomFieldsEditor() {
+    const editor = document.getElementById('cf-editor');
+    if (!editor) return '';
+    const out = [];
+    editor.querySelectorAll('.cf-row').forEach((row, i) => {
+      const name = row.querySelector('.cf-name').value.trim();
+      if (!name) return;
+      const label = row.querySelector('.cf-label').value.trim() || name;
+      const type = row.querySelector('.cf-type').value;
+      const required = row.querySelector('.cf-required').checked;
+      const optsStr = row.querySelector('.cf-options').value.trim();
+      const options = optsStr ? optsStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+      out.push({ name, label, type, required, options, order: i });
+    });
+    return JSON.stringify(out);
+  }
+
+  // ----- QSO layout editor (used inside contest modals) -----
+  function buildLayoutEditorHTML() {
+    return `
+      <div class="layout-editor" id="layout-editor"></div>
+      <div class="layout-suggested-wrap">
+        <div class="layout-suggested-title">Suggested (drag into the mask above)</div>
+        <div class="layout-suggested" id="layout-suggested"></div>
+      </div>
+      <div class="layout-editor-help">
+        Drag tiles to rearrange. Drag the right edge to resize.
+        Right-click a tile to remove it.
+        ★ mandatory tiles (Callsign, RST, Mode, Band, Frequency, UTC time, …) can be moved but not removed.
+        <button type="button" class="ghost" id="layout-reset-btn" style="margin-left:8px">Reset to defaults</button>
+      </div>`;
+  }
+
+  // _layoutState holds the working copy used by the editor.
+  let _layoutState = null;
+
+  function _layoutFieldLabel(key) {
+    if (key.startsWith('cf:')) {
+      const name = key.slice(3);
+      const cf = (_layoutState?.cfList || []).find(f => f.name === name);
+      return (cf && cf.label) ? cf.label : name;
+    }
+    const def = QSO_FIELD_DEFS.find(d => d.key === key);
+    return def ? def.label : key;
+  }
+
+  function _layoutItemsForEditor() {
+    // Use current cf list (read live from the cf editor) for known keys.
+    const cfList = _readCustomFieldsFromEditor();
+    _layoutState.cfList = cfList;
+    const layout = buildEffectiveLayout(_layoutState.json, cfList);
+    _layoutState.json = JSON.stringify(layout);
+    return layout;
+  }
+
+  function _readCustomFieldsFromEditor() {
+    const editor = document.getElementById('cf-editor');
+    if (!editor) return [];
+    const out = [];
+    editor.querySelectorAll('.cf-row').forEach((row, i) => {
+      const name = (row.querySelector('.cf-name').value || '').trim();
+      if (!name) return;
+      const label = (row.querySelector('.cf-label').value || '').trim() || name;
+      const type = row.querySelector('.cf-type').value;
+      const required = row.querySelector('.cf-required').checked;
+      const optsStr = (row.querySelector('.cf-options').value || '').trim();
+      const options = optsStr ? optsStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+      out.push({ name, label, type, required, options, order: i });
+    });
+    return out;
+  }
+
+  function renderLayoutEditor() {
+    const root = document.getElementById('layout-editor');
+    if (!root) return;
+    const layout = _layoutItemsForEditor();
+    const items = layout.items;
+    root.innerHTML = items.map(it => {
+      const mandatory = QSO_MANDATORY_KEYS.has(it.key);
+      const lbl = _layoutFieldLabel(it.key);
+      const handle = `<span class="layout-tile-resize" data-resize-key="${escHtml(it.key)}">⇔</span>`;
+      const cls = mandatory ? ' mandatory' : '';
+      const prefix = mandatory ? '★ ' : '';
+      return `
+        <div class="layout-tile${cls}"
+             data-layout-key="${escHtml(it.key)}"
+             style="grid-column:${it.x + 1} / span ${it.w}; grid-row:${it.y + 1};">
+          <span class="layout-tile-label">${prefix}${escHtml(lbl)}</span>
+          ${handle}
+        </div>`;
+    }).join('');
+    _attachLayoutDragHandlers();
+    renderSuggestedBox(items, layout.removed);
+  }
+
+  function renderSuggestedBox(currentItems, removed) {
+    const root = document.getElementById('layout-suggested');
+    if (!root) return;
+    const usedKeys = new Set((currentItems || []).map(i => i.key));
+    const suggestedKeys = new Set();
+    for (const d of QSO_FIELD_DEFS) {
+      if (d.defaultHidden && !usedKeys.has(d.key)) suggestedKeys.add(d.key);
+    }
+    for (const k of (removed || [])) {
+      if (!usedKeys.has(k) && QSO_FIELD_DEFS.some(d => d.key === k)) suggestedKeys.add(k);
+    }
+    const suggested = [...suggestedKeys]
+      .map(k => QSO_FIELD_DEFS.find(d => d.key === k))
+      .filter(Boolean);
+    if (suggested.length === 0) {
+      root.innerHTML = '<span class="muted small" style="padding:2px 4px">All suggested fields are in the mask.</span>';
+      return;
+    }
+    root.innerHTML = suggested.map(d =>
+      `<div class="layout-suggested-tile" data-suggested-key="${escHtml(d.key)}">+ ${escHtml(d.label)}</div>`
+    ).join('');
+    _attachSuggestedDragHandlers();
+  }
+
+  function _attachSuggestedDragHandlers() {
+    const root = document.getElementById('layout-suggested');
+    const editor = document.getElementById('layout-editor');
+    if (!root || !editor) return;
+    root.onpointerdown = (e) => {
+      const tile = e.target.closest('.layout-suggested-tile');
+      if (!tile) return;
+      e.preventDefault();
+      const key = tile.dataset.suggestedKey;
+      const def = QSO_FIELD_DEFS.find(d => d.key === key);
+      if (!def) return;
+
+      // Insert the field at the bottom of the layout, then track the cursor
+      // and snap the tile into the grid cell under the pointer.
+      const layout = buildEffectiveLayout(_layoutState.json, _layoutState.cfList || []);
+      let maxY = 0;
+      for (const it of layout.items) maxY = Math.max(maxY, it.y);
+      layout.items.push({ key, x: 0, y: maxY + 1, w: def.defaultW });
+      layout.removed = (layout.removed || []).filter(k => k !== key);
+      _layoutState.json = JSON.stringify(layout);
+      renderLayoutEditor();
+
+      const rowH = 50;
+      const onMove = (ev) => {
+        const rect = editor.getBoundingClientRect();
+        if (ev.clientY < rect.top || ev.clientY > rect.bottom + 200) return;
+        const colW = rect.width / LAYOUT_COLS;
+        const relX = ev.clientX - rect.left;
+        const relY = ev.clientY - rect.top;
+        const nx = Math.max(0, Math.min(LAYOUT_COLS - 1, Math.floor(relX / colW)));
+        const ny = Math.max(0, Math.floor(relY / rowH));
+        _layoutSet(key, nx, ny, undefined);
+        renderLayoutEditor();
+      };
+      const onUp = () => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    };
+  }
+
+  function _layoutSet(key, x, y, w) {
+    const layout = buildEffectiveLayout(_layoutState.json, _layoutState.cfList || []);
+    const it = layout.items.find(i => i.key === key);
+    if (!it) return;
+    if (typeof x === 'number') it.x = Math.max(0, Math.min(LAYOUT_COLS - 1, x));
+    if (typeof y === 'number') it.y = Math.max(0, y);
+    if (typeof w === 'number') it.w = Math.max(1, Math.min(LAYOUT_COLS - it.x, w));
+    if (it.x + it.w > LAYOUT_COLS) it.w = LAYOUT_COLS - it.x;
+    _layoutState.json = JSON.stringify(layout);
+  }
+
+  function _removeFieldFromLayout(key) {
+    if (QSO_MANDATORY_KEYS.has(key)) return;
+    const layout = buildEffectiveLayout(_layoutState.json, _layoutState.cfList || []);
+    layout.items = layout.items.filter(it => it.key !== key);
+    const removed = new Set(layout.removed || []);
+    removed.add(key);
+    layout.removed = [...removed];
+    _layoutState.json = JSON.stringify(layout);
+    renderLayoutEditor();
+  }
+
+  function _closeLayoutContextMenu() {
+    document.querySelectorAll('.layout-context-menu').forEach(m => m.remove());
+    document.removeEventListener('pointerdown', _layoutContextOutsideHandler, true);
+    document.removeEventListener('keydown', _layoutContextKeyHandler, true);
+  }
+  function _layoutContextOutsideHandler(e) {
+    if (!e.target.closest('.layout-context-menu')) _closeLayoutContextMenu();
+  }
+  function _layoutContextKeyHandler(e) {
+    if (e.key === 'Escape') _closeLayoutContextMenu();
+  }
+
+  function _showLayoutContextMenu(x, y, key) {
+    _closeLayoutContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'layout-context-menu';
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'layout-context-item';
+    btn.textContent = 'Remove';
+    btn.addEventListener('click', () => {
+      _closeLayoutContextMenu();
+      _removeFieldFromLayout(key);
+    });
+    menu.appendChild(btn);
+    document.body.appendChild(menu);
+    // Clamp to viewport
+    const r = menu.getBoundingClientRect();
+    if (r.right > window.innerWidth) menu.style.left = (window.innerWidth - r.width - 4) + 'px';
+    if (r.bottom > window.innerHeight) menu.style.top = (window.innerHeight - r.height - 4) + 'px';
+    setTimeout(() => {
+      document.addEventListener('pointerdown', _layoutContextOutsideHandler, true);
+      document.addEventListener('keydown', _layoutContextKeyHandler, true);
+    }, 0);
+  }
+
+  function _attachLayoutDragHandlers() {
+    const root = document.getElementById('layout-editor');
+    if (!root) return;
+    root.oncontextmenu = (e) => {
+      const tile = e.target.closest('.layout-tile');
+      if (!tile) return;
+      const key = tile.dataset.layoutKey;
+      if (QSO_MANDATORY_KEYS.has(key)) return;
+      e.preventDefault();
+      _showLayoutContextMenu(e.clientX, e.clientY, key);
+    };
+    root.onpointerdown = (e) => {
+      if (e.button === 2) return;
+      const resize = e.target.closest('.layout-tile-resize');
+      const tile = e.target.closest('.layout-tile');
+      if (!tile) return;
+      const key = tile.dataset.layoutKey;
+      const rect = root.getBoundingClientRect();
+      const colW = rect.width / LAYOUT_COLS;
+      const rowH = 50;
+      tile.classList.add('dragging');
+      tile.setPointerCapture?.(e.pointerId);
+      const layout = buildEffectiveLayout(_layoutState.json, _layoutState.cfList || []);
+      const it = layout.items.find(i => i.key === key);
+      const startX = e.clientX, startY = e.clientY;
+      const origX = it.x, origY = it.y, origW = it.w;
+      const mode = resize ? 'resize' : 'move';
+      const onMove = (ev) => {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (mode === 'move') {
+          const nx = Math.round(origX + dx / colW);
+          const ny = Math.round(origY + dy / rowH);
+          _layoutSet(key, nx, Math.max(0, ny), undefined);
+        } else {
+          const nw = Math.max(1, Math.round(origW + dx / colW));
+          _layoutSet(key, undefined, undefined, nw);
+        }
+        renderLayoutEditor();
+      };
+      const onUp = () => {
+        tile.classList.remove('dragging');
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      e.preventDefault();
+    };
+  }
+
+  function attachLayoutEditorListeners(initialJSON) {
+    _layoutState = { json: initialJSON || '' };
+    renderLayoutEditor();
+    document.getElementById('layout-reset-btn')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      _layoutState.json = '';
+      renderLayoutEditor();
+    });
+    // Re-render whenever the custom fields editor changes (add/remove rows or rename).
+    const cfEd = document.getElementById('cf-editor');
+    if (cfEd) {
+      cfEd.addEventListener('input', () => renderLayoutEditor());
+      cfEd.addEventListener('click', () => setTimeout(renderLayoutEditor, 0));
+    }
+  }
+
+  function serializeQSOLayout() {
+    if (!_layoutState) return '';
+    // Recompute against the current cf list to drop dangling cf:* entries.
+    const cfList = _readCustomFieldsFromEditor();
+    const layout = buildEffectiveLayout(_layoutState.json, cfList);
+    return JSON.stringify(layout);
   }
 
   // ----- users tab -----
@@ -1900,13 +2669,17 @@
   }
 
   // ----- modals -----
-  function showModal(html, onSubmit) {
+  function showModal(html, onSubmit, opts) {
     const root = $('modal-root');
     const card = $('modal-card');
     card.innerHTML = html;
+    card.classList.toggle('modal-wide', !!(opts && opts.wide));
     root.classList.remove('hidden');
     const form = card.querySelector('form');
-    const close = () => root.classList.add('hidden');
+    const close = () => {
+      root.classList.add('hidden');
+      card.classList.remove('modal-wide');
+    };
     card.querySelector('.cancel-btn')?.addEventListener('click', close);
     if (form) {
       form.addEventListener('submit', async (e) => {
@@ -2085,12 +2858,24 @@
             if ('qth' in msg.payload) me.contest_qth = msg.payload.qth;
             if ('bands' in msg.payload) me.contest_bands = (msg.payload.bands || []).join(',');
             if ('objective' in msg.payload) me.contest_objective = msg.payload.objective;
+            if ('station_id' in msg.payload) me.contest_station_id = msg.payload.station_id;
+            if ('custom_fields' in msg.payload) me.contest_fields = msg.payload.custom_fields;
+            if ('qso_layout' in msg.payload) me.contest_qso_layout = msg.payload.qso_layout;
             updateContestDisplay();
             applyContestReadonly();
             updateMap();
             renderBandPills();
             renderObjective();
+            if (typeof renderCustomFields === 'function') renderCustomFields();
           }
+          break;
+        case 'rig_select_denied':
+          if (msg.payload && msg.payload.reason) {
+            alert('Cannot select rig: ' + msg.payload.reason);
+          }
+          break;
+        case 'chat':
+          if (typeof onChatMessage === 'function') onChatMessage(msg.payload);
           break;
       }
     };
@@ -2525,6 +3310,84 @@
   function fmtCall(s) {
     return String(s).replace(/0/g, 'Ø');
   }
+
+  // ----- Panel resizers -----
+  function initPanelResizers() {
+    const outer = document.getElementById('layout-outer');
+    if (!outer) return;
+    const centerCol = outer.querySelector('.center-col');
+
+    const savedLeft  = localStorage.getItem('panel-left-w');
+    const savedRight = localStorage.getItem('panel-right-w');
+    const savedEntry = localStorage.getItem('panel-entry-h');
+    if (savedLeft)  outer.style.setProperty('--left-w',  savedLeft  + 'px');
+    if (savedRight) outer.style.setProperty('--right-w', savedRight + 'px');
+    if (savedEntry && centerCol) centerCol.style.setProperty('--entry-h', savedEntry + 'px');
+
+    function makeVResizer(id, getPanel, sign, storageKey) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        el.setPointerCapture(e.pointerId);
+        el.classList.add('dragging');
+        const startX = e.clientX;
+        const startW = getPanel().offsetWidth;
+        function onMove(ev) {
+          const newW = Math.max(80, Math.min(600, startW + sign * (ev.clientX - startX)));
+          outer.style.setProperty(storageKey === 'panel-left-w' ? '--left-w' : '--right-w', newW + 'px');
+          localStorage.setItem(storageKey, String(Math.round(newW)));
+        }
+        function onUp() {
+          el.classList.remove('dragging');
+          el.removeEventListener('pointermove', onMove);
+          el.removeEventListener('pointerup', onUp);
+        }
+        el.addEventListener('pointermove', onMove);
+        el.addEventListener('pointerup', onUp);
+      });
+    }
+
+    makeVResizer('resizer-left',  () => outer.querySelector('.left-panel'),  1,  'panel-left-w');
+    makeVResizer('resizer-right', () => outer.querySelector('.ops-panel'),   -1, 'panel-right-w');
+
+    const resizerMid = document.getElementById('resizer-mid');
+    if (resizerMid && centerCol) {
+      resizerMid.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        resizerMid.setPointerCapture(e.pointerId);
+        resizerMid.classList.add('dragging');
+        const startY = e.clientY;
+        const entryPanel = centerCol.querySelector('.entry-panel');
+        const startH = entryPanel ? entryPanel.offsetHeight : 200;
+        // Compute the content height by temporarily letting the panel size to its content.
+        // scrollHeight reflects the natural layout height including all form fields and the
+        // action buttons — never compress below this.
+        let minH = 80;
+        if (entryPanel) {
+          const prev = entryPanel.style.height;
+          entryPanel.style.height = 'auto';
+          minH = entryPanel.scrollHeight;
+          entryPanel.style.height = prev;
+        }
+        function onMove(ev) {
+          const totalH = centerCol.offsetHeight;
+          const maxH = Math.max(minH, totalH - 100);
+          const newH = Math.max(minH, Math.min(maxH, startH + (ev.clientY - startY)));
+          centerCol.style.setProperty('--entry-h', newH + 'px');
+          localStorage.setItem('panel-entry-h', String(Math.round(newH)));
+        }
+        function onUp() {
+          resizerMid.classList.remove('dragging');
+          resizerMid.removeEventListener('pointermove', onMove);
+          resizerMid.removeEventListener('pointerup', onUp);
+        }
+        resizerMid.addEventListener('pointermove', onMove);
+        resizerMid.addEventListener('pointerup', onUp);
+      });
+    }
+  }
+  initPanelResizers();
 
   // Initial route.
   (async () => {

@@ -57,6 +57,12 @@
         <button id="create-contest-btn" class="primary" style="width:100%">+ New Contest</button>
       </div>
       <div id="contest-pick-error" class="error" style="margin-top:10px"></div>
+      <div class="contest-admin-actions">
+        <button id="contests-admin-btn" class="ghost perm-required" data-perm="contests.manage">Contests</button>
+        <button id="users-admin-btn" class="ghost perm-required" data-perm="users.manage">Users</button>
+        <button id="audit-admin-btn" class="ghost perm-required" data-perm="audit.log">Audit Log</button>
+        <button id="featurerequests-admin-btn" class="ghost perm-required" data-perm="feature_requests.read">Feature Requests</button>
+      </div>
       <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
         <button id="global-settings-btn" class="ghost perm-required" data-perm="settings.write" style="font-size:12px">&#9881; Global Settings</button>
         <button id="contest-logout-btn" class="ghost" style="font-size:12px">Sign out</button>
@@ -116,6 +122,9 @@
     </div>
 
     <div class="station-area">
+      <div class="station-id-pill hidden" id="station-id-pill" title="Contest station identifier">
+        <span id="station-id"></span>
+      </div>
       <div class="station-pill" id="station-pill" title="Click to change contest">
         <span class="station-call" id="station-call">—</span>
         <span class="station-contest-name" id="station-contest-name"></span>
@@ -125,12 +134,9 @@
     <div class="topbar-right">
       <nav class="tabs">
         <button class="tab active" data-tab="log">Logging</button>
+        <button class="tab" data-tab="statistics">Statistics</button>
         <button class="tab" data-tab="settings">Settings</button>
-        <button class="tab tab-perm" data-tab="contests" data-perm="contests.manage">Contests</button>
-        <button class="tab tab-perm" data-tab="users" data-perm="users.manage">Users</button>
         <button class="tab tab-perm" data-tab="export" data-perm="qso.export">Export</button>
-        <button class="tab tab-perm" data-tab="audit" data-perm="audit.log">Audit Log</button>
-        <button class="tab tab-perm" data-tab="featurerequests" data-perm="feature_requests.read">Feature Requests</button>
       </nav>
       <div class="rig-status" id="rig-status" title="Selected transceiver">
         <span class="rig-dot"></span>
@@ -147,7 +153,7 @@
       <div id="contest-readonly-banner" class="contest-readonly-banner hidden">
         Contest is finished — log is read-only.
       </div>
-      <div class="layout-grid">
+      <div class="layout-outer" id="layout-outer">
 
         <aside class="left-panel card">
           <div class="left-pic-area">
@@ -166,6 +172,9 @@
           </div>
         </aside>
 
+        <div class="panel-resizer panel-resizer-v" id="resizer-left"></div>
+
+        <div class="center-col">
         <div class="entry-panel card">
           <div class="rig-bar">
             <label>Rig:
@@ -178,58 +187,54 @@
           <h2><span id="entry-panel-title">New QSO</span> <span id="dup-badge" class="dup-badge hidden"></span></h2>
           <form id="qso-form" autocomplete="off">
             <div id="band-pills-bar" class="qrz-info-bar hidden"></div>
-            <div class="row">
-              <label>Callsign
+            <div id="qso-grid" class="qso-grid">
+              <label data-qso-field="callsign" data-qso-pinned="1">Callsign
                 <input id="q-call" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
                 <div id="q-call-country" class="call-country"></div>
               </label>
-              <label>RST sent
+              <label data-qso-field="rst_sent" data-qso-pinned="1">RST sent
                 <input id="q-rst-sent" type="text" maxlength="6" />
               </label>
-              <label>RST rcvd
+              <label data-qso-field="rst_received" data-qso-pinned="1">RST rcvd
                 <input id="q-rst-rcvd" type="text" maxlength="6" />
               </label>
-              <label>Nr rcvd
-                <input id="q-nr-rcvd" type="text" inputmode="numeric" style="width:5em" />
+              <label data-qso-field="nr_received">Nr rcvd
+                <input id="q-nr-rcvd" type="text" inputmode="numeric" />
               </label>
-              <label>Nr sent
-                <input id="q-nr-sent" type="text" inputmode="numeric" style="width:5em" />
+              <label data-qso-field="nr_sent">Nr sent
+                <input id="q-nr-sent" type="text" inputmode="numeric" />
               </label>
-              <label>Mode
-                <select id="q-mode" required style="width:6em"></select>
+              <label data-qso-field="mode">Mode
+                <select id="q-mode" required></select>
               </label>
-              <label>Band
-                <select id="q-band" required style="width:5.5em"></select>
+              <label data-qso-field="band">Band
+                <select id="q-band" required></select>
               </label>
-              <label>Frequency (kHz)
+              <label data-qso-field="freq">Frequency (kHz)
                 <input id="q-freq" type="text" inputmode="decimal" />
               </label>
-              <label>Name
-                <input id="q-name" type="text" maxlength="80" autocomplete="off" style="width:9em" />
+              <label data-qso-field="name">Name
+                <input id="q-name" type="text" maxlength="80" autocomplete="off" />
               </label>
-            </div>
-            <div class="row">
-              <label>DOK
-                <input id="q-dok" type="text" maxlength="10" autocapitalize="characters" style="width:5em" />
+              <label data-qso-field="dok">DOK
+                <input id="q-dok" type="text" maxlength="10" autocapitalize="characters" />
               </label>
-              <label>Locator
+              <label data-qso-field="locator">Locator
                 <input id="q-loc" type="text" maxlength="6" autocapitalize="characters" />
               </label>
-              <label>ITU
+              <label data-qso-field="itu">ITU
                 <input id="q-itu" type="text" maxlength="2" />
               </label>
-              <label>CQ
+              <label data-qso-field="cq">CQ
                 <input id="q-cq" type="text" maxlength="2" />
               </label>
-            </div>
-            <div class="row">
-              <label class="grow">Notes
+              <label data-qso-field="notes">Notes
                 <input id="q-notes" type="text" />
               </label>
-              <label>Lighthouse
+              <label data-qso-field="lighthouse">Lighthouse
                 <input id="q-lh" type="text" />
               </label>
-              <label>UTC time (optional)
+              <label data-qso-field="time">UTC time (optional)
                 <input id="q-time" type="datetime-local" step="1" />
               </label>
             </div>
@@ -240,6 +245,8 @@
             </div>
           </form>
         </div>
+
+        <div class="panel-resizer panel-resizer-h" id="resizer-mid"></div>
 
         <div class="history-panel card">
           <div class="history-header">
@@ -272,6 +279,10 @@
           </div>
         </div>
 
+        </div><!-- end .center-col -->
+
+        <div class="panel-resizer panel-resizer-v" id="resizer-right"></div>
+
         <aside class="ops-panel card">
           <div class="ops-header">
             <div class="muted">Operating as</div>
@@ -280,6 +291,7 @@
           <div class="ops-tabs">
             <button class="ops-tab active" data-ops-tab="status">Status</button>
             <button class="ops-tab" data-ops-tab="cluster">Cluster</button>
+            <button class="ops-tab" data-ops-tab="chat">Chat</button>
             <button class="ops-tab" data-ops-tab="objective">Objective</button>
           </div>
 
@@ -331,11 +343,19 @@
             <div id="cluster-status" class="muted small" style="margin-top:6px"></div>
           </div>
 
+          <div id="ops-tab-chat" class="ops-tab-pane">
+            <ul id="chat-list" class="chat-list"></ul>
+            <div class="chat-input-row">
+              <input id="chat-input" type="text" placeholder="Message…" maxlength="500" autocomplete="off">
+              <button id="chat-send-btn" class="primary">Send</button>
+            </div>
+          </div>
+
           <div id="ops-tab-objective" class="ops-tab-pane">
             <div id="objective-content" class="objective-content"></div>
           </div>
         </aside>
-      </div>
+      </div><!-- end .layout-outer -->
     </section>
 
     <!-- Settings tab -->
@@ -428,52 +448,17 @@
       </div>
     </section>
 
-    <!-- Contests tab -->
-    <section id="tab-contests" class="tab-pane">
-      <div class="card">
-        <div class="history-header">
-          <h2>Contests</h2>
-          <button id="new-contest-btn" class="primary">New contest</button>
-        </div>
-        <table id="contests-table">
-          <thead>
-            <tr>
-              <th>Name</th><th>Station call</th><th>QTH</th><th>Status</th><th>Created</th><th></th>
-            </tr>
-          </thead>
-          <tbody id="contests-tbody"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- Users tab -->
-    <section id="tab-users" class="tab-pane">
-      <div class="card">
-        <div class="history-header">
-          <h2>Users</h2>
-          <button id="new-user-btn" class="primary">New user</button>
-        </div>
-        <table id="users-table">
-          <thead>
-            <tr>
-              <th>Username</th><th>Callsign</th><th>Roles</th>
-              <th>Status</th><th></th>
-            </tr>
-          </thead>
-          <tbody id="users-tbody"></tbody>
-        </table>
-      </div>
-
-      <div class="card" style="margin-top:14px">
-        <div class="history-header">
-          <h2>Roles</h2>
-          <button id="new-role-btn" class="primary">New role</button>
-        </div>
-        <div id="roles-list"></div>
-      </div>
-    </section>
-
     <!-- Export tab -->
+    <!-- Statistics tab -->
+    <section id="tab-statistics" class="tab-pane">
+      <div class="card">
+        <h2>Statistics</h2>
+        <p class="muted">Live breakdown of QSOs in the current contest.</p>
+        <div id="stats-summary" class="muted small" style="margin-bottom:8px"></div>
+        <div id="stats-grid" class="stats-grid"></div>
+      </div>
+    </section>
+
     <section id="tab-export" class="tab-pane">
       <div class="card">
         <h2>Export log</h2>
@@ -482,98 +467,166 @@
           <a class="primary as-button" href="/api/export/adif" download>Download ADIF</a>
           <a class="primary as-button" href="/api/export/cabrillo" download>Download Cabrillo</a>
           <a class="primary as-button" href="/api/export/csv" download>Download CSV</a>
+          <a class="primary as-button" href="/api/export/edi" download>Download EDI</a>
         </div>
       </div>
     </section>
 
-    <!-- Audit Log tab -->
-    <section id="tab-audit" class="tab-pane">
-      <div class="card">
-        <div class="history-header">
-          <h2>Audit Log</h2>
-          <span class="muted small">365-day retention &middot; immutable</span>
-        </div>
+  </main>
+</div>
 
-        <div class="audit-filters">
-          <label>Level
-            <select id="audit-level">
-              <option value="">All levels</option>
-              <option value="info">Info</option>
-              <option value="warn">Warn</option>
-              <option value="error">Error</option>
-            </select>
-          </label>
-          <label>Action
-            <select id="audit-action">
-              <option value="">All actions</option>
-            </select>
-          </label>
-          <label>Search
-            <input id="audit-search" type="search" placeholder="actor, target, details…" />
-          </label>
-          <label>Since
-            <input id="audit-since" type="datetime-local" />
-          </label>
-          <label>Until
-            <input id="audit-until" type="datetime-local" />
-          </label>
-          <button id="audit-apply" class="primary">Apply</button>
-          <button id="audit-reset" class="ghost">Reset</button>
-        </div>
-
-        <div class="audit-status muted small" id="audit-status">—</div>
-
-        <div class="table-scroll">
-          <table id="audit-table">
-            <thead>
-              <tr>
-                <th class="sortable" data-col="timestamp">Time UTC <span class="sort-arrow"></span></th>
-                <th class="sortable" data-col="level">Level <span class="sort-arrow"></span></th>
-                <th class="sortable" data-col="action">Action <span class="sort-arrow"></span></th>
-                <th class="sortable" data-col="actor">Actor <span class="sort-arrow"></span></th>
-                <th class="sortable" data-col="target">Target <span class="sort-arrow"></span></th>
-                <th>Details</th>
-                <th class="sortable" data-col="ip">IP <span class="sort-arrow"></span></th>
-              </tr>
-            </thead>
-            <tbody id="audit-tbody"></tbody>
-          </table>
-        </div>
-
-        <div class="history-footer">
-          <button id="audit-load-more" class="ghost hidden">Load more</button>
-        </div>
+<!-- Admin screens (accessed from contest selection screen) -->
+<div id="contests-admin-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn">&#8592; Back to contests</button>
+    <h1>Contests</h1>
+  </div>
+  <div class="admin-screen-body">
+    <div class="card">
+      <div class="history-header">
+        <h2>Contests</h2>
+        <button id="new-contest-btn" class="primary">New contest</button>
       </div>
-    </section>
-    <!-- Feature Requests tab -->
-    <section id="tab-featurerequests" class="tab-pane">
-      <div class="card">
-        <div class="history-header">
-          <h2>Feature Requests</h2>
-          <div style="display:flex;gap:8px;align-items:center">
-            <button id="fr-export-btn" class="ghost">Export selected</button>
-            <button id="fr-delete-selected-btn" class="ghost">Delete selected</button>
-          </div>
-        </div>
-        <table id="fr-table">
+      <table id="contests-table">
+        <thead>
+          <tr>
+            <th>Name</th><th>Station call</th><th>QTH</th><th>Status</th><th>Created</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="contests-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="users-admin-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn">&#8592; Back to contests</button>
+    <h1>Users</h1>
+  </div>
+  <div class="admin-screen-body">
+    <div class="card">
+      <div class="history-header">
+        <h2>Users</h2>
+        <button id="new-user-btn" class="primary">New user</button>
+      </div>
+      <table id="users-table">
+        <thead>
+          <tr>
+            <th>Username</th><th>Callsign</th><th>Roles</th>
+            <th>Status</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="users-tbody"></tbody>
+      </table>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="history-header">
+        <h2>Roles</h2>
+        <button id="new-role-btn" class="primary">New role</button>
+      </div>
+      <div id="roles-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="audit-admin-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn">&#8592; Back to contests</button>
+    <h1>Audit Log</h1>
+  </div>
+  <div class="admin-screen-body">
+    <div class="card">
+      <div class="history-header">
+        <h2>Audit Log</h2>
+        <span class="muted small">365-day retention &middot; immutable</span>
+      </div>
+
+      <div class="audit-filters">
+        <label>Level
+          <select id="audit-level">
+            <option value="">All levels</option>
+            <option value="info">Info</option>
+            <option value="warn">Warn</option>
+            <option value="error">Error</option>
+          </select>
+        </label>
+        <label>Action
+          <select id="audit-action">
+            <option value="">All actions</option>
+          </select>
+        </label>
+        <label>Search
+          <input id="audit-search" type="search" placeholder="actor, target, details…" />
+        </label>
+        <label>Since
+          <input id="audit-since" type="datetime-local" />
+        </label>
+        <label>Until
+          <input id="audit-until" type="datetime-local" />
+        </label>
+        <button id="audit-apply" class="primary">Apply</button>
+        <button id="audit-reset" class="ghost">Reset</button>
+      </div>
+
+      <div class="audit-status muted small" id="audit-status">—</div>
+
+      <div class="table-scroll">
+        <table id="audit-table">
           <thead>
             <tr>
-              <th style="width:32px"><input type="checkbox" id="fr-select-all" title="Select all" /></th>
-              <th>From</th>
-              <th>Date</th>
-              <th>Status</th>
-              <th>Request</th>
-              <th></th>
+              <th class="sortable" data-col="timestamp">Time UTC <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="level">Level <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="action">Action <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="actor">Actor <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="target">Target <span class="sort-arrow"></span></th>
+              <th>Details</th>
+              <th class="sortable" data-col="ip">IP <span class="sort-arrow"></span></th>
             </tr>
           </thead>
-          <tbody id="fr-tbody"></tbody>
+          <tbody id="audit-tbody"></tbody>
         </table>
-        <div class="history-footer muted">
-          <span id="fr-count">0 requests</span>
+      </div>
+
+      <div class="history-footer">
+        <button id="audit-load-more" class="ghost hidden">Load more</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="featurerequests-admin-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn">&#8592; Back to contests</button>
+    <h1>Feature Requests</h1>
+  </div>
+  <div class="admin-screen-body">
+    <div class="card">
+      <div class="history-header">
+        <h2>Feature Requests</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="fr-export-btn" class="ghost">Export selected</button>
+          <button id="fr-delete-selected-btn" class="ghost">Delete selected</button>
         </div>
       </div>
-    </section>
-  </main>
+      <table id="fr-table">
+        <thead>
+          <tr>
+            <th style="width:32px"><input type="checkbox" id="fr-select-all" title="Select all" /></th>
+            <th>From</th>
+            <th>Date</th>
+            <th>Status</th>
+            <th>Request</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="fr-tbody"></tbody>
+      </table>
+      <div class="history-footer muted">
+        <span id="fr-count">0 requests</span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Modal container -->

@@ -33,6 +33,7 @@ const (
 	AuditSettingsChange     = "settings.change"
 	AuditContestCreate      = "contest.create"
 	AuditContestUpdate      = "contest.update"
+	AuditRigRelease         = "rig.release"
 	AuditExport             = "export"
 	AuditAccessDenied       = "access.denied"
 )
@@ -46,6 +47,7 @@ var AllAuditActions = []string{
 	AuditRoleCreate, AuditRoleDelete, AuditRolePermsChange,
 	AuditSettingsChange,
 	AuditContestCreate, AuditContestUpdate,
+	AuditRigRelease,
 	AuditExport,
 	AuditAccessDenied,
 }
