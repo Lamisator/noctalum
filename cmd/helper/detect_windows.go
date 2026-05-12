@@ -11,6 +11,9 @@ import (
 )
 
 func defaultRigctldBin() string {
+	if bin := embeddedRigctldBin(); bin != "" {
+		return bin
+	}
 	if path, err := exec.LookPath("rigctld.exe"); err == nil {
 		return path
 	}

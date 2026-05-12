@@ -42,7 +42,7 @@ func main() {
 	rigModel := flag.Int("rig-model", 0, "Hamlib rig model number; if set, rigctld is started automatically")
 	rigDevice := flag.String("rig-device", "", "serial device for the rig (e.g. /dev/ttyUSB0, COM3)")
 	rigSpeed := flag.Int("rig-speed", 0, "serial baud rate (0 = rigctld default)")
-	rigctldBin := flag.String("rigctld", "rigctld", "path to rigctld binary")
+	rigctldBin := flag.String("rigctld", defaultRigctldBin(), "path to rigctld binary")
 	flag.Parse()
 
 	// No flags provided: launch the interactive setup TUI.

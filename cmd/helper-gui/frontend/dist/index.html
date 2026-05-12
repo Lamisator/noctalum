@@ -72,11 +72,15 @@
         </label>
         <label class="field">
           <span class="field-label">Rig model (Hamlib)</span>
-          <select id="cfg-rig-model"></select>
+          <div class="combobox" id="rig-model-combobox">
+            <input type="text" id="cfg-rig-model-search" placeholder="Type to search all rigs…" autocomplete="off" spellcheck="false" />
+            <ul class="combobox-list" id="cfg-rig-model-list" role="listbox" hidden></ul>
+          </div>
+          <input type="hidden" id="cfg-rig-model" />
         </label>
         <label class="field">
           <span class="field-label">Custom model #</span>
-          <input id="cfg-rig-model-custom" type="number" placeholder="auto" />
+          <input id="cfg-rig-model-custom" type="number" placeholder="override" />
         </label>
         <label class="field">
           <span class="field-label">Serial device</span>

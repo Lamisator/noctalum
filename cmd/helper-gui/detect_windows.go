@@ -11,6 +11,9 @@ import (
 )
 
 func defaultRigctldBin() string {
+	if bin := embeddedRigctldBin(); bin != "" {
+		return bin
+	}
 	if path, err := exec.LookPath("rigctld.exe"); err == nil {
 		return path
 	}
@@ -26,6 +29,27 @@ func defaultRigctldBin() string {
 		}
 	}
 	return "rigctld.exe"
+}
+
+func defaultRigctlBin() string {
+	if bin := embeddedRigctlBin(); bin != "" {
+		return bin
+	}
+	if path, err := exec.LookPath("rigctl.exe"); err == nil {
+		return path
+	}
+	candidates := []string{
+		`C:\Program Files\Hamlib\bin\rigctl.exe`,
+		`C:\Program Files (x86)\Hamlib\bin\rigctl.exe`,
+		`C:\hamlib\bin\rigctl.exe`,
+		`C:\hamlib-w64\bin\rigctl.exe`,
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return "rigctl.exe"
 }
 
 func detectSerialPorts() []string {

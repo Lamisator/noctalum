@@ -38,7 +38,8 @@ const cfgEls = {
   server:      $("cfg-server"),
   token:       $("cfg-token"),
   rigName:     $("cfg-rig-name"),
-  rigModel:    $("cfg-rig-model"),
+  rigModel:    $("cfg-rig-model"),          // hidden input — stores model number
+  rigModelSearch: $("cfg-rig-model-search"), // visible combobox text field
   rigModelCustom: $("cfg-rig-model-custom"),
   rigDevice:   $("cfg-rig-device"),
   rigDeviceCustom: $("cfg-rig-device-custom"),
@@ -51,7 +52,121 @@ const cfgEls = {
 // State -------------------------------------------------------------------
 let profileStore = { profiles: [], last_used: "" };
 let detectedPorts = [];
-let presets = [];
+let allRigs = [];
+
+// ---- Rig model combobox -------------------------------------------------
+let comboOpen = false;
+let comboHighlighted = -1;
+const rigListEl = $("cfg-rig-model-list");
+
+function filterRigs(query) {
+  if (!query.trim()) return allRigs;
+  const lower = query.toLowerCase();
+  return allRigs.filter(r =>
+    r.label.toLowerCase().includes(lower) ||
+    r.vendor.toLowerCase().includes(lower) ||
+    String(r.model).includes(lower)
+  );
+}
+
+function rigLabel(r) {
+  return `${r.label} (${r.vendor}, model ${r.model})`;
+}
+
+function renderRigList(query) {
+  rigListEl.innerHTML = "";
+  comboHighlighted = -1;
+  const matches = filterRigs(query);
+  const show = matches.slice(0, 100);
+  for (const r of show) {
+    const li = document.createElement("li");
+    li.dataset.model = String(r.model);
+    li.dataset.label = rigLabel(r);
+    li.setAttribute("role", "option");
+    li.innerHTML =
+      `<span class="combo-vendor">${escapeHtml(r.vendor)}</span>` +
+      ` ${escapeHtml(r.label)}` +
+      `<span class="combo-num">#${r.model}</span>`;
+    rigListEl.appendChild(li);
+  }
+  if (matches.length > 100) {
+    const li = document.createElement("li");
+    li.className = "combo-hint";
+    li.textContent = `Showing 100 of ${matches.length} — type more to narrow down`;
+    rigListEl.appendChild(li);
+  } else if (matches.length === 0) {
+    const li = document.createElement("li");
+    li.className = "combo-hint";
+    li.textContent = "No matching rigs — use Custom model # below for unlisted models";
+    rigListEl.appendChild(li);
+  }
+}
+
+function openRigCombo() {
+  if (comboOpen) return;
+  renderRigList(cfgEls.rigModelSearch.value);
+  rigListEl.hidden = false;
+  comboOpen = true;
+}
+function closeRigCombo() {
+  rigListEl.hidden = true;
+  comboOpen = false;
+  comboHighlighted = -1;
+}
+function highlightRigItem(index) {
+  const items = [...rigListEl.querySelectorAll("li[data-model]")];
+  items.forEach(li => li.classList.remove("combo-active"));
+  if (index >= 0 && index < items.length) {
+    items[index].classList.add("combo-active");
+    items[index].scrollIntoView({ block: "nearest" });
+    comboHighlighted = index;
+  } else {
+    comboHighlighted = -1;
+  }
+}
+function commitRigSelection(model, label) {
+  cfgEls.rigModel.value = String(model);
+  cfgEls.rigModelSearch.value = label;
+  cfgEls.rigModelCustom.value = "";
+  closeRigCombo();
+}
+
+cfgEls.rigModelSearch.addEventListener("focus", () => openRigCombo());
+cfgEls.rigModelSearch.addEventListener("input", () => {
+  cfgEls.rigModel.value = "";   // clear until user picks from list
+  renderRigList(cfgEls.rigModelSearch.value);
+  if (!comboOpen) { rigListEl.hidden = false; comboOpen = true; }
+});
+cfgEls.rigModelSearch.addEventListener("keydown", (e) => {
+  const items = [...rigListEl.querySelectorAll("li[data-model]")];
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    openRigCombo();
+    highlightRigItem(Math.min(comboHighlighted + 1, items.length - 1));
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    highlightRigItem(Math.max(comboHighlighted - 1, 0));
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (comboHighlighted >= 0 && comboHighlighted < items.length) {
+      const li = items[comboHighlighted];
+      commitRigSelection(li.dataset.model, li.dataset.label);
+    } else {
+      closeRigCombo();
+    }
+  } else if (e.key === "Escape") {
+    closeRigCombo();
+  }
+});
+rigListEl.addEventListener("mousedown", (e) => {
+  const li = e.target.closest("li[data-model]");
+  if (!li) return;
+  e.preventDefault(); // keep focus on input
+  commitRigSelection(li.dataset.model, li.dataset.label);
+});
+document.addEventListener("click", (e) => {
+  if (!$("rig-model-combobox").contains(e.target)) closeRigCombo();
+});
 
 // ---- Phase rendering ----------------------------------------------------
 function renderPhases() {
@@ -116,12 +231,31 @@ function applyProfileToForm(p) {
   cfgEls.server.value    = p.server || "http://localhost:8080";
   cfgEls.token.value     = p.token || "";
   cfgEls.rigName.value   = p.rig_name || "";
-  selectOrCustom(cfgEls.rigModel, cfgEls.rigModelCustom, p.rig_model || 0);
+  applyRigModel(p.rig_model || 0);
   selectOrCustom(cfgEls.rigDevice, cfgEls.rigDeviceCustom, p.rig_device || "");
   cfgEls.rigSpeed.value  = String(p.rig_speed || 0);
   cfgEls.rigctldBin.value = p.rigctld_bin || "";
   cfgEls.interval.value  = String(p.interval_ms || 1000);
   cfgEls.autoDetect.checked = !!p.auto_detect;
+}
+function applyRigModel(value) {
+  if (!value) {
+    cfgEls.rigModel.value = "";
+    cfgEls.rigModelSearch.value = "";
+    cfgEls.rigModelCustom.value = "";
+    return;
+  }
+  const target = String(value);
+  const rig = allRigs.find(r => String(r.model) === target);
+  if (rig) {
+    cfgEls.rigModel.value = target;
+    cfgEls.rigModelSearch.value = rigLabel(rig);
+    cfgEls.rigModelCustom.value = "";
+  } else {
+    cfgEls.rigModel.value = "";
+    cfgEls.rigModelSearch.value = "";
+    cfgEls.rigModelCustom.value = target;
+  }
 }
 function selectOrCustom(selectEl, customEl, value) {
   if (value === 0 || value === "") {
@@ -166,24 +300,15 @@ async function loadInitialState() {
   if (!Backend) return; // running in a plain browser preview
   versionEl.textContent = "v" + (await Backend.Version());
   detectedPorts = (await Backend.DetectPorts()) || [];
-  presets = (await Backend.RigPresets()) || [];
+  allRigs = (await Backend.AllRigs()) || [];
 
-  // Populate device dropdown.
+  // Populate serial device dropdown.
   cfgEls.rigDevice.innerHTML = '<option value="">— pick or type below —</option>';
   for (const dev of detectedPorts) {
     const opt = document.createElement("option");
     opt.value = dev;
     opt.textContent = dev;
     cfgEls.rigDevice.appendChild(opt);
-  }
-
-  // Populate model dropdown (from curated presets).
-  cfgEls.rigModel.innerHTML = '<option value="">— pick or type below —</option>';
-  for (const r of presets) {
-    const opt = document.createElement("option");
-    opt.value = String(r.model);
-    opt.textContent = `${r.label} (${r.vendor}, model ${r.model})`;
-    cfgEls.rigModel.appendChild(opt);
   }
 
   cfgEls.rigctldBin.value = await Backend.DefaultRigctldBin();

@@ -108,6 +108,7 @@ func New(st *store.Store) (*Server, error) {
 	InitCluster(st, retention)
 	startClusterClient(context.Background())
 	go s.clusterPruneLoop(context.Background())
+	go s.chatPruneLoop(context.Background())
 
 	n, _ := st.CountUsers()
 	if n == 0 {
@@ -246,13 +247,15 @@ func (s *Server) handleInbound(c *client, raw []byte) {
 		if contestID == 0 {
 			return
 		}
+		now := time.Now().UTC().Format(time.RFC3339)
 		payload := map[string]any{
-			"from":    c.session.Callsign,
-			"user":    c.session.Username,
-			"text":    text,
-			"time":    time.Now().UTC().Format(time.RFC3339),
+			"from": c.session.Callsign,
+			"user": c.session.Username,
+			"text": text,
+			"time": now,
 		}
 		s.hub.BroadcastToContest(contestID, Event{Type: "chat", Payload: payload})
+		_ = s.store.InsertChatMessage(contestID, c.session.Callsign, c.session.Username, text, now)
 	}
 }
 
@@ -1107,6 +1110,22 @@ func (s *Server) handleQRZTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": result.Name, "locator": result.Locator})
+}
+
+// chatPruneLoop deletes chat messages older than 24 hours, running once per hour.
+func (s *Server) chatPruneLoop(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.store.PruneChatMessages(); err != nil {
+				log.Printf("chat prune: %v", err)
+			}
+		}
+	}
 }
 
 // clusterPruneLoop prunes old cluster spots from the DB once per hour.
@@ -1966,6 +1985,25 @@ func (s *Server) handleWSBrowser(w http.ResponseWriter, r *http.Request) {
 		select {
 		case c.send <- data:
 		default:
+		}
+	}
+	// Send recent chat history (last 24 h) to the connecting client.
+	if contestID != 0 {
+		if msgs, err := s.store.RecentChatMessages(contestID); err == nil {
+			for _, m := range msgs {
+				p := map[string]any{
+					"from": m.From,
+					"user": m.User,
+					"text": m.Text,
+					"time": m.Time.Format(time.RFC3339),
+				}
+				if data, err := json.Marshal(Event{Type: "chat", Payload: p}); err == nil {
+					select {
+					case c.send <- data:
+					default:
+					}
+				}
+			}
 		}
 	}
 	// Re-broadcast operators because a new browser is connecting.

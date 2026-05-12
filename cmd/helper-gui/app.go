@@ -137,10 +137,27 @@ func (a *App) RigPresets() []RigPreset {
 	return out
 }
 
+// AllRigs queries the bundled (or system) rigctld for the complete list of
+// supported rig models.  Falls back to the curated short-list when rigctld
+// cannot be reached.
+func (a *App) AllRigs() []RigPreset {
+	rigs := queryAllRigs(defaultRigctldBin())
+	if len(rigs) == 0 {
+		return a.RigPresets()
+	}
+	return rigs
+}
+
 // DefaultRigctldBin returns the discovered absolute path to rigctld so the
 // frontend can prefill the manual binary field.
 func (a *App) DefaultRigctldBin() string {
 	return defaultRigctldBin()
+}
+
+// DefaultRigctlBin returns the path to rigctl (the interactive CLI tool,
+// distinct from rigctld which is the daemon).
+func (a *App) DefaultRigctlBin() string {
+	return defaultRigctlBin()
 }
 
 // IsRunning is read by the frontend on startup so a newly opened window

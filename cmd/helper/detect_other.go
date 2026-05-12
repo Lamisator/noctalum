@@ -3,14 +3,30 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 )
 
 func defaultRigctldBin() string {
+	if bin := embeddedRigctldBin(); bin != "" {
+		return bin
+	}
 	if path, err := exec.LookPath("rigctld"); err == nil {
 		return path
+	}
+	// Common Homebrew install locations on macOS.
+	if runtime.GOOS == "darwin" {
+		for _, p := range []string{
+			"/opt/homebrew/bin/rigctld",  // Apple Silicon
+			"/usr/local/bin/rigctld",     // Intel
+		} {
+			if _, err := os.Stat(p); err == nil {
+				return p
+			}
+		}
 	}
 	return "rigctld"
 }

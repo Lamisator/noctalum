@@ -1,5 +1,12 @@
 package main
 
+import (
+	"os/exec"
+	"sort"
+	"strconv"
+	"strings"
+)
+
 // RigPreset is one entry in the curated list the auto-probe walks through.
 // The same list feeds the manual configuration dropdown so the operator can
 // pick a model by name instead of remembering the Hamlib model number.
@@ -54,4 +61,98 @@ func rigByModel(model int) string {
 		}
 	}
 	return ""
+}
+
+// queryAllRigs runs "rigctld -l" and returns every rig model Hamlib knows
+// about, sorted by vendor then label.  Returns nil on error.
+func queryAllRigs(bin string) []RigPreset {
+	if bin == "" {
+		return nil
+	}
+	out, err := exec.Command(bin, "-l").Output()
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+	rigs := parseRigList(string(out))
+	sort.Slice(rigs, func(i, j int) bool {
+		if rigs[i].Vendor != rigs[j].Vendor {
+			return rigs[i].Vendor < rigs[j].Vendor
+		}
+		return rigs[i].Label < rigs[j].Label
+	})
+	return rigs
+}
+
+// parseRigList parses the output of "rigctld -l".  Hamlib uses fixed-width
+// columns but the exact widths changed across versions (4.5 vs 4.7+), so
+// we locate the model number from the left and then split subsequent fields
+// on runs of 2+ spaces — the only separator that unambiguously marks column
+// boundaries even when vendor / model names contain single spaces.
+func parseRigList(out string) []RigPreset {
+	var rigs []RigPreset
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		// Strip leading blanks; first non-space token must be a positive integer.
+		trimmed := strings.TrimLeft(line, " ")
+		if trimmed == "" {
+			continue
+		}
+		numEnd := 0
+		for numEnd < len(trimmed) && trimmed[numEnd] >= '0' && trimmed[numEnd] <= '9' {
+			numEnd++
+		}
+		if numEnd == 0 {
+			continue // header or blank
+		}
+		model, err := strconv.Atoi(trimmed[:numEnd])
+		if err != nil || model <= 0 {
+			continue
+		}
+		// Everything after the model number and its trailing spaces is the
+		// sequence of fixed-width fields: vendor, model-name, version, status…
+		rest := strings.TrimLeft(trimmed[numEnd:], " ")
+		if rest == "" {
+			continue
+		}
+		fields := splitOnDoubleSpace(rest)
+		if len(fields) < 2 {
+			continue
+		}
+		vendor := strings.TrimSpace(fields[0])
+		label := strings.TrimSpace(fields[1])
+		if vendor == "" || label == "" {
+			continue
+		}
+		rigs = append(rigs, RigPreset{Label: label, Model: model, Vendor: vendor})
+	}
+	return rigs
+}
+
+// splitOnDoubleSpace splits s at every run of two or more consecutive spaces.
+// Single spaces are treated as part of the field content (vendor names such as
+// "N2ADR James Ahlstrom" and model names such as "NET rigctl" contain spaces).
+func splitOnDoubleSpace(s string) []string {
+	var fields []string
+	start := 0
+	for i := 0; i < len(s); {
+		if s[i] != ' ' {
+			i++
+			continue
+		}
+		j := i
+		for j < len(s) && s[j] == ' ' {
+			j++
+		}
+		if j-i >= 2 { // two or more spaces → field boundary
+			fields = append(fields, s[start:i])
+			start = j
+			i = j
+		} else {
+			i = j
+		}
+	}
+	if start < len(s) {
+		fields = append(fields, s[start:])
+	}
+	return fields
 }

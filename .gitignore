@@ -1,0 +1,11 @@
+/dist/
+.build-cache/
+/contestlog
+/contestlog-server
+/contestlog.db
+/helper
+/helper-gui
+
+# rigctld binaries fetched by fetch-rigctld.sh — not committed, generated at build time
+cmd/helper/rigctld-bins/
+cmd/helper-gui/rigctld-bins/

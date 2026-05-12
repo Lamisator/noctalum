@@ -444,6 +444,11 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
 }
 .ops-tab:hover { background: var(--bg-elev-2); color: var(--text); }
 .ops-tab.active { background: var(--accent-dim); color: var(--accent); }
+@keyframes chat-tab-blink {
+  0%, 100% { background: transparent; color: var(--text-muted); }
+  50%       { background: #add8e6;    color: #000; }
+}
+.ops-tab.chat-notify { animation: chat-tab-blink 2s ease-in-out infinite; }
 .ops-tab-pane { display: none; }
 .ops-tab-pane.active { display: block; }
 

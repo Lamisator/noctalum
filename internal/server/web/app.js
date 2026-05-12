@@ -861,6 +861,7 @@
       $('ops-tab-' + t.dataset.opsTab).classList.add('active');
       if (t.dataset.opsTab === 'cluster') loadClusterSpots();
       if (t.dataset.opsTab === 'chat') {
+        t.classList.remove('chat-notify');
         const inp = $('chat-input');
         if (inp) inp.focus();
         const list = $('chat-list');
@@ -896,7 +897,13 @@
     list.appendChild(li);
     list.scrollTop = list.scrollHeight;
   }
-  function onChatMessage(payload) { appendChatMessage(payload); }
+  function onChatMessage(payload) {
+    appendChatMessage(payload);
+    const tab = document.querySelector('.ops-tab[data-ops-tab="chat"]');
+    if (tab && !tab.classList.contains('active')) {
+      tab.classList.add('chat-notify');
+    }
+  }
   function sendChat() {
     const inp = $('chat-input');
     if (!inp || !ws || ws.readyState !== WebSocket.OPEN) return;

@@ -146,6 +146,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateFeatureRequests(); err != nil {
 		return err
 	}
+	if err := s.migrateChatMessages(); err != nil {
+		return err
+	}
 	for _, col := range [][2]string{
 		{"nr_sent", "INTEGER NOT NULL DEFAULT 0"},
 		{"nr_received", "INTEGER NOT NULL DEFAULT 0"},
@@ -496,5 +499,74 @@ func (s *Store) PruneClusterSpots(retentionDays int) error {
 	_, err := s.db.Exec(
 		`DELETE FROM cluster_spots WHERE created_at < datetime('now', ? || ' days')`,
 		strconv.Itoa(-retentionDays))
+	return err
+}
+
+// ----- chat messages -----
+
+// ChatMessage is a single persisted chat entry.
+type ChatMessage struct {
+	ContestID int64
+	From      string
+	User      string
+	Text      string
+	Time      time.Time
+}
+
+func (s *Store) migrateChatMessages() error {
+	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS chat_messages (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		contest_id INTEGER NOT NULL,
+		from_call  TEXT NOT NULL,
+		username   TEXT NOT NULL,
+		text       TEXT NOT NULL,
+		created_at TEXT NOT NULL
+	)`)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_contest ON chat_messages(contest_id, created_at)`)
+	return err
+}
+
+// InsertChatMessage persists a chat message.
+func (s *Store) InsertChatMessage(contestID int64, from, user, text, timeStr string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO chat_messages (contest_id, from_call, username, text, created_at) VALUES (?, ?, ?, ?, ?)`,
+		contestID, from, user, text, timeStr,
+	)
+	return err
+}
+
+// RecentChatMessages returns messages sent within the last 24 hours for the given contest, oldest first.
+func (s *Store) RecentChatMessages(contestID int64) ([]ChatMessage, error) {
+	cutoff := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+	rows, err := s.db.Query(
+		`SELECT from_call, username, text, created_at FROM chat_messages
+		 WHERE contest_id = ? AND created_at > ? ORDER BY id ASC`,
+		contestID, cutoff,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChatMessage
+	for rows.Next() {
+		var m ChatMessage
+		var ts string
+		if err := rows.Scan(&m.From, &m.User, &m.Text, &ts); err != nil {
+			return nil, err
+		}
+		m.Time, _ = time.Parse(time.RFC3339, ts)
+		m.ContestID = contestID
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// PruneChatMessages deletes messages older than 24 hours.
+func (s *Store) PruneChatMessages() error {
+	cutoff := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+	_, err := s.db.Exec(`DELETE FROM chat_messages WHERE created_at <= ?`, cutoff)
 	return err
 }
