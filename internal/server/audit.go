@@ -31,8 +31,11 @@ const (
 	AuditRoleDelete         = "role.delete"
 	AuditRolePermsChange    = "role.permissions_change"
 	AuditSettingsChange     = "settings.change"
-	AuditContestCreate      = "contest.create"
-	AuditContestUpdate      = "contest.update"
+	AuditContestCreate       = "contest.create"
+	AuditContestUpdate       = "contest.update"
+	AuditContestDelete       = "contest.delete"
+	AuditContestGrantAccess  = "contest.grant_access"
+	AuditContestRevokeAccess = "contest.revoke_access"
 	AuditRigRelease         = "rig.release"
 	AuditExport             = "export"
 	AuditAccessDenied       = "access.denied"
@@ -46,7 +49,7 @@ var AllAuditActions = []string{
 	AuditUserUnlock, AuditUserPasswordReset, AuditUserPasswordChange, AuditUserHelperTokenRegen, AuditUserRolesChange,
 	AuditRoleCreate, AuditRoleDelete, AuditRolePermsChange,
 	AuditSettingsChange,
-	AuditContestCreate, AuditContestUpdate,
+	AuditContestCreate, AuditContestUpdate, AuditContestDelete, AuditContestGrantAccess, AuditContestRevokeAccess,
 	AuditRigRelease,
 	AuditExport,
 	AuditAccessDenied,

@@ -78,7 +78,15 @@ func (s *Store) migrateContests() error {
 	if err := s.addColumnIfMissing("qsos", "extras", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return fmt.Errorf("migrate qsos extras: %w", err)
 	}
-	return s.addColumnIfMissing("qsos", "contest_id", "INTEGER")
+	if err := s.addColumnIfMissing("qsos", "contest_id", "INTEGER"); err != nil {
+		return fmt.Errorf("migrate qsos contest_id: %w", err)
+	}
+	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS contest_access (
+		contest_id INTEGER NOT NULL,
+		user_id    INTEGER NOT NULL,
+		PRIMARY KEY (contest_id, user_id)
+	)`)
+	return err
 }
 
 func (s *Store) addColumnIfMissing(table, column, colType string) error {
@@ -184,4 +192,50 @@ func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, b
 		strings.TrimSpace(stationID), customFields, qsoLayout, id,
 	)
 	return err
+}
+
+// DeleteContest removes a contest and its access list from the database.
+func (s *Store) DeleteContest(id int64) error {
+	if _, err := s.db.Exec(`DELETE FROM contest_access WHERE contest_id = ?`, id); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM contests WHERE id = ?`, id)
+	return err
+}
+
+// GrantContestAccess gives a user access to a private contest.
+func (s *Store) GrantContestAccess(contestID, userID int64) error {
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO contest_access (contest_id, user_id) VALUES (?, ?)`, contestID, userID)
+	return err
+}
+
+// RevokeContestAccess removes a user's access to a private contest.
+func (s *Store) RevokeContestAccess(contestID, userID int64) error {
+	_, err := s.db.Exec(`DELETE FROM contest_access WHERE contest_id = ? AND user_id = ?`, contestID, userID)
+	return err
+}
+
+// HasContestAccess returns true if the user has been explicitly granted access.
+func (s *Store) HasContestAccess(contestID, userID int64) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM contest_access WHERE contest_id = ? AND user_id = ?`, contestID, userID).Scan(&n)
+	return n > 0, err
+}
+
+// GetContestAccessList returns all user IDs that have been granted access to a contest.
+func (s *Store) GetContestAccessList(contestID int64) ([]int64, error) {
+	rows, err := s.db.Query(`SELECT user_id FROM contest_access WHERE contest_id = ?`, contestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		out = append(out, uid)
+	}
+	return out, rows.Err()
 }

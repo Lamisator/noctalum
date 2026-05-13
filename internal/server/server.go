@@ -1561,17 +1561,16 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		filtered := make([]store.Contest, 0, len(contests))
 		for _, c := range contests {
 			if c.Private && c.OwnerUserID != sess.UserID {
-				continue
+				ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
+				if err != nil || !ok {
+					continue
+				}
 			}
 			filtered = append(filtered, c)
 		}
 		writeJSON(w, http.StatusOK, filtered)
 	case http.MethodPost:
 		sess := sessionFor(s, r)
-		if !HasPermission(sess.Permissions, PermContestsManage) {
-			writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
-			return
-		}
 		var in struct {
 			Name         string   `json:"name"`
 			StationCall  string   `json:"station_call"`
@@ -1587,6 +1586,19 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
+		canManage := HasPermission(sess.Permissions, PermContestsManage)
+		canCreatePrivate := HasPermission(sess.Permissions, PermContestsCreatePrivate)
+		if in.Private {
+			if !canManage && !canCreatePrivate {
+				writeError(w, http.StatusForbidden, "missing permission: "+PermContestsCreatePrivate)
+				return
+			}
+		} else {
+			if !canManage {
+				writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
+				return
+			}
+		}
 		if strings.TrimSpace(in.Name) == "" {
 			writeError(w, http.StatusBadRequest, "contest name required")
 			return
@@ -1600,21 +1612,16 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid QTH locator")
 			return
 		}
-		contestSess := sessionFor(s, r)
 		ownerID := int64(0)
 		if in.Private {
-			if !HasPermission(contestSess.Permissions, PermContestsCreatePrivate) {
-				writeError(w, http.StatusForbidden, "missing permission: "+PermContestsCreatePrivate)
-				return
-			}
-			ownerID = contestSess.UserID
+			ownerID = sess.UserID
 		}
 		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, in.Private, ownerID, in.CustomFields, in.QSOLayout)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		s.audit(r, store.AuditInfo, AuditContestCreate, contestSess.Username, in.Name,
+		s.audit(r, store.AuditInfo, AuditContestCreate, sess.Username, in.Name,
 			"call: "+in.StationCall)
 		writeJSON(w, http.StatusCreated, c)
 	default:
@@ -1651,10 +1658,12 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		// Private contests are visible only to their owner.
 		if c.Private && c.OwnerUserID != sess.UserID {
-			writeError(w, http.StatusForbidden, "this contest is private")
-			return
+			ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
+			if err != nil || !ok {
+				writeError(w, http.StatusForbidden, "this contest is private")
+				return
+			}
 		}
 		bandsStr := strings.Join(c.Bands, ",")
 		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective, c.StationID, c.Private, c.OwnerUserID, c.CustomFields, c.QSOLayout)
@@ -1673,6 +1682,77 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"contest_fields":     c.CustomFields,
 			"contest_qso_layout": c.QSOLayout,
 		})
+		return
+	}
+
+	// Access management sub-route: /api/contests/{id}/access[/{userID}]
+	if sub == "access" || strings.HasPrefix(sub, "access/") {
+		c, err := s.store.GetContest(id)
+		if errors.Is(err, store.ErrContestNotFound) {
+			writeError(w, http.StatusNotFound, "contest not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		sess := sessionFor(s, r)
+		isAdmin := HasPermission(sess.Permissions, PermContestAdmin)
+		isOwner := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
+		if !isAdmin && !isOwner {
+			writeError(w, http.StatusForbidden, "only the contest owner or contest.admin can manage access")
+			return
+		}
+
+		if sub == "access" && r.Method == http.MethodGet {
+			list, err := s.store.GetContestAccessList(id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if list == nil {
+				list = []int64{}
+			}
+			writeJSON(w, http.StatusOK, list)
+			return
+		}
+
+		if sub == "access" && r.Method == http.MethodPost {
+			var in struct {
+				UserID int64 `json:"user_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.UserID == 0 {
+				writeError(w, http.StatusBadRequest, "user_id required")
+				return
+			}
+			if err := s.store.GrantContestAccess(id, in.UserID); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.audit(r, store.AuditInfo, AuditContestGrantAccess, sess.Username, c.Name,
+				"user_id: "+strconv.FormatInt(in.UserID, 10))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		if strings.HasPrefix(sub, "access/") && r.Method == http.MethodDelete {
+			targetIDStr := strings.TrimPrefix(sub, "access/")
+			targetID, err := strconv.ParseInt(targetIDStr, 10, 64)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid user id")
+				return
+			}
+			if err := s.store.RevokeContestAccess(id, targetID); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.audit(r, store.AuditInfo, AuditContestRevokeAccess, sess.Username, c.Name,
+				"user_id: "+strconv.FormatInt(targetID, 10))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -1743,6 +1823,33 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"custom_fields":  in.CustomFields,
 			"qso_layout":     in.QSOLayout,
 		}})
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// DELETE — remove contest (owner or contest.admin)
+	if r.Method == http.MethodDelete {
+		c, err := s.store.GetContest(id)
+		if errors.Is(err, store.ErrContestNotFound) {
+			writeError(w, http.StatusNotFound, "contest not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		sess := sessionFor(s, r)
+		isAdmin := HasPermission(sess.Permissions, PermContestAdmin)
+		isOwner := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
+		if !isAdmin && !isOwner {
+			writeError(w, http.StatusForbidden, "only the contest owner or contest.admin can delete this contest")
+			return
+		}
+		if err := s.store.DeleteContest(id); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.audit(r, store.AuditInfo, AuditContestDelete, sess.Username, c.Name, "")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
