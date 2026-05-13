@@ -603,7 +603,7 @@
 
     const groups = {};
     for (const f of files) {
-      const m = f.match(/^noctalum-(helper-gui|helper|wsjtx)-(.+?)(?:\.exe|\.AppImage)?$/);
+      const m = f.match(/^noctalum-(helper-gui|helper|wsjtx)-(.+?)(?:\.AppImage|\.exe)?$/);
       if (!m) continue;
       const [, type, platform] = m;
       if (!groups[type]) groups[type] = [];

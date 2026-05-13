@@ -319,15 +319,21 @@ build_gui_linux_amd64() {
     fi
     return
   fi
-  local image="noctalum-gui-linux-amd64:latest"
-  if ! "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then
-    echo "    building $image (one-time, ~2-3 min)"
-    if ! "$RUNTIME" build -t "$image" - <<'DOCKERFILE'
+  local out="noctalum-helper-gui-linux-amd64.AppImage"
+  echo "==> $out  (CGO=1, webkit2gtk-4.1, AppImage)"
+  local gui_image="noctalum-gui-linux-amd64:appimage"
+  if ! "$RUNTIME" image inspect "$gui_image" >/dev/null 2>&1; then
+    echo "    building $gui_image (one-time, ~3-4 min)"
+    if ! "$RUNTIME" build -t "$gui_image" - <<'DOCKERFILE'
 FROM golang:1.22-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config build-essential \
     libgtk-3-dev libwebkit2gtk-4.1-dev \
+    wget file squashfs-tools \
  && rm -rf /var/lib/apt/lists/*
+RUN wget -q -O /usr/local/bin/appimagetool \
+    https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
+ && chmod +x /usr/local/bin/appimagetool
 DOCKERFILE
     then
       echo "    skipping linux/amd64 GUI build — toolchain image build failed"
@@ -335,12 +341,62 @@ DOCKERFILE
       return 0
     fi
   fi
-  if run_gui_build "noctalum-helper-gui-linux-amd64" "$image" linux amd64 "webkit2_41"; then
+
+  # Write the in-container packaging script to a temp file to avoid heredoc nesting issues.
+  local tmpscript
+  tmpscript=$(mktemp /tmp/build-gui-XXXXXX.sh)
+  cat > "$tmpscript" <<'INNERSCRIPT'
+#!/bin/bash
+set -euo pipefail
+cd /src/cmd/helper-gui
+
+go build -trimpath -tags "desktop,production,webkit2_41" \
+  -ldflags="${LDFLAGS}" \
+  -o /tmp/noctalum-helper-gui .
+
+APPDIR=/tmp/AppDir
+rm -rf "${APPDIR}"
+mkdir -p "${APPDIR}/usr/bin"
+cp /tmp/noctalum-helper-gui "${APPDIR}/usr/bin/noctalum-helper-gui"
+ln -sf usr/bin/noctalum-helper-gui "${APPDIR}/AppRun"
+
+cat > "${APPDIR}/noctalum-helper-gui.desktop" <<'DESKTOPEOF'
+[Desktop Entry]
+Name=ContestLog Helper GUI
+Exec=noctalum-helper-gui
+Icon=noctalum-helper-gui
+Type=Application
+Categories=HamRadio;
+DESKTOPEOF
+
+# minimal 1×1 PNG placeholder icon (appimagetool requires an icon file)
+echo 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADklEQVQI12P4z8BQDwAEgAF/QualIQAAAABJRU5ErkJggg==' \
+  | base64 -d > "${APPDIR}/noctalum-helper-gui.png"
+
+APPIMAGE_EXTRACT_AND_RUN=1 appimagetool "${APPDIR}" "/src/dist/${OUTPUT}"
+INNERSCRIPT
+  chmod +x "$tmpscript"
+
+  if "$RUNTIME" run --rm \
+    --user "$(id -u):$(id -g)" \
+    -v "$ROOT":/src \
+    -v "$tmpscript":/build-gui.sh:ro \
+    -v "$CACHE_DIR/go-build":/.cache/go-build \
+    -v "$CACHE_DIR/go-mod":/go/pkg/mod \
+    -e HOME=/tmp \
+    -e GOCACHE=/.cache/go-build \
+    -e GOMODCACHE=/go/pkg/mod \
+    -e CGO_ENABLED=1 \
+    -e LDFLAGS="$LDFLAGS" \
+    -e OUTPUT="$out" \
+    "$gui_image" \
+    bash /build-gui.sh; then
     gui_built+=("linux/amd64")
   else
-    echo "    skipping linux/amd64 GUI build — go build failed"
+    echo "    skipping linux/amd64 GUI build — build/package failed"
     gui_skipped+=("linux/amd64")
   fi
+  rm -f "$tmpscript"
 }
 
 build_gui_linux_arm64() {
