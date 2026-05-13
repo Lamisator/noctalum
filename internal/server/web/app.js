@@ -1332,6 +1332,7 @@
     clearLeftPanel();
     renderBandPills();
     updateCallCountry('');
+    $('qrz-pill').classList.add('hidden');
   }
 
   function updateDuplicateBadge() {
@@ -1416,6 +1417,11 @@
       if (j.locator && !$('q-loc').value) $('q-loc').value = j.locator.toUpperCase();
       const loc = j.locator ? j.locator.toUpperCase() : ($('q-loc').value.trim().toUpperCase() || null);
       updateLeftPanel(callsign, !!j.has_picture, loc);
+      if (j.found) {
+        const pill = $('qrz-pill');
+        pill.href = 'https://www.qrz.com/db/' + encodeURIComponent(callsign);
+        pill.classList.remove('hidden');
+      }
       renderBandPills();
     } catch {}
   }

@@ -1051,6 +1051,7 @@ func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request) {
 		"name":        result.Name,
 		"locator":     result.Locator,
 		"has_picture": result.HasPic,
+		"found":       true,
 	})
 }
 
