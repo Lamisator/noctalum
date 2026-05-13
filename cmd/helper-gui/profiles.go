@@ -40,20 +40,31 @@ func guiSettingsPath() (string, error) {
 	return filepath.Join(dir, "noctalum", guiSettingsFile), nil
 }
 
+// legacyGuiSettingsPath returns the path used by the old ContestLog release.
+func legacyGuiSettingsPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "contestlog", "contestlog-helper-gui.json"), nil
+}
+
 func loadProfileStore() ProfileStore {
-	path, err := guiSettingsPath()
-	if err != nil {
-		return ProfileStore{}
+	for _, pathFn := range []func() (string, error){guiSettingsPath, legacyGuiSettingsPath} {
+		path, err := pathFn()
+		if err != nil {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var s ProfileStore
+		if json.Unmarshal(data, &s) == nil {
+			return s
+		}
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ProfileStore{}
-	}
-	var s ProfileStore
-	if err := json.Unmarshal(data, &s); err != nil {
-		return ProfileStore{}
-	}
-	return s
+	return ProfileStore{}
 }
 
 func (s *ProfileStore) save() error {

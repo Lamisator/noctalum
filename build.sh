@@ -75,6 +75,10 @@ if ! $native_build; then
   fi
 fi
 
+# Enable BuildKit so RUN --mount=type=cache works in inline Dockerfiles.
+# Docker 23+ already defaults to BuildKit; this is a no-op there.
+[ "$RUNTIME" = "docker" ] && export DOCKER_BUILDKIT=1
+
 server_targets=("${DEFAULT_SERVER_TARGETS[@]}")
 helper_targets=("${DEFAULT_HELPER_TARGETS[@]}")
 if [ -n "$single_target" ]; then
@@ -203,15 +207,16 @@ build_helper_appimage() {
     if ! "$RUNTIME" build -t "$image" - <<'DOCKERFILE'
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget ca-certificates file \
- && wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    wget ca-certificates file
+RUN wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
          -O /tmp/appimagetool.AppImage \
  && chmod +x /tmp/appimagetool.AppImage \
  && cd /tmp && APPIMAGE_EXTRACT_AND_RUN=1 /tmp/appimagetool.AppImage --appimage-extract \
  && mv /tmp/squashfs-root /opt/appimagetool \
- && rm /tmp/appimagetool.AppImage \
- && rm -rf /var/lib/apt/lists/*
+ && rm /tmp/appimagetool.AppImage
 ENTRYPOINT ["/opt/appimagetool/AppRun"]
 DOCKERFILE
     then
@@ -326,11 +331,12 @@ build_gui_linux_amd64() {
     echo "    building $gui_image (one-time, ~3-4 min)"
     if ! "$RUNTIME" build -t "$gui_image" - <<'DOCKERFILE'
 FROM golang:1.22-bookworm
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     pkg-config build-essential \
     libgtk-3-dev libwebkit2gtk-4.1-dev \
-    wget file squashfs-tools \
- && rm -rf /var/lib/apt/lists/*
+    wget file squashfs-tools
 RUN wget -q -O /usr/local/bin/appimagetool \
     https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
  && chmod +x /usr/local/bin/appimagetool
@@ -427,10 +433,11 @@ build_gui_linux_arm64() {
     echo "      docker run --rm --privileged multiarch/qemu-user-static --reset -p yes"
     if ! "$RUNTIME" build --platform linux/arm64 -t "$image" - <<'DOCKERFILE'
 FROM golang:1.22-bookworm
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     pkg-config build-essential \
-    libgtk-3-dev libwebkit2gtk-4.1-dev \
- && rm -rf /var/lib/apt/lists/*
+    libgtk-3-dev libwebkit2gtk-4.1-dev
 DOCKERFILE
     then
       echo "    skipping linux/arm64 GUI build — arm64 Docker image build failed (no QEMU?)"
@@ -464,9 +471,10 @@ build_gui_windows_amd64() {
     echo "    building $image (one-time, ~3-5 min)"
     if ! "$RUNTIME" build -t "$image" - <<'DOCKERFILE'
 FROM golang:1.22-bookworm
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc-mingw-w64-x86-64 \
- && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    gcc-mingw-w64-x86-64
 DOCKERFILE
     then
       echo "    skipping windows/amd64 GUI build — toolchain image build failed"

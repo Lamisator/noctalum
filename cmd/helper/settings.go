@@ -16,6 +16,22 @@ func settingsPath() (string, error) {
 	return filepath.Join(dir, "noctalum", settingsFile), nil
 }
 
+func oldSharedSettingsPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "contestlog", "contestlog-helper-gui.json"), nil
+}
+
+func oldSettingsPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "contestlog", "contestlog-helper.json"), nil
+}
+
 // sharedProfile mirrors cmd/helper-gui/profiles.go:Profile so that both tools
 // read and write the same on-disk format.
 type sharedProfile struct {
@@ -44,29 +60,36 @@ func sharedSettingsPath() (string, error) {
 	return filepath.Join(dir, "noctalum", "noctalum-helper-gui.json"), nil
 }
 
-// loadSettings returns the last-used profile from the shared GUI settings file,
-// falling back to the legacy TUI-only settings file if the GUI file is absent.
+// loadSettings returns the last-used profile, trying paths in order:
+//  1. noctalum/noctalum-helper-gui.json  (current shared GUI store)
+//  2. noctalum/noctalum-helper.json      (current TUI-only store)
+//  3. contestlog/contestlog-helper-gui.json  (old ContestLog GUI store)
+//  4. contestlog/contestlog-helper.json      (old ContestLog TUI-only store)
 func loadSettings() tuiConfig {
-	if cfg, ok := loadFromShared(); ok {
-		return cfg
+	for _, pathFn := range []func() (string, error){sharedSettingsPath, oldSharedSettingsPath} {
+		if cfg, ok := loadSharedProfileFile(pathFn); ok {
+			return cfg
+		}
 	}
-	path, err := settingsPath()
-	if err != nil {
-		return tuiConfig{}
+	for _, pathFn := range []func() (string, error){settingsPath, oldSettingsPath} {
+		path, err := pathFn()
+		if err != nil {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var cfg tuiConfig
+		if json.Unmarshal(data, &cfg) == nil {
+			return cfg
+		}
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return tuiConfig{}
-	}
-	var cfg tuiConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return tuiConfig{}
-	}
-	return cfg
+	return tuiConfig{}
 }
 
-func loadFromShared() (tuiConfig, bool) {
-	path, err := sharedSettingsPath()
+func loadSharedProfileFile(pathFn func() (string, error)) (tuiConfig, bool) {
+	path, err := pathFn()
 	if err != nil {
 		return tuiConfig{}, false
 	}
