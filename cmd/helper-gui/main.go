@@ -20,6 +20,9 @@ const helperVersion = "0.1.0"
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed frontend/dist/noctalum.png
+var appIcon []byte
+
 func main() {
 	app := NewApp()
 
@@ -36,6 +39,7 @@ func main() {
 		Bind:             []interface{}{app},
 		Linux: &linux.Options{
 			ProgramName: "Noctalum Helper",
+			Icon:        appIcon,
 		},
 		Mac: &mac.Options{
 			TitleBar: mac.TitleBarHiddenInset(),

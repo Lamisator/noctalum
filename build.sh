@@ -182,9 +182,7 @@ build_helper_appimage() {
   chmod +x "$tmpdir/AppDir/AppRun"
   printf '[Desktop Entry]\nName=Noctalum Helper\nExec=noctalum-helper\nIcon=noctalum-helper\nType=Application\nCategories=HamRadio;\n' \
     > "$tmpdir/AppDir/noctalum-helper.desktop"
-  # Minimal 1×1 blue PNG used as placeholder icon (AppImage spec requires one)
-  printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' \
-    | base64 -d > "$tmpdir/AppDir/noctalum-helper.png"
+  cp "$ROOT/noctalum.png" "$tmpdir/AppDir/noctalum-helper.png"
 
   if $native_build; then
     if ! command -v appimagetool >/dev/null 2>&1; then
@@ -375,9 +373,7 @@ Type=Application
 Categories=HamRadio;
 DESKTOPEOF
 
-# minimal 1×1 PNG placeholder icon (appimagetool requires an icon file)
-echo 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADklEQVQI12P4z8BQDwAEgAF/QualIQAAAABJRU5ErkJggg==' \
-  | base64 -d > "${APPDIR}/noctalum-helper-gui.png"
+cp /src/noctalum.png "${APPDIR}/noctalum-helper-gui.png"
 
 APPIMAGE_EXTRACT_AND_RUN=1 appimagetool "${APPDIR}" "/src/dist/${OUTPUT}"
 INNERSCRIPT

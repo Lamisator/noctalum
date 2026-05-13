@@ -57,6 +57,7 @@ button, input, select, textarea {
   top: 0;
   z-index: 5;
 }
+.topbar-logo { width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0; }
 .brand {
   font-size: 18px;
   font-weight: 700;
