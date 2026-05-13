@@ -1124,20 +1124,21 @@ button.small { padding: 4px 8px; font-size: 12px; }
 /* ==== QRZ profile pill (next to Callsign label) ==== */
 .qrz-pill {
   display: inline-block;
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 2px 8px;
+  letter-spacing: 0.07em;
+  padding: 1px 5px;
   border-radius: 999px;
   vertical-align: middle;
-  margin-left: 4px;
-  background: #1565c0;
-  color: #fff;
+  margin-left: 5px;
+  background: rgba(79, 195, 247, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(79, 195, 247, 0.35);
   text-decoration: none;
   transition: opacity .12s;
-  line-height: 1.6;
+  line-height: 1.5;
 }
-.qrz-pill:hover { opacity: 0.8; }
+.qrz-pill:hover { opacity: 0.7; }
 .qrz-pill.hidden { display: none; }
 
 /* ==== QRZ info bar (band pills) ==== */
