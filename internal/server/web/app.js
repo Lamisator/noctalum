@@ -2124,12 +2124,19 @@
     const tOpt = types.map(t => `<option value="${t}"${f.type === t ? ' selected' : ''}>${t}</option>`).join('');
     return `
       <div class="cf-row" data-i="${i}">
-        <input class="cf-name" placeholder="name (e.g. exchange)" value="${escHtml(f.name || '')}" />
-        <input class="cf-label" placeholder="label" value="${escHtml(f.label || '')}" />
-        <select class="cf-type">${tOpt}</select>
-        <input class="cf-options" placeholder="options (comma-separated, for select)" value="${escHtml((f.options || []).join(','))}" />
-        <label class="cf-req"><input type="checkbox" class="cf-required"${f.required ? ' checked' : ''} /> required</label>
-        <button type="button" class="ghost cf-del">✕</button>
+        <div class="cf-row-fields">
+          <input class="cf-name" placeholder="name (e.g. exchange)" value="${escHtml(f.name || '')}" />
+          <input class="cf-label" placeholder="label" value="${escHtml(f.label || '')}" />
+          <select class="cf-type">${tOpt}</select>
+          <input class="cf-options" placeholder="options (comma-separated, for select)" value="${escHtml((f.options || []).join(','))}" />
+          <button type="button" class="ghost cf-del" title="Remove field">✕</button>
+        </div>
+        <div class="cf-row-opts">
+          <label class="cf-req">
+            <input type="checkbox" class="cf-required"${f.required ? ' checked' : ''} />
+            <span>Required</span>
+          </label>
+        </div>
       </div>`;
   }
   function attachCustomFieldsEditorListeners() {
@@ -2335,8 +2342,8 @@
         <div class="layout-suggested" id="layout-suggested"></div>
       </div>
       <div class="layout-editor-help">
-        Drag tiles to rearrange. Drag the right edge to resize.
-        Right-click a tile to remove it.
+        Drag tiles to rearrange — they snap to the grid and never overlap.
+        Drag a left or right edge to resize. Right-click a tile to remove it.
         ★ mandatory tiles (Callsign, RST, Mode, Band, Frequency, UTC time, …) can be moved but not removed.
         <button type="button" class="ghost" id="layout-reset-btn" style="margin-left:8px">Reset to defaults</button>
       </div>`;
@@ -2389,15 +2396,15 @@
     root.innerHTML = items.map(it => {
       const mandatory = QSO_MANDATORY_KEYS.has(it.key);
       const lbl = _layoutFieldLabel(it.key);
-      const handle = `<span class="layout-tile-resize" data-resize-key="${escHtml(it.key)}">⇔</span>`;
       const cls = mandatory ? ' mandatory' : '';
       const prefix = mandatory ? '★ ' : '';
       return `
         <div class="layout-tile${cls}"
              data-layout-key="${escHtml(it.key)}"
              style="grid-column:${it.x + 1} / span ${it.w}; grid-row:${it.y + 1};">
+          <span class="layout-tile-resize-handle" data-resize="left" title="Drag to resize"></span>
           <span class="layout-tile-label">${prefix}${escHtml(lbl)}</span>
-          ${handle}
+          <span class="layout-tile-resize-handle" data-resize="right" title="Drag to resize"></span>
         </div>`;
     }).join('');
     _attachLayoutDragHandlers();
@@ -2459,7 +2466,7 @@
         const relY = ev.clientY - rect.top;
         const nx = Math.max(0, Math.min(LAYOUT_COLS - 1, Math.floor(relX / colW)));
         const ny = Math.max(0, Math.floor(relY / rowH));
-        _layoutSet(key, nx, ny, undefined);
+        _layoutMove(key, nx, ny);
         renderLayoutEditor();
       };
       const onUp = () => {
@@ -2471,14 +2478,98 @@
     };
   }
 
-  function _layoutSet(key, x, y, w) {
+  // Find a non-overlapping placement for a tile of width `w`, preferring the row
+  // and column closest to (targetX, targetY). Searches the target row first, then
+  // expands outward; if no row at all has a gap that fits, falls back to a new row.
+  function _findPlacement(others, targetX, targetY, w) {
+    const clampedW = Math.max(1, Math.min(LAYOUT_COLS, w));
+    function gapsInRow(y) {
+      const occupied = others
+        .filter(it => it.y === y)
+        .map(it => [Math.max(0, it.x), Math.min(LAYOUT_COLS, it.x + it.w)])
+        .filter(([s, e]) => e > s)
+        .sort((a, b) => a[0] - b[0]);
+      const gaps = [];
+      let cursor = 0;
+      for (const [s, e] of occupied) {
+        if (s > cursor) gaps.push([cursor, s]);
+        cursor = Math.max(cursor, e);
+      }
+      if (cursor < LAYOUT_COLS) gaps.push([cursor, LAYOUT_COLS]);
+      return gaps;
+    }
+    function tryRow(y) {
+      const gaps = gapsInRow(y);
+      let best = null;
+      for (const [s, e] of gaps) {
+        const len = e - s;
+        if (len < clampedW) continue;
+        const minX = s;
+        const maxX = s + len - clampedW;
+        const snapped = Math.max(minX, Math.min(maxX, targetX));
+        const dist = Math.abs(snapped - targetX);
+        if (best === null || dist < best.dist) best = { x: snapped, dist };
+      }
+      return best;
+    }
+    const startY = Math.max(0, targetY);
+    const r0 = tryRow(startY);
+    if (r0) return { x: r0.x, y: startY, w: clampedW };
+    for (let d = 1; d <= 64; d++) {
+      if (startY - d >= 0) {
+        const rUp = tryRow(startY - d);
+        if (rUp) return { x: rUp.x, y: startY - d, w: clampedW };
+      }
+      const rDn = tryRow(startY + d);
+      if (rDn) return { x: rDn.x, y: startY + d, w: clampedW };
+    }
+    let maxY = 0;
+    for (const it of others) maxY = Math.max(maxY, it.y);
+    return { x: 0, y: maxY + 1, w: clampedW };
+  }
+
+  // Collision-aware move: keeps `w`, snaps to the nearest gap that fits.
+  function _layoutMove(key, targetX, targetY) {
     const layout = buildEffectiveLayout(_layoutState.json, _layoutState.cfList || []);
-    const it = layout.items.find(i => i.key === key);
-    if (!it) return;
-    if (typeof x === 'number') it.x = Math.max(0, Math.min(LAYOUT_COLS - 1, x));
-    if (typeof y === 'number') it.y = Math.max(0, y);
-    if (typeof w === 'number') it.w = Math.max(1, Math.min(LAYOUT_COLS - it.x, w));
-    if (it.x + it.w > LAYOUT_COLS) it.w = LAYOUT_COLS - it.x;
+    const me = layout.items.find(i => i.key === key);
+    if (!me) return;
+    const others = layout.items.filter(it => it.key !== key);
+    const p = _findPlacement(others, targetX, Math.max(0, targetY), me.w);
+    me.x = p.x;
+    me.y = p.y;
+    me.w = p.w;
+    _layoutState.json = JSON.stringify(layout);
+  }
+
+  // Collision-aware resize by edge ('left' or 'right'). origX/origW are the
+  // pre-drag values; deltaCols is the snapped column delta of the pointer.
+  function _layoutResizeTo(key, edge, origX, origW, deltaCols) {
+    const layout = buildEffectiveLayout(_layoutState.json, _layoutState.cfList || []);
+    const me = layout.items.find(i => i.key === key);
+    if (!me) return;
+    const sameRow = layout.items.filter(it => it.key !== key && it.y === me.y);
+    if (edge === 'right') {
+      let rightLimit = LAYOUT_COLS;
+      for (const o of sameRow) {
+        if (o.x >= origX + 1) rightLimit = Math.min(rightLimit, o.x);
+      }
+      const maxW = Math.max(1, rightLimit - origX);
+      const newW = Math.max(1, Math.min(maxW, origW + deltaCols));
+      me.x = origX;
+      me.w = newW;
+    } else {
+      const rightEdge = origX + origW;
+      let leftLimit = 0;
+      for (const o of sameRow) {
+        if (o.x < origX && o.x + o.w <= rightEdge) {
+          leftLimit = Math.max(leftLimit, o.x + o.w);
+        }
+      }
+      const maxW = Math.max(1, rightEdge - leftLimit);
+      const newW = Math.max(1, Math.min(maxW, origW - deltaCols));
+      me.x = rightEdge - newW;
+      me.w = newW;
+    }
     _layoutState.json = JSON.stringify(layout);
   }
 
@@ -2544,7 +2635,7 @@
     };
     root.onpointerdown = (e) => {
       if (e.button === 2) return;
-      const resize = e.target.closest('.layout-tile-resize');
+      const resize = e.target.closest('[data-resize]');
       const tile = e.target.closest('.layout-tile');
       if (!tile) return;
       const key = tile.dataset.layoutKey;
@@ -2558,16 +2649,17 @@
       const startX = e.clientX, startY = e.clientY;
       const origX = it.x, origY = it.y, origW = it.w;
       const mode = resize ? 'resize' : 'move';
+      const edge = resize ? resize.dataset.resize : null;
       const onMove = (ev) => {
         const dx = ev.clientX - startX;
         const dy = ev.clientY - startY;
         if (mode === 'move') {
           const nx = Math.round(origX + dx / colW);
           const ny = Math.round(origY + dy / rowH);
-          _layoutSet(key, nx, Math.max(0, ny), undefined);
+          _layoutMove(key, nx, Math.max(0, ny));
         } else {
-          const nw = Math.max(1, Math.round(origW + dx / colW));
-          _layoutSet(key, undefined, undefined, nw);
+          const deltaCols = Math.round(dx / colW);
+          _layoutResizeTo(key, edge, origX, origW, deltaCols);
         }
         renderLayoutEditor();
       };
