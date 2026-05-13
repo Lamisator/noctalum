@@ -17,8 +17,9 @@ type Rig struct {
 	Mode        string    `json:"mode"`
 	Band        string    `json:"band"`
 	HelperCount int       `json:"helper_count"`
-	InUseBy     []string  `json:"in_use_by"` // operator callsigns currently auto-filling from this rig
-	UpdatedAt   time.Time `json:"updated_at"`
+	InUseBy      []string  `json:"in_use_by"`                // operator callsigns (same contest) using this rig
+	OtherContests []string `json:"other_contests,omitempty"` // contest names of operators in other contests using this rig
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // RigRegistry keeps an in-memory map of rigs.  Rigs are added on the first
@@ -99,6 +100,21 @@ func (r *RigRegistry) All(inUseBy func(name string) []string) []Rig {
 	for _, rig := range r.rigs {
 		copy := *rig
 		copy.InUseBy = inUseBy(rig.Name)
+		out = append(out, copy)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// AllForContest is like All but separates same-contest usage from cross-contest usage.
+// rigUsage returns (sameContestCallsigns, otherContestNames) for a rig name.
+func (r *RigRegistry) AllForContest(rigUsage func(name string) ([]string, []string)) []Rig {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]Rig, 0, len(r.rigs))
+	for _, rig := range r.rigs {
+		copy := *rig
+		copy.InUseBy, copy.OtherContests = rigUsage(rig.Name)
 		out = append(out, copy)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

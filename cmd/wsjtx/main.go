@@ -1,4 +1,4 @@
-// contestlog-wsjtx bridges WSJT-X to a remote ContestLog server.
+// noctalum-wsjtx bridges WSJT-X to a remote Noctalum server.
 // It logs in with username/password, lets the operator pick a contest, then
 // listens on UDP for WSJT-X LOG_QSO messages and posts each one to the server.
 package main
@@ -56,7 +56,7 @@ type logQSOMsg struct {
 }
 
 func main() {
-	serverFlag  := flag.String("server", "http://localhost:8080", "ContestLog server URL")
+	serverFlag  := flag.String("server", "http://localhost:8080", "Noctalum server URL")
 	userFlag    := flag.String("user", "", "username — required")
 	passFlag    := flag.String("pass", "", "password (omit to be prompted)")
 	udpFlag     := flag.String("udp", "0.0.0.0:2237", "UDP address to listen for WSJT-X messages")
@@ -218,7 +218,7 @@ func doSelectContest(c *http.Client, server, csrf string, id int64) error {
 	return nil
 }
 
-// submitQSO posts a parsed WSJT-X QSO to the ContestLog server.
+// submitQSO posts a parsed WSJT-X QSO to the Noctalum server.
 func submitQSO(c *http.Client, server, csrf string, m *logQSOMsg, forceDup bool) error {
 	t := m.DateTimeOn
 	if t.IsZero() {

@@ -10,13 +10,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/contestlog/contestlog/internal/server"
-	"github.com/contestlog/contestlog/internal/store"
+	"github.com/noctalum/noctalum/internal/server"
+	"github.com/noctalum/noctalum/internal/store"
 )
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
-	dbPath := flag.String("db", "contestlog.db", "SQLite database file path")
+	dbPath := flag.String("db", "noctalum.db", "SQLite database file path")
 	downloadsDir := flag.String("downloads-dir", "", "directory to serve helper downloads from (optional)")
 	flag.Parse()
 
@@ -41,7 +41,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("ContestLog listening on %s (db=%s)", *addr, *dbPath)
+		log.Printf("Noctalum listening on %s (db=%s)", *addr, *dbPath)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}

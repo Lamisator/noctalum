@@ -1,9 +1,9 @@
 services:
-  contestlogger:
+  noctalum:
     image: debian:bookworm-slim
-    command: /app/contestlog-server -addr :8675 -db /data/contestlog.db -downloads-dir /downloads
+    command: /app/noctalum-server -addr :8675 -db /data/noctalum.db -downloads-dir /downloads
     volumes:
-      - ./app/contestlog-server:/app/contestlog-server:ro
+      - ./app/noctalum-server:/app/noctalum-server:ro
       - ./app/downloads:/downloads:ro
       - ./data:/data
       - /etc/ssl/certs:/etc/ssl/certs:ro

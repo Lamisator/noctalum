@@ -25,7 +25,7 @@ func NewApp() *App { return &App{} }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	wruntime.LogInfo(ctx, "ContestLog Helper GUI v"+helperVersion+" starting")
+	wruntime.LogInfo(ctx, "Noctalum Helper GUI v"+helperVersion+" starting")
 }
 
 func (a *App) shutdown(_ context.Context) {
@@ -60,6 +60,7 @@ func (a *App) emitLog(format string, args ...any) {
 type Phase string
 
 const (
+	PhaseModel      Phase = "model"
 	PhaseBaud       Phase = "baud"
 	PhaseConnecting Phase = "connecting"
 	PhaseConnected  Phase = "connected"
@@ -201,7 +202,7 @@ func (a *App) SetLastProfile(name string) error {
 }
 
 // Connect orchestrates a full attempt: optionally auto-detects rig + baud,
-// starts rigctld, and runs the ContestLog session loop until Disconnect()
+// starts rigctld, and runs the Noctalum session loop until Disconnect()
 // or shutdown.  Errors during phases are surfaced as phase events; the
 // returned error is only set when the request can't even start (e.g. a
 // previous connection is still active).

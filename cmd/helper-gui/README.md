@@ -1,7 +1,7 @@
-# contestlog-helper-gui
+# noctalum-helper-gui
 
-Desktop GUI version of the ContestLog rig helper.  Wraps the same
-rigctld → ContestLog WebSocket bridge as `cmd/helper`, but presents a
+Desktop GUI version of the Noctalum rig helper.  Wraps the same
+rigctld → Noctalum WebSocket bridge as `cmd/helper`, but presents a
 Wails-based UI that:
 
 - detects the serial port automatically (per-OS),
@@ -46,5 +46,5 @@ Output ends up in `build/bin/`.
 - A Hamlib `rigctld` binary on `$PATH` (or pointed at by the
   *rigctld binary* field).  The default Hamlib install is fine.
 - A USB / serial cable to the rig.
-- A ContestLog server URL and a helper token from the server's *Settings*
+- A Noctalum server URL and a helper token from the server's *Settings*
   panel.

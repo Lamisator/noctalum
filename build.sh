@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Cross-compile ContestLog binaries inside a Docker (or Podman) container.
+# Cross-compile Noctalum binaries inside a Docker (or Podman) container.
 # No local Go toolchain is required.
 #
-# Defaults build the server for Linux, and the helper for Linux, macOS, and
-# Windows (so each operator can grab the right binary for their PC).
+# Defaults build the server for Linux, and the helper for Linux (as AppImage),
+# macOS, and Windows (so each operator can grab the right binary for their PC).
 #
 # Usage:
 #   ./build.sh                          # build everything (server, helper, wsjtx, GUI)
-#   ./build.sh --server-only            # only the contestlog server
-#   ./build.sh --helper-only            # only the contestlog-helper
-#   ./build.sh --wsjtx-only             # only the contestlog-wsjtx bridge
-#   ./build.sh --gui-only               # only the contestlog-helper-gui (linux, windows)
+#   ./build.sh --server-only            # only the noctalum server
+#   ./build.sh --helper-only            # only the noctalum-helper
+#   ./build.sh --wsjtx-only             # only the noctalum-wsjtx bridge
+#   ./build.sh --gui-only               # only the noctalum-helper-gui (linux, windows)
 #   ./build.sh --no-gui                 # skip the GUI helper
 #   ./build.sh --target linux/amd64     # restrict to one OS/arch
 #   ./build.sh --image golang:1.23      # use a different builder image
@@ -149,18 +149,101 @@ echo
 
 if $build_server; then
   for t in "${server_targets[@]}"; do
-    run_build "./" "contestlog" "$t"
+    run_build "./" "noctalum" "$t"
   done
 fi
+
+# Wraps a Linux helper binary in an AppImage.
+# $1  arch (amd64 | arm64)
+build_helper_appimage() {
+  local arch="$1"
+  local appimage_arch
+  case "$arch" in amd64) appimage_arch="x86_64" ;; arm64) appimage_arch="aarch64" ;; *) return ;; esac
+
+  local binary="$OUT_DIR/noctalum-helper-linux-${arch}"
+  if [ ! -f "$binary" ]; then
+    echo "    skipping AppImage linux/${arch} — binary not built"
+    return
+  fi
+
+  local out="noctalum-helper-linux-${arch}.AppImage"
+  echo "==> $out"
+
+  local tmpdir="$CACHE_DIR/appimage-${arch}"
+  rm -rf "$tmpdir"
+  mkdir -p "$tmpdir/AppDir/usr/bin"
+  cp "$binary" "$tmpdir/AppDir/usr/bin/noctalum-helper"
+  chmod +x "$tmpdir/AppDir/usr/bin/noctalum-helper"
+  printf '#!/bin/sh\nexec "$APPDIR/usr/bin/noctalum-helper" "$@"\n' > "$tmpdir/AppDir/AppRun"
+  chmod +x "$tmpdir/AppDir/AppRun"
+  printf '[Desktop Entry]\nName=Noctalum Helper\nExec=noctalum-helper\nIcon=noctalum-helper\nType=Application\nCategories=HamRadio;\n' \
+    > "$tmpdir/AppDir/noctalum-helper.desktop"
+  # Minimal 1×1 blue PNG used as placeholder icon (AppImage spec requires one)
+  printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' \
+    | base64 -d > "$tmpdir/AppDir/noctalum-helper.png"
+
+  if $native_build; then
+    if ! command -v appimagetool >/dev/null 2>&1; then
+      echo "    skipping AppImage — appimagetool not on PATH"
+      echo "    Install from https://github.com/AppImage/AppImageKit/releases"
+      rm -rf "$tmpdir"
+      return
+    fi
+    ARCH="$appimage_arch" APPIMAGE_EXTRACT_AND_RUN=1 \
+      appimagetool "$tmpdir/AppDir" "$OUT_DIR/$out" \
+      && rm -f "$binary"
+    rm -rf "$tmpdir"
+    return
+  fi
+
+  # Docker-based: a single x86_64 image handles both arches via ARCH env var.
+  local image="noctalum-appimage-tool:latest"
+  if ! "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then
+    echo "    building $image (one-time, ~1 min)"
+    if ! "$RUNTIME" build -t "$image" - <<'DOCKERFILE'
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget ca-certificates file \
+ && wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
+         -O /tmp/appimagetool.AppImage \
+ && chmod +x /tmp/appimagetool.AppImage \
+ && cd /tmp && APPIMAGE_EXTRACT_AND_RUN=1 /tmp/appimagetool.AppImage --appimage-extract \
+ && mv /tmp/squashfs-root /opt/appimagetool \
+ && rm /tmp/appimagetool.AppImage \
+ && rm -rf /var/lib/apt/lists/*
+ENTRYPOINT ["/opt/appimagetool/AppRun"]
+DOCKERFILE
+    then
+      echo "    skipping AppImage linux/${arch} — toolchain image build failed"
+      rm -rf "$tmpdir"
+      return
+    fi
+  fi
+
+  "$RUNTIME" run --rm \
+    --user "$(id -u):$(id -g)" \
+    -v "$tmpdir":/work \
+    -e ARCH="$appimage_arch" \
+    "$image" \
+    /work/AppDir "/work/$out" \
+  && mv "$tmpdir/$out" "$OUT_DIR/$out" \
+  && rm -f "$binary" \
+  || echo "    skipping AppImage linux/${arch} — appimagetool run failed"
+
+  rm -rf "$tmpdir"
+}
+
 if $build_helper; then
   for t in "${helper_targets[@]}"; do
     local_os="${t%/*}" local_arch="${t#*/}"
-    run_build "./cmd/helper" "contestlog-helper" "$t" "$(pkg_tags "cmd/helper" "$local_os" "$local_arch")"
+    run_build "./cmd/helper" "noctalum-helper" "$t" "$(pkg_tags "cmd/helper" "$local_os" "$local_arch")"
+    [ "$local_os" = "linux" ] && build_helper_appimage "$local_arch"
   done
 fi
 if $build_wsjtx; then
   for t in "${helper_targets[@]}"; do
-    run_build "./cmd/wsjtx" "contestlog-wsjtx" "$t"
+    run_build "./cmd/wsjtx" "noctalum-wsjtx" "$t"
   done
 fi
 
@@ -168,7 +251,7 @@ fi
 
 # Shared helper: run one GUI build inside a pre-built toolchain image (or
 # natively when --native is set; in that case $2 (image) is ignored).
-#   $1  output filename (e.g. contestlog-helper-gui-linux-amd64)
+#   $1  output filename (e.g. noctalum-helper-gui-linux-amd64)
 #   $2  toolchain image name  (unused in --native mode)
 #   $3  GOOS
 #   $4  GOARCH
@@ -228,7 +311,7 @@ gui_skipped=()
 
 build_gui_linux_amd64() {
   if $native_build; then
-    if run_gui_build "contestlog-helper-gui-linux-amd64" "" linux amd64 "webkit2_41"; then
+    if run_gui_build "noctalum-helper-gui-linux-amd64" "" linux amd64 "webkit2_41"; then
       gui_built+=("linux/amd64")
     else
       echo "    skipping linux/amd64 GUI build — go build failed (libwebkit2gtk-4.1-dev installed?)"
@@ -236,7 +319,7 @@ build_gui_linux_amd64() {
     fi
     return
   fi
-  local image="contestlog-gui-linux-amd64:latest"
+  local image="noctalum-gui-linux-amd64:latest"
   if ! "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then
     echo "    building $image (one-time, ~2-3 min)"
     if ! "$RUNTIME" build -t "$image" - <<'DOCKERFILE'
@@ -252,7 +335,7 @@ DOCKERFILE
       return 0
     fi
   fi
-  if run_gui_build "contestlog-helper-gui-linux-amd64" "$image" linux amd64 "webkit2_41"; then
+  if run_gui_build "noctalum-helper-gui-linux-amd64" "$image" linux amd64 "webkit2_41"; then
     gui_built+=("linux/amd64")
   else
     echo "    skipping linux/amd64 GUI build — go build failed"
@@ -262,7 +345,7 @@ DOCKERFILE
 
 build_gui_linux_arm64() {
   if $native_build; then
-    if run_gui_build "contestlog-helper-gui-linux-arm64" "" linux arm64 "webkit2_41"; then
+    if run_gui_build "noctalum-helper-gui-linux-arm64" "" linux arm64 "webkit2_41"; then
       gui_built+=("linux/arm64")
     else
       echo "    skipping linux/arm64 GUI build — go build failed (cross-CGO not supported natively; run on arm64 hardware)"
@@ -270,7 +353,7 @@ build_gui_linux_arm64() {
     fi
     return
   fi
-  local image="contestlog-gui-linux-arm64:latest"
+  local image="noctalum-gui-linux-arm64:latest"
 
   # If the image exists but is the wrong architecture (e.g. built without QEMU)
   # remove it so we try again rather than running the wrong binary silently.
@@ -300,7 +383,7 @@ DOCKERFILE
     fi
   fi
 
-  if ! run_gui_build "contestlog-helper-gui-linux-arm64" "$image" linux arm64 "webkit2_41" "" "linux/arm64"; then
+  if ! run_gui_build "noctalum-helper-gui-linux-arm64" "$image" linux arm64 "webkit2_41" "" "linux/arm64"; then
     echo "    skipping linux/arm64 GUI build — run failed (no QEMU arm64 emulation?)"
     echo "    Enable with: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes"
     gui_skipped+=("linux/arm64")
@@ -312,7 +395,7 @@ DOCKERFILE
 build_gui_windows_amd64() {
   if $native_build; then
     # -H windowsgui suppresses the console window on Windows.
-    if run_gui_build "contestlog-helper-gui-windows-amd64.exe" "" windows amd64 "" "-H windowsgui"; then
+    if run_gui_build "noctalum-helper-gui-windows-amd64.exe" "" windows amd64 "" "-H windowsgui"; then
       gui_built+=("windows/amd64")
     else
       echo "    skipping windows/amd64 GUI build — go build failed (mingw-w64 + WebView2 SDK required natively)"
@@ -320,7 +403,7 @@ build_gui_windows_amd64() {
     fi
     return
   fi
-  local image="contestlog-gui-windows-amd64:latest"
+  local image="noctalum-gui-windows-amd64:latest"
   if ! "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then
     echo "    building $image (one-time, ~3-5 min)"
     if ! "$RUNTIME" build -t "$image" - <<'DOCKERFILE'
@@ -336,7 +419,7 @@ DOCKERFILE
     fi
   fi
   # -H windowsgui suppresses the console window on Windows.
-  if run_gui_build "contestlog-helper-gui-windows-amd64.exe" "$image" windows amd64 "" "-H windowsgui"; then
+  if run_gui_build "noctalum-helper-gui-windows-amd64.exe" "$image" windows amd64 "" "-H windowsgui"; then
     gui_built+=("windows/amd64")
   else
     echo "    skipping windows/amd64 GUI build — go build failed"

@@ -1,10 +1,16 @@
-// ContestLog Helper — frontend logic.
+// Noctalum Helper — frontend logic.
 //
 // This script talks to the Go backend through Wails' window.go bindings and
 // listens for backend events (phase changes, log lines, rigctld parameters,
 // connection status) via window.runtime.EventsOn.
 
 const PHASES = [
+  {
+    id: "model",
+    label: "Detecting rig model",
+    // tabler-icons "scan"
+    svg: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7v-1a2 2 0 0 1 2 -2h2"/><path d="M4 17v1a2 2 0 0 0 2 2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v1"/><path d="M16 20h2a2 2 0 0 0 2 -2v-1"/><path d="M5 12h14"/></svg>',
+  },
   {
     id: "baud",
     label: "Testing baud rate",
@@ -46,8 +52,24 @@ const cfgEls = {
   rigSpeed:    $("cfg-rig-speed"),
   rigctldBin:  $("cfg-rigctld-bin"),
   interval:    $("cfg-interval"),
-  autoDetect:  $("auto-detect"),
+  autoDetect:      $("auto-detect"),
+  autoDetectModel: $("auto-detect-model"),
 };
+
+// Confirm dialog ----------------------------------------------------------
+function showConfirm(msg, opts = {}) {
+  return new Promise(resolve => {
+    const root = document.getElementById("confirm-root");
+    document.getElementById("confirm-msg").textContent = msg;
+    const okBtn = document.getElementById("confirm-ok");
+    okBtn.textContent = opts.ok || "Confirm";
+    okBtn.className = "btn " + (opts.safe ? "primary" : "danger");
+    root.classList.remove("hidden");
+    const finish = (result) => { root.classList.add("hidden"); resolve(result); };
+    document.getElementById("confirm-cancel").onclick = () => finish(false);
+    document.getElementById("confirm-ok").onclick = () => finish(true);
+  });
+}
 
 // State -------------------------------------------------------------------
 let profileStore = { profiles: [], last_used: "" };
@@ -237,6 +259,8 @@ function applyProfileToForm(p) {
   cfgEls.rigctldBin.value = p.rigctld_bin || "";
   cfgEls.interval.value  = String(p.interval_ms || 1000);
   cfgEls.autoDetect.checked = !!p.auto_detect;
+  cfgEls.autoDetectModel.checked = !!p.auto_detect_model;
+  applyModelDetectUI();
 }
 function applyRigModel(value) {
   if (!value) {
@@ -288,7 +312,8 @@ function readForm() {
     rig_speed:   parseInt(cfgEls.rigSpeed.value || "0", 10) || 0,
     rigctld_bin: cfgEls.rigctldBin.value.trim(),
     interval_ms: parseInt(cfgEls.interval.value || "1000", 10) || 1000,
-    auto_detect: cfgEls.autoDetect.checked,
+    auto_detect:       cfgEls.autoDetect.checked,
+    auto_detect_model: cfgEls.autoDetectModel.checked,
   };
 }
 
@@ -359,7 +384,32 @@ if (Runtime) {
     setConnectedUI(!!ev.running);
     if (ev.error) appendLog("error: " + ev.error, true);
   });
+  Runtime.EventsOn("detected-model", (ev) => {
+    applyRigModel(ev.model);
+    const rig = allRigs.find(r => r.model === ev.model);
+    const lbl = rig ? rigLabel(rig) : (ev.label || `model ${ev.model}`);
+    appendLog(`auto-detected: ${lbl} @ ${ev.baud} baud`);
+  });
 }
+
+// applyModelDetectUI greys out the rig model fields when auto-detect model is
+// on and also dims the baud-only auto-detect toggle (redundant in that mode).
+function applyModelDetectUI() {
+  const on = cfgEls.autoDetectModel.checked;
+  const modelFields = [
+    cfgEls.rigModelSearch,
+    cfgEls.rigModelCustom,
+    cfgEls.rigModel,
+  ];
+  modelFields.forEach(el => { el.disabled = on; });
+  $("rig-model-combobox").style.opacity = on ? "0.4" : "";
+  $("rig-model-combobox").style.pointerEvents = on ? "none" : "";
+  // Baud auto-detect is implicit when model auto-detect is on.
+  cfgEls.autoDetect.disabled = on;
+  cfgEls.autoDetect.closest(".toggle").style.opacity = on ? "0.4" : "";
+}
+
+cfgEls.autoDetectModel.addEventListener("change", applyModelDetectUI);
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
@@ -374,9 +424,10 @@ $("btn-connect").addEventListener("click", async () => {
   if (!cfg.server)   return appendLog("server URL is required", true);
   if (!cfg.token)    return appendLog("helper token is required", true);
   if (!cfg.rig_name) return appendLog("rig display name is required", true);
-  if (!cfg.rig_model) return appendLog("rig model is required — pick one from the list", true);
+  if (!cfg.auto_detect_model && !cfg.rig_model)
+    return appendLog("rig model is required — pick one from the list or enable auto-detect model", true);
   if (!cfg.rig_device) return appendLog("serial device is required", true);
-  if (!cfg.auto_detect && !cfg.rig_speed) {
+  if (!cfg.auto_detect_model && !cfg.auto_detect && !cfg.rig_speed) {
     return appendLog("baud rate is required when auto-detect is off", true);
   }
   resetPhases();
@@ -437,7 +488,7 @@ $("btn-delete-profile").addEventListener("click", async () => {
   if (!Backend) return;
   const name = profileSelect.value;
   if (!name) return;
-  if (!confirm(`Delete profile "${name}"?`)) return;
+  if (!await showConfirm(`Delete profile "${name}"?`, { ok: "Delete" })) return;
   profileStore = await Backend.DeleteProfile(name);
   refreshProfileSelect();
   applyProfileToForm({ server: "http://localhost:8080", auto_detect: true, interval_ms: 1000 });
@@ -447,4 +498,5 @@ $("btn-delete-profile").addEventListener("click", async () => {
 // ---- Boot ---------------------------------------------------------------
 renderPhases();
 resetPhases();
+applyModelDetectUI();
 loadInitialState().catch(err => appendLog("init: " + err, true));

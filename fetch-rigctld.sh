@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Download / build rigctld binaries for embedding into contestlog-helper.
+# Download / build rigctld binaries for embedding into noctalum-helper.
 # Run once before build.sh; build.sh detects the populated dirs and enables
 # the -tags with_rigctld build flag automatically.
 #

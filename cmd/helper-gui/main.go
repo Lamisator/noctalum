@@ -1,4 +1,4 @@
-// contestlog-helper-gui is the desktop GUI version of the ContestLog rig
+// noctalum-helper-gui is the desktop GUI version of the Noctalum rig
 // helper.  It wraps the same rigctld bridge as cmd/helper but presents a
 // Wails-based UI that auto-detects the serial port, the transceiver model,
 // and the working baud rate before connecting.
@@ -24,7 +24,7 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:            "ContestLog Helper",
+		Title:            "Noctalum Helper",
 		Width:            960,
 		Height:           780,
 		MinWidth:         720,
@@ -35,13 +35,13 @@ func main() {
 		OnShutdown:       app.shutdown,
 		Bind:             []interface{}{app},
 		Linux: &linux.Options{
-			ProgramName: "ContestLog Helper",
+			ProgramName: "Noctalum Helper",
 		},
 		Mac: &mac.Options{
 			TitleBar: mac.TitleBarHiddenInset(),
 			About: &mac.AboutInfo{
-				Title:   "ContestLog Helper",
-				Message: "Auto-configuring rig helper for ContestLog.",
+				Title:   "Noctalum Helper",
+				Message: "Auto-configuring rig helper for Noctalum.",
 			},
 		},
 	})

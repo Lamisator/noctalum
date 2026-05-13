@@ -21,12 +21,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/contestlog/contestlog/internal/store"
+	"github.com/noctalum/noctalum/internal/store"
 	"github.com/gorilla/websocket"
 )
 
 const (
-	programID      = "ContestLog"
+	programID      = "Noctalum"
 	programVersion = "0.3.0"
 	dupWindow      = 10 * time.Minute
 )
@@ -274,8 +274,11 @@ func (s *Server) handleHelperGone(rigName string) {
 }
 
 func (s *Server) broadcastRigs() {
-	rigs := s.rigs.All(s.hub.BrowsersSelectingRig)
-	s.hub.Broadcast(Event{Type: "rigs", Payload: rigs})
+	s.hub.BroadcastRigs(func(contestID int64) []Rig {
+		return s.rigs.AllForContest(func(name string) ([]string, []string) {
+			return s.hub.RigUsageForContest(name, contestID)
+		})
+	})
 }
 
 // validateExtras enforces mandatory contest-defined custom fields against the
@@ -1151,7 +1154,14 @@ func (s *Server) clusterPruneLoop(ctx context.Context) {
 // ----- rigs -----
 
 func (s *Server) handleRigs(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.rigs.All(s.hub.BrowsersSelectingRig))
+	sess := sessionFor(s, r)
+	var contestID int64
+	if sess != nil {
+		contestID, _, _, _ = sess.ContestInfo()
+	}
+	writeJSON(w, http.StatusOK, s.rigs.AllForContest(func(name string) ([]string, []string) {
+		return s.hub.RigUsageForContest(name, contestID)
+	}))
 }
 
 func (s *Server) handleSelectRig(w http.ResponseWriter, r *http.Request) {
@@ -1756,7 +1766,7 @@ func (s *Server) handleExportADIF(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: ADIF")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="contestlog.adi"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="noctalum.adi"`)
 	if err := ExportADIF(w, qsos, programID, programVersion); err != nil {
 		log.Printf("ADIF export error: %v", err)
 	}
@@ -1776,7 +1786,7 @@ func (s *Server) handleExportCabrillo(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: Cabrillo")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="contestlog.cbr"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="noctalum.cbr"`)
 	if err := ExportCabrillo(w, qsos, contestName, contestCall); err != nil {
 		log.Printf("Cabrillo export error: %v", err)
 	}
@@ -1796,7 +1806,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: CSV")
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="contestlog.csv"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="noctalum.csv"`)
 	if err := ExportCSV(w, qsos); err != nil {
 		log.Printf("CSV export error: %v", err)
 	}
@@ -1816,7 +1826,7 @@ func (s *Server) handleExportEDI(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: EDI")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="contestlog.edi"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="noctalum.edi"`)
 	if err := ExportEDI(w, qsos, contestName, contestCall, sess.ContestQTH()); err != nil {
 		log.Printf("EDI export error: %v", err)
 	}
@@ -1981,7 +1991,9 @@ func (s *Server) handleWSBrowser(w http.ResponseWriter, r *http.Request) {
 		default:
 		}
 	}
-	if data, err := json.Marshal(Event{Type: "rigs", Payload: s.rigs.All(s.hub.BrowsersSelectingRig)}); err == nil {
+	if data, err := json.Marshal(Event{Type: "rigs", Payload: s.rigs.AllForContest(func(name string) ([]string, []string) {
+		return s.hub.RigUsageForContest(name, contestID)
+	})}); err == nil {
 		select {
 		case c.send <- data:
 		default:

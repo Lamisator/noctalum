@@ -1,5 +1,5 @@
-// contestlog-helper bridges a local Hamlib rigctld instance to a remote
-// ContestLog server.  Run one instance per operator; the helper reads
+// noctalum-helper bridges a local Hamlib rigctld instance to a remote
+// Noctalum server.  Run one instance per operator; the helper reads
 // frequency and mode from the local transceiver and pushes them to the
 // server, where the rig appears as a named entry that any operator can bind to.
 //
@@ -31,7 +31,7 @@ import (
 const helperVersion = "0.1.0"
 
 func main() {
-	server := flag.String("server", "http://localhost:8080", "ContestLog server URL")
+	server := flag.String("server", "http://localhost:8080", "Noctalum server URL")
 	name := flag.String("name", "", "rig display name (e.g. \"IC-7300\") — required")
 	token := flag.String("token", "", "helper token from the server's Settings — required")
 	rigHost := flag.String("rig-host", "127.0.0.1", "rigctld host")
@@ -68,7 +68,7 @@ func main() {
 		log.Fatal("-name is required")
 	}
 	if *token == "" {
-		log.Fatal("-token is required (see ContestLog Settings)")
+		log.Fatal("-token is required (see Noctalum Settings)")
 	}
 	if *intervalMs < 250 {
 		*intervalMs = 250
@@ -102,7 +102,7 @@ func main() {
 }
 
 func logSettings(server, name string, rigModel int, rigDevice string, rigSpeed int, rigctldBin, rigHost string, rigPort, intervalMs int) {
-	log.Printf("=== ContestLog Helper v%s ===", helperVersion)
+	log.Printf("=== Noctalum Helper v%s ===", helperVersion)
 	log.Printf("  server:   %s", server)
 	log.Printf("  rig name: %s", name)
 	if rigModel != 0 {
@@ -381,7 +381,7 @@ func setRigMode(host string, port int, mode string) error {
 	return err
 }
 
-// toRigctldMode translates a ContestLog mode string to the rigctld mode name.
+// toRigctldMode translates a Noctalum mode string to the rigctld mode name.
 // freqHz is used to resolve plain "SSB" to USB/LSB by convention.
 func toRigctldMode(mode string, freqHz int64) string {
 	switch strings.ToUpper(mode) {

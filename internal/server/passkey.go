@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/contestlog/contestlog/internal/store"
+	"github.com/noctalum/noctalum/internal/store"
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 )
@@ -26,7 +26,7 @@ func waForRequest(r *http.Request) (*webauthn.WebAuthn, error) {
 		host = h
 	}
 	return webauthn.New(&webauthn.Config{
-		RPDisplayName: "ContestLog",
+		RPDisplayName: "Noctalum",
 		RPID:          host,
 		RPOrigins: []string{
 			"http://" + r.Host,

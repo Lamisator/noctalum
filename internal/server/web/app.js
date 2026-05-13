@@ -1,4 +1,4 @@
-// ContestLog frontend
+// Noctalum frontend
 (() => {
   const MODES = ['CW', 'SSB', 'USB', 'LSB', 'FM', 'AM', 'RTTY', 'FT8', 'FT4', 'PSK31', 'PSK63', 'JT65', 'DIGI'];
   const BANDS = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m', '4m', '2m', '70cm', '23cm', '13cm', '3cm'];
@@ -554,6 +554,7 @@
   $('station-pill').addEventListener('click', () => showContestScreen());
 
   $('create-contest-btn').addEventListener('click', () => contestCreateModal());
+  $('create-private-contest-btn').addEventListener('click', () => contestCreateModal(true));
 
   async function showContestScreen() {
     $('contest-pick-error').textContent = '';
@@ -590,7 +591,7 @@
       'windows-amd64': 'Windows (x86-64)',
     };
     // Three types matched in one regex: helper-gui must come BEFORE helper
-    // (greedy alternation), or "contestlog-helper-gui-linux-amd64" lands in
+    // (greedy alternation), or "noctalum-helper-gui-linux-amd64" lands in
     // the plain-helper bucket with platform=="gui-linux-amd64", and the user
     // sees an unlabelled link they can't distinguish from the curses CLI.
     const GROUP_LABELS = {
@@ -602,7 +603,7 @@
 
     const groups = {};
     for (const f of files) {
-      const m = f.match(/^contestlog-(helper-gui|helper|wsjtx)-(.+?)(?:\.exe)?$/);
+      const m = f.match(/^noctalum-(helper-gui|helper|wsjtx)-(.+?)(?:\.exe|\.AppImage)?$/);
       if (!m) continue;
       const [, type, platform] = m;
       if (!groups[type]) groups[type] = [];
@@ -624,46 +625,68 @@
     list.innerHTML = html || '<p class="muted" style="font-size:12px;margin:0">No files available.</p>';
   }
 
+  function makePickerItem(c) {
+    const item = document.createElement('div');
+    item.className = 'contest-picker-item' + (c.status === 'finished' ? ' finished' : '');
+    item.innerHTML = `
+      <div>
+        <div class="contest-picker-call">${escHtml(fmtCall(c.station_call))}</div>
+        <div class="contest-picker-name">${escHtml(c.name)}</div>
+      </div>
+      <span class="contest-picker-status ${c.status}">${c.status}</span>
+    `;
+    item.addEventListener('click', async () => {
+      $('contest-pick-error').textContent = '';
+      const r = await api('/api/contests/' + c.id + '/select', { method: 'POST' });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        $('contest-pick-error').textContent = j.error || 'Failed to select contest';
+        return;
+      }
+      const j = await r.json();
+      if (me) {
+        me.contest_id = j.contest_id;
+        me.contest_status = j.contest_status;
+        me.contest_call = j.contest_call;
+        me.contest_name = j.contest_name;
+        me.contest_qth = j.contest_qth || '';
+        me.contest_bands = (j.contest_bands || []).join(',');
+        me.contest_objective = j.contest_objective || '';
+      }
+      await enterApp();
+    });
+    return item;
+  }
+
   function renderContestPicker() {
     const list = $('contest-picker-list');
+    const privateList = $('private-contest-picker-list');
+    const privateCol = $('private-contest-col');
     list.innerHTML = '';
-    if (!allContests || allContests.length === 0) {
+    privateList.innerHTML = '';
+
+    const canPriv = hasPerm('contests.create_private');
+    privateCol.classList.toggle('hidden', !canPriv);
+
+    const publicContests = (allContests || []).filter(c => !c.private);
+    const privateContests = (allContests || []).filter(c => c.private);
+
+    if (publicContests.length === 0) {
       list.innerHTML = '<p class="muted" style="text-align:center;padding:20px">No contests yet.</p>';
     } else {
-      for (const c of allContests) {
-        const item = document.createElement('div');
-        item.className = 'contest-picker-item' + (c.status === 'finished' ? ' finished' : '');
-        item.innerHTML = `
-          <div>
-            <div class="contest-picker-call">${escHtml(fmtCall(c.station_call))}</div>
-            <div class="contest-picker-name">${escHtml(c.name)}</div>
-          </div>
-          <span class="contest-picker-status ${c.status}">${c.status}</span>
-        `;
-        item.addEventListener('click', async () => {
-          $('contest-pick-error').textContent = '';
-          const r = await api('/api/contests/' + c.id + '/select', { method: 'POST' });
-          if (!r.ok) {
-            const j = await r.json().catch(() => ({}));
-            $('contest-pick-error').textContent = j.error || 'Failed to select contest';
-            return;
-          }
-          const j = await r.json();
-          if (me) {
-            me.contest_id = j.contest_id;
-            me.contest_status = j.contest_status;
-            me.contest_call = j.contest_call;
-            me.contest_name = j.contest_name;
-            me.contest_qth = j.contest_qth || '';
-            me.contest_bands = (j.contest_bands || []).join(',');
-            me.contest_objective = j.contest_objective || '';
-          }
-          await enterApp();
-        });
-        list.appendChild(item);
+      for (const c of publicContests) list.appendChild(makePickerItem(c));
+    }
+
+    if (canPriv) {
+      if (privateContests.length === 0) {
+        privateList.innerHTML = '<p class="muted" style="text-align:center;padding:12px 0">No private contests yet.</p>';
+      } else {
+        for (const c of privateContests) privateList.appendChild(makePickerItem(c));
       }
     }
+
     $('contest-create-section').classList.toggle('hidden', !hasPerm('contests.manage'));
+    $('private-contest-create-section').classList.toggle('hidden', !canPriv);
   }
 
   // ----- enter main app after contest selected -----
@@ -1500,7 +1523,7 @@
     $('qso-error').textContent = '';
 
     if (editingQsoId !== null) {
-      if (!confirm('Save changes to this QSO?')) return;
+      if (!await showConfirm('Save changes to this QSO?', { ok: 'Save', safe: true })) return;
       const res = await api('/api/qsos/' + editingQsoId, { method: 'PUT', body: JSON.stringify(body) });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -1516,7 +1539,7 @@
 
     let res = await api('/api/qsos', { method: 'POST', body: JSON.stringify(body) });
     if (res.status === 409) {
-      if (!confirm('Possible duplicate QSO with this station, band, and mode in the last 10 minutes. Log anyway?')) return;
+      if (!await showConfirm('Possible duplicate QSO with this station, band, and mode in the last 10 minutes. Log anyway?', { ok: 'Log anyway' })) return;
       res = await api('/api/qsos?force=1', { method: 'POST', body: JSON.stringify(body) });
     }
     if (!res.ok) {
@@ -1595,9 +1618,13 @@
         ? `${escHtml((r.freq_hz/1_000_000).toFixed(4))} MHz · ${escHtml(r.mode || '-')} · ${escHtml(r.band || '-')}`
         : 'disconnected';
       const inUse = (r.in_use_by || []);
+      const otherContests = (r.other_contests || []);
       let useLine = '';
       if (inUse.length) {
         useLine = `<div class="in-use">in use by ${escHtml(inUse.map(fmtCall).join(', '))}</div>`;
+      }
+      if (otherContests.length) {
+        useLine += `<div class="in-use-other">also in: ${escHtml(otherContests.join(', '))}</div>`;
       }
       let errLine = (r.error && !r.connected) ? `<div class="rig-err">rigctld: ${escHtml(r.error)}</div>` : '';
       li.innerHTML = `<div class="rig-name">${escHtml(r.name)}</div>
@@ -1661,7 +1688,7 @@
         btn.textContent = '✕';
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
-          if (!confirm('Release ' + rigName + ' from ' + op.callsign + '?')) return;
+          if (!await showConfirm('Release ' + rigName + ' from ' + op.callsign + '?', { ok: 'Release' })) return;
           await api('/api/rigs/release', { method: 'POST', body: JSON.stringify({ callsign: op.callsign }) });
         });
         li.appendChild(btn);
@@ -1781,7 +1808,7 @@
     const btn = e.target.closest('.del-btn');
     if (!btn) return;
     if (!contestIsOpen()) return;
-    if (!confirm('Delete this QSO?')) return;
+    if (!await showConfirm('Delete this QSO?', { ok: 'Delete' })) return;
     const id = parseInt(btn.dataset.id, 10);
     const res = await api('/api/qsos/' + id, { method: 'DELETE' });
     if (res.ok) { qsos = qsos.filter(q => q.id !== id); renderQsos(); }
@@ -1849,7 +1876,7 @@
     }
   });
   $('regen-token').addEventListener('click', async () => {
-    if (!confirm('Generate a new helper token?  Your helper will need to be restarted with the new value.')) return;
+    if (!await showConfirm('Generate a new helper token? Your helper will need to be restarted with the new value.', { ok: 'Generate' })) return;
     const res = await api('/api/me/helper-token', { method: 'POST' });
     if (res.ok) {
       const j = await res.json();
@@ -1914,13 +1941,13 @@
     }
   }
 
-  function contestAction(c, action) {
+  async function contestAction(c, action) {
     if (action === 'edit') {
       contestEditModal(c);
     } else if (action === 'toggle') {
       const newStatus = c.status === 'open' ? 'finished' : 'open';
       const label = newStatus === 'finished' ? 'Mark this contest as finished (read-only)?' : 'Reopen this contest?';
-      if (!confirm(label)) return;
+      if (!await showConfirm(label, { ok: newStatus === 'finished' ? 'Mark finished' : 'Reopen', safe: newStatus !== 'finished' })) return;
       api('/api/contests/' + c.id, {
         method: 'PUT',
         body: JSON.stringify({ name: c.name, station_call: c.station_call, station_id: c.station_id || '', qth: c.qth || '', status: newStatus, bands: c.bands || [], objective: c.objective || '', custom_fields: c.custom_fields || '', qso_layout: c.qso_layout || '' }),
@@ -1945,7 +1972,7 @@
     return Array.from(document.querySelectorAll('#modal-band-grid .band-select-pill.selected')).map(p => p.dataset.band);
   }
 
-  function contestCreateModal() {
+  function contestCreateModal(forcePrivate = false) {
     const canPriv = hasPerm('contests.create_private');
     showModal(`
       <h3>New Contest</h3>
@@ -1959,7 +1986,7 @@
         <label>QTH locator (optional)</label>
         <input name="qth" placeholder="e.g. JO50de" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
         ${buildBandSelectHTML([])}
-        ${canPriv ? '<label style="margin-top:10px"><input type="checkbox" name="private" /> Private contest <span class="muted small">(only visible to you)</span></label>' : ''}
+        ${canPriv ? `<label style="margin-top:10px"><input type="checkbox" name="private"${forcePrivate ? ' checked' : ''} /> Private contest <span class="muted small">(only visible to you)</span></label>` : ''}
         <label style="margin-top:10px">Custom fields <span class="muted small">(per-QSO; optional)</span></label>
         ${buildCustomFieldsEditorHTML([])}
         <label style="margin-top:10px">New QSO mask layout <span class="muted small">(drag tiles to arrange)</span></label>
@@ -1985,7 +2012,7 @@
           qth: form.qth.value.trim().toUpperCase(),
           bands: selectedBandsFromModal(),
           objective: form.objective.value,
-          private: !!(form.private && form.private.checked),
+          private: forcePrivate || !!(form.private && form.private.checked),
           custom_fields: serializeCustomFieldsEditor(),
           qso_layout: serializeQSOLayout(),
         }),
@@ -2651,7 +2678,7 @@
   $('new-user-btn').addEventListener('click', () => userModal(null));
   $('new-role-btn').addEventListener('click', () => roleModal(null));
 
-  function userAction(u, action) {
+  async function userAction(u, action) {
     switch (action) {
       case 'edit': userModal(u); return;
       case 'password': passwordModal(u); return;
@@ -2665,18 +2692,18 @@
         }).then(refreshUsers);
         return;
       case 'delete':
-        if (confirm(`Delete user ${u.username}?`)) {
+        if (await showConfirm(`Delete user ${u.username}?`, { ok: 'Delete' })) {
           api('/api/users/' + u.id, { method: 'DELETE' }).then(refreshUsers);
         }
         return;
     }
   }
 
-  function roleAction(r, action) {
+  async function roleAction(r, action) {
     switch (action) {
       case 'edit-role': roleModal(r); return;
       case 'del-role':
-        if (confirm(`Delete role ${r.name}?`)) {
+        if (await showConfirm(`Delete role ${r.name}?`, { ok: 'Delete' })) {
           api('/api/roles/' + r.id, { method: 'DELETE' }).then(refreshUsers);
         }
         return;
@@ -2708,6 +2735,20 @@
         }
       });
     }
+  }
+
+  function showConfirm(msg, opts = {}) {
+    return new Promise(resolve => {
+      const root = $('confirm-root');
+      $('confirm-msg').textContent = msg;
+      const okBtn = $('confirm-ok');
+      okBtn.textContent = opts.ok || 'Confirm';
+      okBtn.className = opts.safe ? 'primary' : 'danger';
+      root.classList.remove('hidden');
+      const finish = (result) => { root.classList.add('hidden'); resolve(result); };
+      $('confirm-cancel').onclick = () => finish(false);
+      $('confirm-ok').onclick = () => finish(true);
+    });
   }
 
   function userModal(u) {
@@ -3283,7 +3324,7 @@
     });
     tbody.querySelectorAll('.fr-del-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
-        if (!confirm('Delete this feature request?')) return;
+        if (!await showConfirm('Delete this feature request?', { ok: 'Delete' })) return;
         const id = Number(btn.dataset.id);
         const res = await api('/api/feature-requests/' + id, { method: 'DELETE' });
         if (res.ok) refreshFeatureRequests();
@@ -3313,7 +3354,7 @@
   $('fr-delete-selected-btn').addEventListener('click', async () => {
     const selected = Array.from(document.querySelectorAll('.fr-check:checked')).map(cb => Number(cb.dataset.id));
     if (!selected.length) { alert('Select at least one request to delete.'); return; }
-    if (!confirm(`Delete ${selected.length} selected request(s)?`)) return;
+    if (!await showConfirm(`Delete ${selected.length} selected request(s)?`, { ok: 'Delete' })) return;
     await Promise.all(selected.map(id => api('/api/feature-requests/' + id, { method: 'DELETE' })));
     refreshFeatureRequests();
   });

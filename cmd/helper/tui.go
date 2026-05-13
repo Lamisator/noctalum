@@ -224,7 +224,7 @@ func runTUI() (tuiConfig, error) {
 
 	form.
 		SetBorder(true).
-		SetTitle(fmt.Sprintf(" ContestLog Helper v%s ", helperVersion)).
+		SetTitle(fmt.Sprintf(" Noctalum Helper v%s ", helperVersion)).
 		SetTitleAlign(tview.AlignCenter)
 
 	if err := app.SetRoot(form, true).EnableMouse(true).Run(); err != nil {

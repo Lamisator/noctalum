@@ -1,17 +1,17 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "contestlog-helper-gui",
-  "outputfilename": "contestlog-helper-gui",
+  "name": "noctalum-helper-gui",
+  "outputfilename": "noctalum-helper-gui",
   "frontend:install": "",
   "frontend:build": "",
   "frontend:dev:watcher": "",
   "frontend:dev:serverUrl": "",
   "author": {
-    "name": "ContestLog"
+    "name": "Noctalum"
   },
   "info": {
-    "productName": "ContestLog Helper",
+    "productName": "Noctalum Helper",
     "productVersion": "0.1.0",
-    "comments": "Auto-configuring rig helper for ContestLog."
+    "comments": "Auto-configuring rig helper for Noctalum."
   }
 }

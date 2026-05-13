@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/contestlog/contestlog/internal/store"
+	"github.com/noctalum/noctalum/internal/store"
 	"golang.org/x/crypto/bcrypt"
 )
 
 const (
-	sessionCookie        = "contestlog_session"
+	sessionCookie        = "noctalum_session"
 	sessionTTL           = 48 * time.Hour
 	sessionTouchInterval = 5 * time.Minute
 	maxFailedLogins      = 5

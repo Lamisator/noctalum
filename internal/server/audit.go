@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/contestlog/contestlog/internal/store"
+	"github.com/noctalum/noctalum/internal/store"
 )
 
 // Audit action constants — one canonical name per auditable event.

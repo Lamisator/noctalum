@@ -75,7 +75,7 @@ func (c *QRZClient) PictureURL(callsign string) string {
 }
 
 func (c *QRZClient) authenticate() error {
-	reqURL := fmt.Sprintf("https://xmldata.qrz.com/xml/current/?username=%s;password=%s;agent=ContestLog",
+	reqURL := fmt.Sprintf("https://xmldata.qrz.com/xml/current/?username=%s;password=%s;agent=Noctalum",
 		url.QueryEscape(c.username), url.QueryEscape(c.password))
 	resp, err := c.httpClient.Get(reqURL)
 	if err != nil {

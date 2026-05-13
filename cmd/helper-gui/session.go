@@ -14,23 +14,24 @@ import (
 )
 
 // ConnectRequest is what the frontend sends when the operator clicks Connect.
-// The rig model and serial device must always be supplied; AutoDetect=true
-// only triggers the baud-rate probe phase, otherwise the request's RigSpeed
-// is used as-is.
+// AutoDetectModel=true triggers a full model scan (Phase 0) and also
+// determines the baud rate, skipping the dedicated baud phase.  AutoDetect=true
+// triggers baud probing only (rig model must already be supplied).
 type ConnectRequest struct {
-	AutoDetect bool   `json:"auto_detect"`
-	Server     string `json:"server"`
-	Token      string `json:"token"`
-	RigName    string `json:"rig_name"`
-	RigModel   int    `json:"rig_model"`
-	RigDevice  string `json:"rig_device"`
-	RigSpeed   int    `json:"rig_speed"`
-	RigctldBin string `json:"rigctld_bin"`
-	IntervalMs int    `json:"interval_ms"`
+	AutoDetect      bool   `json:"auto_detect"`
+	AutoDetectModel bool   `json:"auto_detect_model"`
+	Server          string `json:"server"`
+	Token           string `json:"token"`
+	RigName         string `json:"rig_name"`
+	RigModel        int    `json:"rig_model"`
+	RigDevice       string `json:"rig_device"`
+	RigSpeed        int    `json:"rig_speed"`
+	RigctldBin      string `json:"rigctld_bin"`
+	IntervalMs      int    `json:"interval_ms"`
 }
 
 // runSession is the goroutine started by Connect; it walks the phases and
-// then runs the rigctld → ContestLog bridge until ctx is cancelled.
+// then runs the rigctld → Noctalum bridge until ctx is cancelled.
 func (a *App) runSession(ctx context.Context, req ConnectRequest) error {
 	if req.RigctldBin == "" {
 		req.RigctldBin = defaultRigctldBin()
@@ -43,34 +44,51 @@ func (a *App) runSession(ctx context.Context, req ConnectRequest) error {
 		a.emitPhase(PhaseConnecting, StateError, err.Error())
 		return err
 	}
-	if req.RigModel == 0 {
-		err := errors.New("Rig model is required — pick one from the list")
-		a.emitPhase(PhaseBaud, StateError, err.Error())
+	if req.RigModel == 0 && !req.AutoDetectModel {
+		err := errors.New("Rig model is required — pick one from the list or enable auto-detect")
+		a.emitPhase(PhaseModel, StateError, err.Error())
 		return err
 	}
 	if req.RigDevice == "" {
 		err := errors.New("Serial device is required")
-		a.emitPhase(PhaseBaud, StateError, err.Error())
+		a.emitPhase(PhaseModel, StateError, err.Error())
 		return err
 	}
 
-	label := rigByModel(req.RigModel)
-	if label == "" {
-		label = fmt.Sprintf("model %d", req.RigModel)
-	}
-
-	// --- Phase 1: Testing baud rate -------------------------------------
-	if req.AutoDetect {
-		a.emitPhase(PhaseBaud, StateActive, "Searching for the best baud rate…")
-		best, err := a.detectBestBaud(ctx, req.RigctldBin, req.RigModel, req.RigDevice, label)
+	// --- Phase 0: Auto-detect rig model ---------------------------------
+	if req.AutoDetectModel {
+		a.emitPhase(PhaseModel, StateActive, "Scanning serial port for connected rig…")
+		model, baud, modelLabel, err := a.detectModel(ctx, req.RigctldBin, req.RigDevice)
 		if err != nil {
-			a.emitPhase(PhaseBaud, StateError, err.Error())
+			a.emitPhase(PhaseModel, StateError, err.Error())
 			return err
 		}
-		req.RigSpeed = best
-		a.emitPhase(PhaseBaud, StateDone, fmt.Sprintf("%d baud", best))
+		req.RigModel = model
+		req.RigSpeed = baud
+		a.emit("detected-model", map[string]any{"model": model, "label": modelLabel, "baud": baud})
+		a.emitPhase(PhaseModel, StateDone, fmt.Sprintf("Found %s @ %d baud", modelLabel, baud))
+		a.emitPhase(PhaseBaud, StateSkipped, fmt.Sprintf("%d baud — found during model scan", baud))
 	} else {
-		a.emitPhase(PhaseBaud, StateSkipped, "Manual baud rate")
+		a.emitPhase(PhaseModel, StateSkipped, "Manual rig model")
+
+		label := rigByModel(req.RigModel)
+		if label == "" {
+			label = fmt.Sprintf("model %d", req.RigModel)
+		}
+
+		// --- Phase 1: Testing baud rate ---------------------------------
+		if req.AutoDetect {
+			a.emitPhase(PhaseBaud, StateActive, "Searching for the best baud rate…")
+			best, err := a.detectBestBaud(ctx, req.RigctldBin, req.RigModel, req.RigDevice, label)
+			if err != nil {
+				a.emitPhase(PhaseBaud, StateError, err.Error())
+				return err
+			}
+			req.RigSpeed = best
+			a.emitPhase(PhaseBaud, StateDone, fmt.Sprintf("%d baud", best))
+		} else {
+			a.emitPhase(PhaseBaud, StateSkipped, "Manual baud rate")
+		}
 	}
 
 	// --- Phase 2: Connecting --------------------------------------------
@@ -127,7 +145,7 @@ func (a *App) runSession(ctx context.Context, req ConnectRequest) error {
 	return err
 }
 
-// bridge is the long-running session loop: open a websocket to ContestLog,
+// bridge is the long-running session loop: open a websocket to Noctalum,
 // poll rigctld for frequency/mode, push updates, and honour set_freq events.
 // Any non-cancellation error returns; the caller's defer kills rigctld.
 func (a *App) bridge(ctx context.Context, req ConnectRequest, rigHost string, rigPort int) error {

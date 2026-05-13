@@ -6,14 +6,14 @@ import (
 	"path/filepath"
 )
 
-const settingsFile = "contestlog-helper.json"
+const settingsFile = "noctalum-helper.json"
 
 func settingsPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "contestlog", settingsFile), nil
+	return filepath.Join(dir, "noctalum", settingsFile), nil
 }
 
 // sharedProfile mirrors cmd/helper-gui/profiles.go:Profile so that both tools
@@ -41,7 +41,7 @@ func sharedSettingsPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "contestlog", "contestlog-helper-gui.json"), nil
+	return filepath.Join(dir, "noctalum", "noctalum-helper-gui.json"), nil
 }
 
 // loadSettings returns the last-used profile from the shared GUI settings file,

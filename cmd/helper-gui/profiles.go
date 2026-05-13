@@ -17,26 +17,27 @@ type Profile struct {
 	RigModel   int    `json:"rig_model"`
 	RigDevice  string `json:"rig_device"`
 	RigSpeed   int    `json:"rig_speed"`
-	RigctldBin string `json:"rigctld_bin"`
-	IntervalMs int    `json:"interval_ms"`
-	AutoDetect bool   `json:"auto_detect"`
+	RigctldBin      string `json:"rigctld_bin"`
+	IntervalMs      int    `json:"interval_ms"`
+	AutoDetect      bool   `json:"auto_detect"`
+	AutoDetectModel bool   `json:"auto_detect_model"`
 }
 
-// ProfileStore is the on-disk shape of contestlog-helper-gui.json.  It is
+// ProfileStore is the on-disk shape of noctalum-helper-gui.json.  It is
 // returned to the frontend verbatim so JS can render the profile picker.
 type ProfileStore struct {
 	Profiles []Profile `json:"profiles"`
 	LastUsed string    `json:"last_used"`
 }
 
-const guiSettingsFile = "contestlog-helper-gui.json"
+const guiSettingsFile = "noctalum-helper-gui.json"
 
 func guiSettingsPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "contestlog", guiSettingsFile), nil
+	return filepath.Join(dir, "noctalum", guiSettingsFile), nil
 }
 
 func loadProfileStore() ProfileStore {

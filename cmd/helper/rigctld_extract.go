@@ -21,7 +21,7 @@ func embeddedRigctldBin() string {
 		return ""
 	}
 	extractOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "contestlog-rigctld-*")
+		dir, err := os.MkdirTemp("", "noctalum-rigctld-*")
 		if err != nil {
 			log.Printf("rigctld extract: mkdir: %v", err)
 			return

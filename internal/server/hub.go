@@ -174,6 +174,76 @@ func (h *Hub) BrowsersSelectingRig(name string) []string {
 	return out
 }
 
+// RigUsageForContest splits rig usage into same-contest callsigns and other-contest names.
+// sameContest lists operator callsigns (deduplicated) from viewerContestID selecting the rig.
+// otherContests lists contest names (deduplicated) of operators in other contests selecting it.
+func (h *Hub) RigUsageForContest(rigName string, viewerContestID int64) (sameContest []string, otherContests []string) {
+	if rigName == "" {
+		return nil, nil
+	}
+	h.mu.Lock()
+	seenCalls := map[string]struct{}{}
+	seenContests := map[string]struct{}{}
+	for c := range h.clients {
+		if c.role != RoleBrowser || c.session == nil {
+			continue
+		}
+		if c.session.SelectedRig() != rigName {
+			continue
+		}
+		cid, _, _, cname := c.session.ContestInfo()
+		if cid == viewerContestID {
+			if cs := c.session.Callsign; cs != "" {
+				seenCalls[cs] = struct{}{}
+			}
+		} else {
+			hint := cname
+			if hint == "" {
+				hint = "another contest"
+			}
+			seenContests[hint] = struct{}{}
+		}
+	}
+	h.mu.Unlock()
+	for k := range seenCalls {
+		sameContest = append(sameContest, k)
+	}
+	for k := range seenContests {
+		otherContests = append(otherContests, k)
+	}
+	sort.Strings(sameContest)
+	sort.Strings(otherContests)
+	return sameContest, otherContests
+}
+
+// BroadcastRigs sends each browser a "rigs" event with usage info scoped to its contest,
+// so in-use callsigns only reflect same-contest operators and cross-contest usage appears
+// as a separate hint.  allRigsForContest builds the rig list for a given viewer contest ID.
+func (h *Hub) BroadcastRigs(allRigsForContest func(viewerContestID int64) []Rig) {
+	h.mu.Lock()
+	byContest := map[int64][]*client{}
+	for c := range h.clients {
+		if c.role != RoleBrowser || c.session == nil {
+			continue
+		}
+		id, _, _, _ := c.session.ContestInfo()
+		byContest[id] = append(byContest[id], c)
+	}
+	h.mu.Unlock()
+	for cid, clients := range byContest {
+		rigs := allRigsForContest(cid)
+		data, err := json.Marshal(Event{Type: "rigs", Payload: rigs})
+		if err != nil {
+			continue
+		}
+		h.mu.Lock()
+		for _, c := range clients {
+			h.deliver(c, data)
+		}
+		h.mu.Unlock()
+	}
+}
+
 // ForEachBrowserOf calls fn for every browser of the given userID
 // (used to re-push session state when a user is edited).
 func (h *Hub) ForEachBrowserOf(userID int64, fn func(c *client)) {

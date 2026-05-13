@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>ContestLog Helper</title>
+  <title>Noctalum Helper</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
-    <span class="brand">ContestLog<span class="brand-dot">•</span>Helper</span>
+    <span class="brand">Noctalum<span class="brand-dot">•</span>Helper</span>
     <span class="version" id="version">v0.1.0</span>
   </header>
 
@@ -37,6 +37,11 @@
     <!-- ============ Connect controls ============ -->
     <section class="controls card">
       <label class="toggle">
+        <input type="checkbox" id="auto-detect-model" />
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">Auto-detect rig model &amp; baud (tries all Hamlib models on the selected device — slow for unknown rigs)</span>
+      </label>
+      <label class="toggle">
         <input type="checkbox" id="auto-detect" checked />
         <span class="toggle-track"><span class="toggle-thumb"></span></span>
         <span class="toggle-label">Auto-detect baud rate (rig model and serial device must be set below)</span>
@@ -60,11 +65,11 @@
         </label>
         <label class="field">
           <span class="field-label">Server URL</span>
-          <input id="cfg-server" type="text" placeholder="https://contestlog.example.org" />
+          <input id="cfg-server" type="text" placeholder="https://noctalum.example.org" />
         </label>
         <label class="field">
           <span class="field-label">Helper Token</span>
-          <input id="cfg-token" type="password" placeholder="from ContestLog → Settings" />
+          <input id="cfg-token" type="password" placeholder="from Noctalum → Settings" />
         </label>
         <label class="field">
           <span class="field-label">Rig display name</span>
@@ -133,6 +138,17 @@
       <pre id="log"></pre>
     </section>
   </main>
+
+  <!-- Confirm dialog -->
+  <div id="confirm-root" class="confirm-root hidden">
+    <div class="confirm-card">
+      <p id="confirm-msg" class="confirm-msg"></p>
+      <div class="confirm-actions">
+        <button class="btn ghost" id="confirm-cancel">Cancel</button>
+        <button class="btn danger" id="confirm-ok">Confirm</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>

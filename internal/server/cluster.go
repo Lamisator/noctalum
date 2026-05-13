@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/contestlog/contestlog/internal/store"
+	"github.com/noctalum/noctalum/internal/store"
 )
 
 const (

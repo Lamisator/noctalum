@@ -1,4 +1,4 @@
-/* ContestLog Helper GUI — dark Material-inspired theme matching the
+/* Noctalum Helper GUI — dark Material-inspired theme matching the
    web interface (see internal/server/web/style.css for the canonical
    palette).  The variables below are the same accent colours so the
    helper feels like part of the same product. */
@@ -453,6 +453,34 @@ select option {
   word-break: break-word;
 }
 .log-card pre .err { color: var(--error); }
+
+/* ============ Confirm dialog ============ */
+.confirm-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 200;
+}
+.confirm-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  min-width: 280px;
+  max-width: 400px;
+  box-shadow: var(--shadow);
+}
+.confirm-msg { margin: 0 0 4px; line-height: 1.5; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.btn.danger {
+  background: #ef5350;
+  color: #fff;
+  border-color: #ef5350;
+}
+.btn.danger:hover { background: #c62828; border-color: #c62828; }
 
 /* ============ Responsive ============ */
 @media (max-width: 640px) {

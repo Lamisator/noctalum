@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Deploy ContestLog to the production server.
+# Deploy Noctalum to the production server.
 #
 # Usage:
 #   ./deploy.sh                  # build everything, then deploy
 #   ./deploy.sh --skip-build     # deploy already-built dist/ artifacts (no rebuild)
-#   ./deploy.sh --transfer-db    # also push the local contestlog.db to the server
+#   ./deploy.sh --transfer-db    # also push the local noctalum.db to the server
 
 set -euo pipefail
 
 SSH_KEY="$HOME/.ssh/id_ssh"
 SSH_HOST="root@k-inf1-server.kloeck-it.de"
-REMOTE_WORK_DIR="/home/marius/contestlogger"
+REMOTE_WORK_DIR="/home/marius/noctalum"
 REMOTE_APP_DIR="$REMOTE_WORK_DIR/app"
 
 skip_build=false
@@ -41,15 +41,15 @@ echo "Stopping service..."
 ssh -i "$SSH_KEY" "$SSH_HOST" "cd $REMOTE_WORK_DIR && docker compose down" || true
 
 echo "Copying server binary..."
-scp -i "$SSH_KEY" "$ROOT/dist/contestlog-linux-amd64" "$SSH_HOST:$REMOTE_APP_DIR/contestlog-server"
-ssh -i "$SSH_KEY" "$SSH_HOST" "chmod +x $REMOTE_APP_DIR/contestlog-server"
+scp -i "$SSH_KEY" "$ROOT/dist/noctalum-linux-amd64" "$SSH_HOST:$REMOTE_APP_DIR/noctalum-server"
+ssh -i "$SSH_KEY" "$SSH_HOST" "chmod +x $REMOTE_APP_DIR/noctalum-server"
 
 echo "Copying helper, WSJT-X, and GUI binaries to downloads..."
 # Use nullglob so missing globs (e.g. skipped GUI builds) are silently dropped.
 shopt -s nullglob
 downloads=(
-  "$ROOT"/dist/contestlog-helper-*
-  "$ROOT"/dist/contestlog-wsjtx-*
+  "$ROOT"/dist/noctalum-helper-*
+  "$ROOT"/dist/noctalum-wsjtx-*
 )
 shopt -u nullglob
 if [ ${#downloads[@]} -eq 0 ]; then
@@ -60,7 +60,7 @@ fi
 
 if [ "$transfer_db" = true ]; then
   echo "Transferring database..."
-  scp -i "$SSH_KEY" "$ROOT/contestlog.db" "$SSH_HOST:$REMOTE_WORK_DIR/data/"
+  scp -i "$SSH_KEY" "$ROOT/noctalum.db" "$SSH_HOST:$REMOTE_WORK_DIR/data/"
 fi
 
 echo "Starting service..."

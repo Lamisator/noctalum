@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ContestLog</title>
+  <title>Noctalum</title>
   <link rel="stylesheet" href="/style.css" />
   <link rel="stylesheet" href="/leaflet.min.css" />
 </head>
@@ -12,7 +12,7 @@
 <!-- Setup screen (first run) -->
 <div id="setup-screen" class="screen login-screen hidden">
   <div class="login-card wide">
-    <h1>Welcome to ContestLog</h1>
+    <h1>Welcome to Noctalum</h1>
     <p class="muted">Create the initial administrator account.</p>
     <form id="setup-form" autocomplete="off">
       <label>Username</label>
@@ -30,7 +30,7 @@
 <!-- Login screen -->
 <div id="login-screen" class="screen login-screen hidden">
   <div class="login-card">
-    <h1>ContestLog</h1>
+    <h1>Noctalum</h1>
     <p class="muted">Sign in</p>
     <form id="login-form" autocomplete="on">
       <label>Username</label>
@@ -52,9 +52,20 @@
     <div class="login-card wide">
       <h1>Select Contest</h1>
       <p class="muted">Choose a contest to participate in.</p>
-      <div id="contest-picker-list" class="contest-picker-list"></div>
-      <div id="contest-create-section" class="hidden" style="margin-top:16px">
-        <button id="create-contest-btn" class="primary" style="width:100%">+ New Contest</button>
+      <div class="contest-columns">
+        <div class="contest-col">
+          <div id="contest-picker-list" class="contest-picker-list"></div>
+          <div id="contest-create-section" class="hidden" style="margin-top:16px">
+            <button id="create-contest-btn" class="primary" style="width:100%">+ New Contest</button>
+          </div>
+        </div>
+        <div class="contest-col contest-col-private hidden" id="private-contest-col">
+          <div class="contest-col-heading">Private</div>
+          <div id="private-contest-picker-list" class="contest-picker-list"></div>
+          <div id="private-contest-create-section" class="hidden" style="margin-top:16px">
+            <button id="create-private-contest-btn" class="primary" style="width:100%">+ New Private Contest</button>
+          </div>
+        </div>
       </div>
       <div id="contest-pick-error" class="error" style="margin-top:10px"></div>
       <div class="contest-admin-actions">
@@ -116,7 +127,7 @@
 <div id="app" class="screen app-screen hidden">
   <header class="topbar">
     <div class="topbar-left">
-      <div class="brand">ContestLog</div>
+      <div class="brand">Noctalum</div>
       <span class="op-badge">Logged in as <strong id="current-op"></strong></span>
       <button id="feature-request-btn" class="ghost fr-btn hidden" title="Submit a feature request">Feature Request</button>
     </div>
@@ -376,7 +387,7 @@
           <fieldset id="helper-fieldset">
             <legend>My helper token</legend>
             <p class="muted small">
-              Use this personal token with the <code>contestlog-helper</code>
+              Use this personal token with the <code>noctalum-helper</code>
               binary to connect your transceiver to this station.
             </p>
             <div class="row">
@@ -384,7 +395,7 @@
               <button type="button" id="copy-token" class="ghost">Copy</button>
               <button type="button" id="regen-token" class="ghost">Regenerate</button>
             </div>
-            <pre class="snippet">contestlog-helper \
+            <pre class="snippet">noctalum-helper \
   -server <span id="hint-server">http://this-server:8080</span> \
   -name "IC-7300" \
   -token <span id="hint-token">...</span></pre>
@@ -632,6 +643,17 @@
 <!-- Modal container -->
 <div id="modal-root" class="modal-root hidden">
   <div class="modal-card" id="modal-card"></div>
+</div>
+
+<!-- Confirm dialog -->
+<div id="confirm-root" class="modal-root hidden" style="z-index:200">
+  <div class="modal-card confirm-card">
+    <p id="confirm-msg" class="confirm-msg"></p>
+    <div class="modal-actions">
+      <button class="ghost" id="confirm-cancel">Cancel</button>
+      <button id="confirm-ok">Confirm</button>
+    </div>
+  </div>
 </div>
 
 <script src="/leaflet.min.js"></script>

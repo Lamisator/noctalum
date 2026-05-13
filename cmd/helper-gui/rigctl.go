@@ -159,7 +159,7 @@ func setRigMode(host string, port int, mode string) error {
 	return err
 }
 
-// toRigctldMode translates a ContestLog mode string to the rigctld mode name.
+// toRigctldMode translates a Noctalum mode string to the rigctld mode name.
 func toRigctldMode(mode string, freqHz int64) string {
 	switch strings.ToUpper(mode) {
 	case "CW":
@@ -214,7 +214,13 @@ func rigBackoff(base, max time.Duration, errCount int) time.Duration {
 // process.  Returns the read frequency on success.  This is the building
 // block of the auto-detect phases.  rigctld output is muted because failed
 // probes are normal here and would otherwise spam the parent's stderr.
-func probeOnce(ctx context.Context, s spawnArgs) (int64, error) {
+//
+// startupTimeout caps how long we wait for rigctld to open its TCP port.
+// queryTimeout caps the "f" command round-trip.  Callers in the auto-detect
+// loop pass short values; callers that want conservative behaviour pass longer
+// ones.  SIGKILL releases the serial-port lock immediately in the kernel, so
+// we reap the zombie in a goroutine and let the next probe begin at once.
+func probeOnce(ctx context.Context, s spawnArgs, startupTimeout, queryTimeout time.Duration) (int64, error) {
 	cmd := exec.Command(s.Bin, s.args()...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
@@ -225,10 +231,10 @@ func probeOnce(ctx context.Context, s spawnArgs) (int64, error) {
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		_ = cmd.Wait()
+		go cmd.Wait() // reap zombie; serial port released by SIGKILL, no need to block
 	}()
 
-	if err := waitForRigctld(s.Host, s.Port, 3*time.Second); err != nil {
+	if err := waitForRigctld(s.Host, s.Port, startupTimeout); err != nil {
 		return 0, err
 	}
 
@@ -240,7 +246,7 @@ func probeOnce(ctx context.Context, s spawnArgs) (int64, error) {
 	}
 
 	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
-	freqStr, err := rigQuery(addr, "f", time.Now().Add(2500*time.Millisecond))
+	freqStr, err := rigQuery(addr, "f", time.Now().Add(queryTimeout))
 	if err != nil {
 		return 0, err
 	}

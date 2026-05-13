@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/contestlog/contestlog/internal/store"
+	"github.com/noctalum/noctalum/internal/store"
 )
 
 // ExportADIF writes the QSO list to w in ADIF 3.x format.
@@ -104,7 +104,7 @@ func ExportCSV(w io.Writer, qsos []store.QSO) error {
 func ExportCabrillo(w io.Writer, qsos []store.QSO, contestName, stationCall string) error {
 	header := []string{
 		"START-OF-LOG: 3.0",
-		"CREATED-BY: ContestLog",
+		"CREATED-BY: Noctalum",
 		fmt.Sprintf("CONTEST: %s", strings.ToUpper(contestName)),
 		fmt.Sprintf("CALLSIGN: %s", strings.ToUpper(stationCall)),
 		"CATEGORY-OPERATOR: MULTI-OP",

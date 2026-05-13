@@ -1,4 +1,4 @@
-module github.com/contestlog/contestlog
+module github.com/noctalum/noctalum
 
 go 1.21
 
