@@ -319,9 +319,11 @@ func (s *Server) rigBand(name string) string {
 	return ""
 }
 
-// broadcastOperators pushes a per-contest operator list to every browser.
+// broadcastOperators pushes a per-contest operator list and the global online
+// list to every browser.
 func (s *Server) broadcastOperators() {
 	s.hub.BroadcastOperators(s.rigBand)
+	s.hub.BroadcastGlobalOperators()
 }
 
 // ----- middleware -----
@@ -2123,6 +2125,13 @@ func (s *Server) handleWSBrowser(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+		}
+	}
+	// Push initial global operators list to the connecting browser.
+	if data, err := json.Marshal(Event{Type: "global_operators", Payload: s.hub.AllConnectedOperators()}); err == nil {
+		select {
+		case c.send <- data:
+		default:
 		}
 	}
 	// Re-broadcast operators because a new browser is connecting.

@@ -101,6 +101,50 @@ type OperatorInfo struct {
 	Band     string `json:"band,omitempty"`
 }
 
+// GlobalOperatorInfo represents a connected operator shown on the main menu.
+type GlobalOperatorInfo struct {
+	Username string `json:"username"`
+	Callsign string `json:"callsign"`
+	Location string `json:"location"` // contest name or "Main Menu"
+}
+
+// AllConnectedOperators returns the de-duplicated sorted list of all connected
+// browser operators, including their current location (contest name or "Main Menu").
+func (h *Hub) AllConnectedOperators() []GlobalOperatorInfo {
+	h.mu.Lock()
+	seen := map[string]GlobalOperatorInfo{}
+	for c := range h.clients {
+		if c.role != RoleBrowser || c.session == nil || c.session.Callsign == "" {
+			continue
+		}
+		cs := c.session.Callsign
+		if _, ok := seen[cs]; ok {
+			continue
+		}
+		cid, _, _, cname := c.session.ContestInfo()
+		loc := "Main Menu"
+		if cid != 0 {
+			loc = cname
+			if loc == "" {
+				loc = "a contest"
+			}
+		}
+		seen[cs] = GlobalOperatorInfo{Username: c.session.Username, Callsign: cs, Location: loc}
+	}
+	h.mu.Unlock()
+	out := make([]GlobalOperatorInfo, 0, len(seen))
+	for _, v := range seen {
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Callsign < out[j].Callsign })
+	return out
+}
+
+// BroadcastGlobalOperators sends a "global_operators" event to all browsers.
+func (h *Hub) BroadcastGlobalOperators() {
+	h.Broadcast(Event{Type: "global_operators", Payload: h.AllConnectedOperators()})
+}
+
 // OperatorsForContest returns the de-duplicated, sorted list of currently
 // logged-in browser operators that have the given contest selected.  If
 // contestID is zero, every connected browser is included (legacy behaviour).

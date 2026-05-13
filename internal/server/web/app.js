@@ -382,6 +382,7 @@
   let csrfToken = null;
   let qsos = [];
   let operators = [];
+  let globalOperators = [];
   let rigs = [];          // [{name, freq_hz, mode, band, in_use_by, connected, error, helper_count}]
   let settings = null;
   let allRoles = [];
@@ -571,6 +572,7 @@
     if (dres.ok) downloads = await dres.json().catch(() => []);
     renderContestPicker();
     renderDownloads(downloads);
+    renderGlobalOperators();
     show('contest-screen');
   }
 
@@ -623,6 +625,30 @@
       html += '</div>';
     }
     list.innerHTML = html || '<p class="muted" style="font-size:12px;margin:0">No files available.</p>';
+  }
+
+  function renderGlobalOperators() {
+    const list = $('online-operators-list');
+    if (!list) return;
+    if (globalOperators.length === 0) {
+      list.innerHTML = '<p class="muted" style="font-size:12px;margin:0">No operators online.</p>';
+      return;
+    }
+    list.innerHTML = '';
+    for (const op of globalOperators) {
+      const div = document.createElement('div');
+      div.className = 'online-op';
+      if (me && op.callsign === me.callsign) div.classList.add('me');
+      const call = document.createElement('span');
+      call.className = 'online-op-call';
+      call.textContent = fmtCall(op.callsign);
+      const loc = document.createElement('span');
+      loc.className = 'online-op-location';
+      loc.textContent = op.location;
+      div.appendChild(call);
+      div.appendChild(loc);
+      list.appendChild(div);
+    }
   }
 
   function makePickerItem(c) {
@@ -2989,6 +3015,10 @@
         case 'operators':
           operators = msg.payload || [];
           renderOperators();
+          break;
+        case 'global_operators':
+          globalOperators = msg.payload || [];
+          renderGlobalOperators();
           break;
         case 'rigs':
           rigs = msg.payload || [];

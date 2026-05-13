@@ -852,13 +852,18 @@ code {
   gap: 20px;
   align-items: flex-start;
 }
+.contest-screen-side {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 240px;
+  flex-shrink: 0;
+}
 .downloads-panel {
   background: var(--bg-elev);
   padding: 24px 28px;
   border-radius: 12px;
   box-shadow: var(--shadow);
-  width: 240px;
-  flex-shrink: 0;
   border: 1px solid var(--border);
 }
 .downloads-panel-title {
@@ -868,6 +873,45 @@ code {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-bottom: 14px;
+}
+.online-panel {
+  background: var(--bg-elev);
+  padding: 24px 28px;
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+.online-panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 14px;
+}
+.online-operators-list {
+  display: flex;
+  flex-direction: column;
+}
+.online-op {
+  display: flex;
+  flex-direction: column;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+.online-op:last-child { border-bottom: none; }
+.online-op-call {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.online-op.me .online-op-call { color: var(--fg); }
+.online-op-location {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .downloads-group { margin-bottom: 16px; }
 .downloads-group:last-child { margin-bottom: 0; }
