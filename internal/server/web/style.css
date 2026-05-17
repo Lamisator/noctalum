@@ -651,6 +651,11 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
 .rig-list .in-use { color: var(--warn); font-size: 11px; margin-top: 2px; }
 .rig-list .in-use-other { color: var(--text-muted); font-size: 11px; margin-top: 2px; font-style: italic; }
 .rig-list .rig-err { color: var(--error); font-size: 11px; margin-top: 2px; }
+.rig-list .dummy-badge { color: var(--text-muted); font-size: 11px; font-weight: 400; }
+
+.dummy-rig-row { align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.dummy-rig-row:last-child { border-bottom: none; }
+.dummy-rig-name { font-weight: 600; }
 
 .tab-perm { display: none; }
 .tab-perm.visible { display: inline-flex; }

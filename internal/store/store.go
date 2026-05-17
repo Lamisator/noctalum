@@ -49,6 +49,12 @@ type Settings struct {
 	ClusterRetentionDays  int    `json:"cluster_retention_days"`
 }
 
+// DummyRig is a simulated transceiver configuration persisted in the database.
+type DummyRig struct {
+	Name          string `json:"name"`
+	DefaultFreqHz int64  `json:"default_freq_hz"`
+}
+
 // ClusterSpot is a single DX cluster spot stored in the database.
 type ClusterSpot struct {
 	ID        int64  `json:"id"`
@@ -147,6 +153,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.migrateChatMessages(); err != nil {
+		return err
+	}
+	if err := s.migrateDummyRigs(); err != nil {
 		return err
 	}
 	for _, col := range [][2]string{
@@ -568,5 +577,47 @@ func (s *Store) RecentChatMessages(contestID int64) ([]ChatMessage, error) {
 func (s *Store) PruneChatMessages() error {
 	cutoff := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
 	_, err := s.db.Exec(`DELETE FROM chat_messages WHERE created_at <= ?`, cutoff)
+	return err
+}
+
+// ----- dummy rigs -----
+
+func (s *Store) migrateDummyRigs() error {
+	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS dummy_rigs (
+		name TEXT PRIMARY KEY,
+		default_freq_hz INTEGER NOT NULL DEFAULT 14000000
+	)`)
+	return err
+}
+
+// ListDummyRigs returns all configured dummy TRXs.
+func (s *Store) ListDummyRigs() ([]DummyRig, error) {
+	rows, err := s.db.Query(`SELECT name, default_freq_hz FROM dummy_rigs ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DummyRig
+	for rows.Next() {
+		var d DummyRig
+		if err := rows.Scan(&d.Name, &d.DefaultFreqHz); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// InsertDummyRig persists a new dummy TRX configuration.
+func (s *Store) InsertDummyRig(name string, defaultFreqHz int64) error {
+	_, err := s.db.Exec(
+		`INSERT INTO dummy_rigs(name, default_freq_hz) VALUES(?, ?)`,
+		name, defaultFreqHz)
+	return err
+}
+
+// DeleteDummyRig removes a dummy TRX configuration.
+func (s *Store) DeleteDummyRig(name string) error {
+	_, err := s.db.Exec(`DELETE FROM dummy_rigs WHERE name = ?`, name)
 	return err
 }

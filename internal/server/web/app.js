@@ -788,7 +788,7 @@
         $('q-call').focus();
         requestAnimationFrame(() => { if (leafletMap) leafletMap.invalidateSize(); });
       }
-      if (t.dataset.tab === 'settings') loadPasskeys();
+      if (t.dataset.tab === 'settings') { loadPasskeys(); loadDummyRigs(); }
       if (t.dataset.tab === 'statistics') renderStatistics();
     });
   });
@@ -1659,7 +1659,8 @@
         useLine += `<div class="in-use-other">also in: ${escHtml(otherContests.join(', '))}</div>`;
       }
       let errLine = (r.error && !r.connected) ? `<div class="rig-err">rigctld: ${escHtml(r.error)}</div>` : '';
-      li.innerHTML = `<div class="rig-name">${escHtml(r.name)}</div>
+      const displayName = r.dummy ? `${escHtml(r.name)} <span class="dummy-badge">(dummy)</span>` : escHtml(r.name);
+      li.innerHTML = `<div class="rig-name">${displayName}</div>
                      <div class="rig-data">${data}</div>${useLine}${errLine}`;
       li.addEventListener('click', async () => {
         const target = (r.name === me?.selected_rig) ? '' : r.name;
@@ -1862,6 +1863,7 @@
         ? 'QRZ.com lookup is configured.'
         : 'QRZ.com lookup is not configured.';
     }
+    loadDummyRigs();
   }
   $('settings-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1938,6 +1940,60 @@
     $('op-error').textContent = 'Password changed.';
     $('op-error').style.color = 'var(--success)';
   });
+
+  // ----- dummy TRX management -----
+  async function loadDummyRigs() {
+    if (!hasPerm('rig.simulate')) return;
+    const res = await api('/api/rigs/dummy');
+    if (!res.ok) return;
+    const list = await res.json();
+    const el = $('dummy-rig-list');
+    if (!el) return;
+    el.innerHTML = '';
+    if (!list || list.length === 0) {
+      el.innerHTML = '<p class="muted small">No dummy TRXs configured.</p>';
+      return;
+    }
+    for (const d of list) {
+      const row = document.createElement('div');
+      row.className = 'row dummy-rig-row';
+      row.innerHTML = `<span class="dummy-rig-name">${escHtml(d.name)}</span>
+        <span class="muted small">${escHtml((d.default_freq_hz/1_000_000).toFixed(4))} MHz default</span>
+        <button class="ghost" data-name="${escHtml(d.name)}" style="margin-left:auto">Delete</button>`;
+      row.querySelector('button').addEventListener('click', async (e) => {
+        const name = e.currentTarget.dataset.name;
+        if (!await showConfirm(`Delete dummy TRX "${name}"?`, { ok: 'Delete' })) return;
+        const r = await api('/api/rigs/dummy/' + encodeURIComponent(name), { method: 'DELETE' });
+        if (r.ok) await loadDummyRigs();
+      });
+      el.appendChild(row);
+    }
+  }
+  const addDummyRigBtn = $('add-dummy-rig-btn');
+  if (addDummyRigBtn) {
+    addDummyRigBtn.addEventListener('click', async () => {
+      const nameEl = $('dummy-rig-name');
+      const freqEl = $('dummy-rig-freq');
+      const errEl  = $('dummy-rig-error');
+      errEl.textContent = '';
+      const name = nameEl.value.trim();
+      const freqHz = Math.round(parseFloat(freqEl.value) * 1_000_000);
+      if (!name)   { errEl.textContent = 'Name required'; return; }
+      if (!freqHz || freqHz <= 0) { errEl.textContent = 'Valid default frequency (MHz) required'; return; }
+      const res = await api('/api/rigs/dummy', {
+        method: 'POST',
+        body: JSON.stringify({ name, default_freq_hz: freqHz }),
+      });
+      if (res.ok) {
+        nameEl.value = '';
+        freqEl.value = '14.074';
+        await loadDummyRigs();
+      } else {
+        const j = await res.json().catch(() => ({}));
+        errEl.textContent = j.error || 'Failed to add dummy TRX';
+      }
+    });
+  }
 
   // ----- contests tab -----
   $('new-contest-btn').addEventListener('click', () => contestCreateModal());

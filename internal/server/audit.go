@@ -37,6 +37,8 @@ const (
 	AuditContestGrantAccess  = "contest.grant_access"
 	AuditContestRevokeAccess = "contest.revoke_access"
 	AuditRigRelease         = "rig.release"
+	AuditRigDummyCreate     = "rig.dummy_create"
+	AuditRigDummyDelete     = "rig.dummy_delete"
 	AuditExport             = "export"
 	AuditAccessDenied       = "access.denied"
 )
@@ -50,7 +52,7 @@ var AllAuditActions = []string{
 	AuditRoleCreate, AuditRoleDelete, AuditRolePermsChange,
 	AuditSettingsChange,
 	AuditContestCreate, AuditContestUpdate, AuditContestDelete, AuditContestGrantAccess, AuditContestRevokeAccess,
-	AuditRigRelease,
+	AuditRigRelease, AuditRigDummyCreate, AuditRigDummyDelete,
 	AuditExport,
 	AuditAccessDenied,
 }

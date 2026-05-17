@@ -110,6 +110,14 @@ func New(st *store.Store) (*Server, error) {
 	go s.clusterPruneLoop(context.Background())
 	go s.chatPruneLoop(context.Background())
 
+	dummyRigs, err := st.ListDummyRigs()
+	if err != nil {
+		log.Printf("warning: could not load dummy rigs from DB: %v", err)
+	}
+	for _, dr := range dummyRigs {
+		s.rigs.AddDummy(dr.Name, dr.DefaultFreqHz)
+	}
+
 	n, _ := st.CountUsers()
 	if n == 0 {
 		log.Printf("first-run setup required — open the web UI to create the initial admin account")
@@ -158,6 +166,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/rigs", s.requireAuth(s.handleRigs))
 	mux.HandleFunc("/api/rigs/select", s.requireAuth(s.handleSelectRig))
 	mux.HandleFunc("/api/rigs/release", s.requireAuth(s.handleReleaseRig))
+	mux.HandleFunc("/api/rigs/dummy", s.requirePerm(PermRigSimulate, s.handleDummyRigs))
+	mux.HandleFunc("/api/rigs/dummy/", s.requirePerm(PermRigSimulate, s.handleDummyRigByName))
 
 	// Permission-gated
 	mux.HandleFunc("/api/settings", s.requireAuth(s.handleSettings))
@@ -1252,12 +1262,92 @@ func (s *Server) handleSetFreq(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "freq_hz required")
 		return
 	}
+	if s.rigs.IsDummy(rigName) {
+		s.rigs.UpdateDummy(rigName, body.FreqHz, body.Mode)
+		s.broadcastRigs()
+		s.broadcastOperators()
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
 	sent := s.hub.SendToRig(rigName, Event{Type: "set_freq", Payload: map[string]any{"freq_hz": body.FreqHz, "mode": body.Mode}})
 	if !sent {
 		writeError(w, http.StatusServiceUnavailable, "rig helper not connected")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// ----- dummy rigs -----
+
+func (s *Server) handleDummyRigs(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFor(s, r)
+	switch r.Method {
+	case http.MethodGet:
+		rigs, err := s.store.ListDummyRigs()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if rigs == nil {
+			rigs = []store.DummyRig{}
+		}
+		writeJSON(w, http.StatusOK, rigs)
+	case http.MethodPost:
+		var in struct {
+			Name          string `json:"name"`
+			DefaultFreqHz int64  `json:"default_freq_hz"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		in.Name = strings.TrimSpace(in.Name)
+		if in.Name == "" {
+			writeError(w, http.StatusBadRequest, "name required")
+			return
+		}
+		if in.DefaultFreqHz <= 0 {
+			writeError(w, http.StatusBadRequest, "default_freq_hz must be positive")
+			return
+		}
+		if s.rigs.HasRig(in.Name) {
+			writeError(w, http.StatusConflict, "a rig with this name already exists")
+			return
+		}
+		if err := s.store.InsertDummyRig(in.Name, in.DefaultFreqHz); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.rigs.AddDummy(in.Name, in.DefaultFreqHz)
+		s.broadcastRigs()
+		s.audit(r, store.AuditInfo, AuditRigDummyCreate, sess.Username, in.Name, fmt.Sprintf("default_freq_hz: %d", in.DefaultFreqHz))
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "GET or POST only")
+	}
+}
+
+func (s *Server) handleDummyRigByName(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFor(s, r)
+	name, err := url.PathUnescape(strings.TrimPrefix(r.URL.Path, "/api/rigs/dummy/"))
+	if err != nil || name == "" {
+		writeError(w, http.StatusBadRequest, "invalid rig name")
+		return
+	}
+	switch r.Method {
+	case http.MethodDelete:
+		if !s.rigs.IsDummy(name) {
+			writeError(w, http.StatusNotFound, "dummy rig not found")
+			return
+		}
+		s.rigs.RemoveDummy(name)
+		_ = s.store.DeleteDummyRig(name)
+		s.broadcastRigs()
+		s.audit(r, store.AuditInfo, AuditRigDummyDelete, sess.Username, name, "")
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "DELETE only")
+	}
 }
 
 // ----- users -----

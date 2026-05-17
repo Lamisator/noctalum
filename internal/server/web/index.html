@@ -467,6 +467,29 @@
           </div>
         </div>
       </div>
+
+      <div class="card settings-card perm-required" data-perm="rig.simulate" style="margin-top:14px">
+        <h2>Dummy TRXs</h2>
+        <p class="muted small">
+          Simulated transceivers that appear in the TRX list and react to frequency changes — useful for testing without physical hardware.
+          They are clearly marked <strong>(dummy)</strong> in the TRX list.
+        </p>
+        <div id="dummy-rig-list"></div>
+        <div style="margin-top:14px">
+          <div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <label style="margin:0">
+              <span class="muted small">Name</span>
+              <input id="dummy-rig-name" type="text" placeholder="e.g. IC-7300 (sim)" style="max-width:180px" autocomplete="off" />
+            </label>
+            <label style="margin:0">
+              <span class="muted small">Default freq (MHz)</span>
+              <input id="dummy-rig-freq" type="number" step="0.001" min="0.1" max="2400" placeholder="14.074" value="14.074" style="max-width:110px" />
+            </label>
+            <button type="button" id="add-dummy-rig-btn" class="primary" style="align-self:flex-end">Add dummy TRX</button>
+          </div>
+          <span id="dummy-rig-error" class="error" style="display:block;margin-top:6px"></span>
+        </div>
+      </div>
     </section>
 
     <!-- Export tab -->

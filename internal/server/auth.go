@@ -29,6 +29,7 @@ const (
 	PermUsersManage           = "users.manage"
 	PermRigUse                = "rig.use"
 	PermRigRelease            = "rig.release"
+	PermRigSimulate           = "rig.simulate"
 	PermContestsManage        = "contests.manage"
 	PermContestsCreatePrivate = "contests.create_private"
 	PermContestAdmin          = "contest.admin"
@@ -39,7 +40,7 @@ const (
 
 // AllPermissions is the canonical list (used by UI + role validation).
 var AllPermissions = []string{
-	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermRigRelease, PermContestsManage, PermContestsCreatePrivate, PermContestAdmin, PermAuditLog, PermFeatureRequestsRead, PermFeatureRequestsWrite,
+	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermRigRelease, PermRigSimulate, PermContestsManage, PermContestsCreatePrivate, PermContestAdmin, PermAuditLog, PermFeatureRequestsRead, PermFeatureRequestsWrite,
 }
 
 // DefaultUserRolePermissions are the permissions assigned to the built-in
