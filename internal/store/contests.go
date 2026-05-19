@@ -22,9 +22,10 @@ type Contest struct {
 	Objective    string    `json:"objective"`  // markdown text
 	Private      bool      `json:"private"`    // owner-only contest
 	OwnerUserID  int64     `json:"owner_user_id"`
-	CustomFields string    `json:"custom_fields"` // JSON-encoded array of {name,label,type,required,order}
-	QSOLayout    string    `json:"qso_layout"`    // JSON-encoded {cols, items:[{key,x,y,w}]} for the New QSO mask
-	CreatedAt    time.Time `json:"created_at"`
+	CustomFields   string     `json:"custom_fields"`    // JSON-encoded array of {name,label,type,required,order}
+	QSOLayout      string     `json:"qso_layout"`       // JSON-encoded {cols, items:[{key,x,y,w}]} for the New QSO mask
+	CreatedAt      time.Time  `json:"created_at"`
+	LastActivityAt *time.Time `json:"last_activity_at"` // time of the most recent QSO; nil if no QSOs logged
 }
 
 func bandsToString(bands []string) string { return strings.Join(bands, ",") }
@@ -140,10 +141,16 @@ func (s *Store) CreateContest(name, stationCall, qth string, bands []string, obj
 	return &Contest{ID: id, Name: name, StationCall: stationCall, QTH: qth, Bands: bands, Objective: objective, Status: "open", StationID: stationID, Private: private, OwnerUserID: ownerUserID, CustomFields: customFields, QSOLayout: qsoLayout, CreatedAt: now}, nil
 }
 
-// ListContests returns all contests, newest first.
+// ListContests returns all contests, newest first, with last QSO activity time.
 func (s *Store) ListContests() ([]Contest, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, created_at FROM contests ORDER BY created_at DESC`)
+		`SELECT c.id, c.name, c.station_call, c.qth, c.bands, c.objective, c.status, c.station_id,
+		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.created_at,
+		        MAX(q.time_utc) AS last_activity_at
+		 FROM contests c
+		 LEFT JOIN qsos q ON q.contest_id = c.id
+		 GROUP BY c.id
+		 ORDER BY c.created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -153,12 +160,17 @@ func (s *Store) ListContests() ([]Contest, error) {
 		var c Contest
 		var t, bandsStr string
 		var priv int
-		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &t); err != nil {
+		var lastAct sql.NullString
+		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &t, &lastAct); err != nil {
 			return nil, err
 		}
 		c.Private = priv != 0
 		c.Bands = bandsFromString(bandsStr)
 		c.CreatedAt, _ = time.Parse(time.RFC3339, t)
+		if lastAct.Valid && lastAct.String != "" {
+			la, _ := time.Parse(time.RFC3339, lastAct.String)
+			c.LastActivityAt = &la
+		}
 		out = append(out, c)
 	}
 	return out, rows.Err()

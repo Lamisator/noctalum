@@ -388,6 +388,10 @@
   let allRoles = [];
   let allPerms = [];
   let allContests = [];
+  let contestViewMode = localStorage.getItem('contestViewMode') || 'cards';
+  let contestSortField = localStorage.getItem('contestSortField') || 'created_at';
+  let contestSortDir = localStorage.getItem('contestSortDir') || 'desc';
+  let contestStatusFilter = localStorage.getItem('contestStatusFilter') || '';
   let ws = null;
   let wsRetry = 0;
   let currentTargetLocator = null; // Maidenhead locator of the station being looked up
@@ -520,6 +524,7 @@
       }
     } catch {}
     loadGlobalClusterLog();
+    loadDummyRigs();
   }
 
   async function loadGlobalClusterLog() {
@@ -556,6 +561,52 @@
 
   $('create-contest-btn').addEventListener('click', () => contestCreateModal());
   $('create-private-contest-btn').addEventListener('click', () => contestCreateModal(true));
+  $('create-contest-btn-list').addEventListener('click', () => contestCreateModal());
+  $('create-private-contest-btn-list').addEventListener('click', () => contestCreateModal(true));
+
+  // Toolbar: status filter pills
+  document.querySelectorAll('.cpill[data-cf]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      contestStatusFilter = btn.dataset.cf;
+      localStorage.setItem('contestStatusFilter', contestStatusFilter);
+      renderContestPicker();
+    });
+  });
+  $('cf-recent').addEventListener('click', () => {
+    if (contestSortField === 'last_activity_at' && contestSortDir === 'desc') {
+      contestSortField = 'created_at';
+      contestSortDir = 'desc';
+    } else {
+      contestSortField = 'last_activity_at';
+      contestSortDir = 'desc';
+    }
+    localStorage.setItem('contestSortField', contestSortField);
+    localStorage.setItem('contestSortDir', contestSortDir);
+    renderContestPicker();
+  });
+  // Toolbar: view toggle
+  document.querySelectorAll('.cvbtn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      contestViewMode = btn.dataset.cv;
+      localStorage.setItem('contestViewMode', contestViewMode);
+      renderContestPicker();
+    });
+  });
+  // List view: sortable column headers
+  document.querySelectorAll('.clt-head [data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const field = th.dataset.sort;
+      if (contestSortField === field) {
+        contestSortDir = contestSortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        contestSortField = field;
+        contestSortDir = (field === 'name' || field === 'station_call') ? 'asc' : 'desc';
+      }
+      localStorage.setItem('contestSortField', contestSortField);
+      localStorage.setItem('contestSortDir', contestSortDir);
+      renderContestPicker();
+    });
+  });
 
   async function showContestScreen() {
     $('contest-pick-error').textContent = '';
@@ -654,55 +705,112 @@
   function makePickerItem(c) {
     const item = document.createElement('div');
     item.className = 'contest-picker-item' + (c.status === 'finished' ? ' finished' : '');
+    const editBtn = hasPerm('contests.manage')
+      ? `<button class="contest-edit-pill" title="Edit contest" tabindex="-1">&#128295;</button>`
+      : '';
     item.innerHTML = `
       <div>
         <div class="contest-picker-call">${escHtml(fmtCall(c.station_call))}</div>
         <div class="contest-picker-name">${escHtml(c.name)}</div>
       </div>
-      <span class="contest-picker-status ${c.status}">${c.status}</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="contest-picker-status ${c.status}">${c.status}</span>
+        ${editBtn}
+      </div>
     `;
-    item.addEventListener('click', async () => {
-      $('contest-pick-error').textContent = '';
-      const r = await api('/api/contests/' + c.id + '/select', { method: 'POST' });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        $('contest-pick-error').textContent = j.error || 'Failed to select contest';
-        return;
-      }
-      const j = await r.json();
-      if (me) {
-        me.contest_id = j.contest_id;
-        me.contest_status = j.contest_status;
-        me.contest_call = j.contest_call;
-        me.contest_name = j.contest_name;
-        me.contest_qth = j.contest_qth || '';
-        me.contest_bands = (j.contest_bands || []).join(',');
-        me.contest_objective = j.contest_objective || '';
-      }
-      await enterApp();
-    });
+    if (hasPerm('contests.manage')) {
+      item.querySelector('.contest-edit-pill').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        contestEditModal(c);
+      });
+    }
+    item.addEventListener('click', () => selectContest(c));
     return item;
   }
 
+  async function selectContest(c) {
+    $('contest-pick-error').textContent = '';
+    const r = await api('/api/contests/' + c.id + '/select', { method: 'POST' });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      $('contest-pick-error').textContent = j.error || 'Failed to select contest';
+      return;
+    }
+    const j = await r.json();
+    if (me) {
+      me.contest_id = j.contest_id;
+      me.contest_status = j.contest_status;
+      me.contest_call = j.contest_call;
+      me.contest_name = j.contest_name;
+      me.contest_qth = j.contest_qth || '';
+      me.contest_bands = (j.contest_bands || []).join(',');
+      me.contest_objective = j.contest_objective || '';
+      me.contest_station_id = j.contest_station_id || '';
+    }
+    await enterApp();
+  }
+
   function renderContestPicker() {
+    const canManage = hasPerm('contests.manage');
+    const canPriv = hasPerm('contests.create_private');
+
+    // Sync toolbar visual state
+    document.querySelectorAll('.cpill[data-cf]').forEach(el =>
+      el.classList.toggle('active', el.dataset.cf === contestStatusFilter));
+    const cfRecent = $('cf-recent');
+    if (cfRecent) cfRecent.classList.toggle('active',
+      contestSortField === 'last_activity_at' && contestSortDir === 'desc');
+    document.querySelectorAll('.cvbtn').forEach(el =>
+      el.classList.toggle('active', el.dataset.cv === contestViewMode));
+
+    // Filter by status
+    let contests = (allContests || []);
+    if (contestStatusFilter === 'open') contests = contests.filter(c => c.status === 'open');
+    else if (contestStatusFilter === 'finished') contests = contests.filter(c => c.status === 'finished');
+
+    // Sort
+    contests = [...contests].sort((a, b) => {
+      let av, bv;
+      const f = contestSortField;
+      if (f === 'name') { av = (a.name || '').toLowerCase(); bv = (b.name || '').toLowerCase(); }
+      else if (f === 'station_call') { av = (a.station_call || '').toLowerCase(); bv = (b.station_call || '').toLowerCase(); }
+      else if (f === 'status') { av = a.status || ''; bv = b.status || ''; }
+      else if (f === 'last_activity_at') {
+        av = a.last_activity_at || a.created_at || '';
+        bv = b.last_activity_at || b.created_at || '';
+      } else { av = a.created_at || ''; bv = b.created_at || ''; }
+      if (av < bv) return contestSortDir === 'asc' ? -1 : 1;
+      if (av > bv) return contestSortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    if (contestViewMode === 'list') {
+      $('contest-card-view').classList.add('hidden');
+      $('contest-list-view').classList.remove('hidden');
+      renderContestListView(contests, canManage, canPriv);
+    } else {
+      $('contest-list-view').classList.add('hidden');
+      $('contest-card-view').classList.remove('hidden');
+      renderContestCardView(contests, canManage, canPriv);
+    }
+  }
+
+  function renderContestCardView(contests, canManage, canPriv) {
     const list = $('contest-picker-list');
     const privateList = $('private-contest-picker-list');
     const privateCol = $('private-contest-col');
     list.innerHTML = '';
     privateList.innerHTML = '';
-
-    const canPriv = hasPerm('contests.create_private');
     privateCol.classList.toggle('hidden', !canPriv);
 
-    const publicContests = (allContests || []).filter(c => !c.private);
-    const privateContests = (allContests || []).filter(c => c.private);
+    const publicContests = contests.filter(c => !c.private);
+    const privateContests = contests.filter(c => c.private);
 
     if (publicContests.length === 0) {
       list.innerHTML = '<p class="muted" style="text-align:center;padding:20px">No contests yet.</p>';
     } else {
       for (const c of publicContests) list.appendChild(makePickerItem(c));
     }
-
     if (canPriv) {
       if (privateContests.length === 0) {
         privateList.innerHTML = '<p class="muted" style="text-align:center;padding:12px 0">No private contests yet.</p>';
@@ -710,9 +818,51 @@
         for (const c of privateContests) privateList.appendChild(makePickerItem(c));
       }
     }
-
-    $('contest-create-section').classList.toggle('hidden', !hasPerm('contests.manage'));
+    $('contest-create-section').classList.toggle('hidden', !canManage);
     $('private-contest-create-section').classList.toggle('hidden', !canPriv);
+  }
+
+  function renderContestListView(contests, canManage, canPriv) {
+    const body = $('contest-list-body');
+    body.innerHTML = '';
+    document.querySelectorAll('.clt-head [data-sort]').forEach(el => {
+      el.classList.remove('sort-asc', 'sort-desc');
+      if (el.dataset.sort === contestSortField)
+        el.classList.add(contestSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+    });
+    if (contests.length === 0) {
+      body.innerHTML = '<div class="cl-empty">No contests match the current filter.</div>';
+    } else {
+      for (const c of contests) body.appendChild(makeListItem(c));
+    }
+    $('contest-list-create-section').classList.toggle('hidden', !canManage);
+    $('contest-list-create-private-section').classList.toggle('hidden', !canPriv);
+  }
+
+  function makeListItem(c) {
+    const row = document.createElement('div');
+    row.className = 'cl-row' + (c.status === 'finished' ? ' finished' : '');
+    const createdDate = c.created_at ? new Date(c.created_at).toLocaleDateString() : '—';
+    const actDate = fmtRelTime(c.last_activity_at);
+    const privateBadge = c.private ? '<span class="cl-priv-badge">Private</span>' : '';
+    const editBtn = hasPerm('contests.manage')
+      ? `<button class="contest-edit-pill" title="Edit contest" tabindex="-1">&#128295;</button>` : '';
+    row.innerHTML = `
+      <div class="cl-col cl-call">${escHtml(fmtCall(c.station_call))}</div>
+      <div class="cl-col cl-name">${escHtml(c.name)}${privateBadge}</div>
+      <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${c.status}</span></div>
+      <div class="cl-col cl-date">${createdDate}</div>
+      <div class="cl-col cl-activity">${actDate}</div>
+      <div class="cl-col cl-actions">${editBtn}</div>
+    `;
+    if (hasPerm('contests.manage')) {
+      row.querySelector('.contest-edit-pill').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        contestEditModal(c);
+      });
+    }
+    row.addEventListener('click', () => selectContest(c));
+    return row;
   }
 
   // ----- enter main app after contest selected -----
@@ -788,7 +938,7 @@
         $('q-call').focus();
         requestAnimationFrame(() => { if (leafletMap) leafletMap.invalidateSize(); });
       }
-      if (t.dataset.tab === 'settings') { loadPasskeys(); loadDummyRigs(); }
+      if (t.dataset.tab === 'settings') { loadPasskeys(); }
       if (t.dataset.tab === 'statistics') renderStatistics();
     });
   });
@@ -1959,7 +2109,7 @@
       row.className = 'row dummy-rig-row';
       row.innerHTML = `<span class="dummy-rig-name">${escHtml(d.name)}</span>
         <span class="muted small">${escHtml((d.default_freq_hz/1_000_000).toFixed(4))} MHz default</span>
-        <button class="ghost" data-name="${escHtml(d.name)}" style="margin-left:auto">Delete</button>`;
+        <button class="ghost" data-name="${escHtml(d.name)}" style="margin-left:auto;width:auto;margin-top:0">Delete</button>`;
       row.querySelector('button').addEventListener('click', async (e) => {
         const name = e.currentTarget.dataset.name;
         if (!await showConfirm(`Delete dummy TRX "${name}"?`, { ok: 'Delete' })) return;
@@ -2004,6 +2154,7 @@
     if (!res.ok) return;
     allContests = await res.json();
     renderContestsTable();
+    renderContestPicker();
   }
 
   function renderContestsTable() {
@@ -3549,6 +3700,22 @@
 
   function fmtCall(s) {
     return String(s).replace(/0/g, 'Ø');
+  }
+
+  function fmtRelTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const diff = Date.now() - d.getTime();
+    if (diff < 0) return d.toLocaleDateString();
+    const s = Math.floor(diff / 1000);
+    if (s < 60) return 'just now';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + 'm ago';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + 'h ago';
+    const dy = Math.floor(h / 24);
+    if (dy < 30) return dy + 'd ago';
+    return d.toLocaleDateString();
   }
 
   // ----- Panel resizers -----

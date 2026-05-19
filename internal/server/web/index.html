@@ -55,18 +55,54 @@
     <div class="login-card wide">
       <h1>Select Contest</h1>
       <p class="muted">Choose a contest to participate in.</p>
-      <div class="contest-columns">
-        <div class="contest-col">
-          <div id="contest-picker-list" class="contest-picker-list"></div>
-          <div id="contest-create-section" class="hidden" style="margin-top:16px">
-            <button id="create-contest-btn" class="primary" style="width:100%">+ New Contest</button>
+      <div class="contest-toolbar">
+        <div class="contest-filter-bar">
+          <button class="cpill" data-cf="">All</button>
+          <button class="cpill" data-cf="open">Active</button>
+          <button class="cpill" data-cf="finished">Closed</button>
+          <span class="cpill-sep"></span>
+          <button class="cpill" id="cf-recent">Recent first</button>
+        </div>
+        <div class="contest-view-toggle">
+          <button class="cvbtn" data-cv="cards" title="Card view">Cards</button>
+          <button class="cvbtn" data-cv="list" title="List view">List</button>
+        </div>
+      </div>
+      <div id="contest-card-view">
+        <div class="contest-columns">
+          <div class="contest-col">
+            <div id="contest-picker-list" class="contest-picker-list"></div>
+            <div id="contest-create-section" class="hidden" style="margin-top:16px">
+              <button id="create-contest-btn" class="primary" style="width:100%">+ New Contest</button>
+            </div>
+          </div>
+          <div class="contest-col contest-col-private hidden" id="private-contest-col">
+            <div class="contest-col-heading">Private</div>
+            <div id="private-contest-picker-list" class="contest-picker-list"></div>
+            <div id="private-contest-create-section" class="hidden" style="margin-top:16px">
+              <button id="create-private-contest-btn" class="primary" style="width:100%">+ New Private Contest</button>
+            </div>
           </div>
         </div>
-        <div class="contest-col contest-col-private hidden" id="private-contest-col">
-          <div class="contest-col-heading">Private</div>
-          <div id="private-contest-picker-list" class="contest-picker-list"></div>
-          <div id="private-contest-create-section" class="hidden" style="margin-top:16px">
-            <button id="create-private-contest-btn" class="primary" style="width:100%">+ New Private Contest</button>
+      </div>
+      <div id="contest-list-view" class="hidden">
+        <div class="contest-list-table">
+          <div class="clt-head">
+            <div class="cl-col cl-call" data-sort="station_call">Call</div>
+            <div class="cl-col cl-name" data-sort="name">Name</div>
+            <div class="cl-col cl-status" data-sort="status">Status</div>
+            <div class="cl-col cl-date" data-sort="created_at">Created</div>
+            <div class="cl-col cl-activity" data-sort="last_activity_at">Last activity</div>
+            <div class="cl-col cl-actions"></div>
+          </div>
+          <div id="contest-list-body"></div>
+        </div>
+        <div class="contest-list-actions">
+          <div id="contest-list-create-section" class="hidden">
+            <button id="create-contest-btn-list" class="ghost">+ New Contest</button>
+          </div>
+          <div id="contest-list-create-private-section" class="hidden">
+            <button id="create-private-contest-btn-list" class="ghost">+ New Private Contest</button>
           </div>
         </div>
       </div>
@@ -118,6 +154,30 @@
         <button type="submit" class="primary">Save</button>
       </div>
     </form>
+    <div class="perm-required" data-perm="rig.simulate" style="margin-top:20px">
+      <fieldset>
+        <legend>Dummy TRXs</legend>
+        <p class="muted small">
+          Simulated transceivers that appear in the TRX list and react to frequency changes — useful for testing without physical hardware.
+          They are clearly marked <strong>(dummy)</strong> in the TRX list.
+        </p>
+        <div id="dummy-rig-list"></div>
+        <div style="margin-top:14px">
+          <div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <label style="margin:0">
+              <span class="muted small">Name</span>
+              <input id="dummy-rig-name" type="text" placeholder="e.g. IC-7300 (sim)" style="max-width:180px" autocomplete="off" />
+            </label>
+            <label style="margin:0">
+              <span class="muted small">Default freq (MHz)</span>
+              <input id="dummy-rig-freq" type="number" step="0.001" min="0.1" max="2400" placeholder="14.074" value="14.074" style="max-width:110px" />
+            </label>
+            <button type="button" id="add-dummy-rig-btn" class="primary" style="align-self:flex-end;width:auto;margin-top:0">Add dummy TRX</button>
+          </div>
+          <span id="dummy-rig-error" class="error" style="display:block;margin-top:6px"></span>
+        </div>
+      </fieldset>
+    </div>
     <div style="margin-top:16px">
       <p class="muted small" style="margin-bottom:6px">Telnet log (last 200 lines, newest first):</p>
       <div class="row" style="align-items:center;gap:8px;margin-bottom:6px">
@@ -468,28 +528,6 @@
         </div>
       </div>
 
-      <div class="card settings-card perm-required" data-perm="rig.simulate" style="margin-top:14px">
-        <h2>Dummy TRXs</h2>
-        <p class="muted small">
-          Simulated transceivers that appear in the TRX list and react to frequency changes — useful for testing without physical hardware.
-          They are clearly marked <strong>(dummy)</strong> in the TRX list.
-        </p>
-        <div id="dummy-rig-list"></div>
-        <div style="margin-top:14px">
-          <div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
-            <label style="margin:0">
-              <span class="muted small">Name</span>
-              <input id="dummy-rig-name" type="text" placeholder="e.g. IC-7300 (sim)" style="max-width:180px" autocomplete="off" />
-            </label>
-            <label style="margin:0">
-              <span class="muted small">Default freq (MHz)</span>
-              <input id="dummy-rig-freq" type="number" step="0.001" min="0.1" max="2400" placeholder="14.074" value="14.074" style="max-width:110px" />
-            </label>
-            <button type="button" id="add-dummy-rig-btn" class="primary" style="align-self:flex-end">Add dummy TRX</button>
-          </div>
-          <span id="dummy-rig-error" class="error" style="display:block;margin-top:6px"></span>
-        </div>
-      </div>
     </section>
 
     <!-- Export tab -->
