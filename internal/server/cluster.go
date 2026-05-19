@@ -232,8 +232,12 @@ func parseDXSpot(line string) (store.ClusterSpot, bool) {
 
 	band := freqKHzToBand(freq)
 	mode := modeFromComment(comment)
+	freqMode := modeFromFreqKHz(freq)
 	if mode == "" {
-		mode = modeFromFreqKHz(freq)
+		mode = freqMode
+	} else if (mode == "SSB" || mode == "AM") && (freqMode == "CW" || freqMode == "DIGI") {
+		// Comment says phone mode but frequency is in a CW/DIGI zone — trust the band plan.
+		mode = freqMode
 	}
 
 	return store.ClusterSpot{
