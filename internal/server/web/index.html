@@ -155,7 +155,7 @@
       <fieldset style="margin-top:16px">
         <legend>Chat</legend>
         <label>New message sound
-          <select id="gs-chat-sound" style="max-width:160px">
+          <select id="gs-chat-sound" style="max-width:200px">
             <option value="">None (silent)</option>
             <option value="beep">Beep</option>
             <option value="ding">Ding</option>
@@ -164,6 +164,15 @@
         </label>
         <div style="margin-top:8px">
           <button type="button" id="gs-chat-sound-preview" class="ghost" style="font-size:12px">&#9654; Preview</button>
+        </div>
+        <div style="margin-top:16px">
+          <p class="muted small" style="margin-bottom:6px">Upload a custom sound (mp3, wav, ogg, aac, flac, m4a — max 2 MB):</p>
+          <div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <input id="gs-sound-file" type="file" accept=".mp3,.wav,.ogg,.aac,.flac,.m4a" style="max-width:280px" />
+            <button type="button" id="gs-sound-upload-btn" class="ghost" style="width:auto;margin-top:0">Upload</button>
+          </div>
+          <span id="gs-sound-upload-error" class="error" style="display:block;margin-top:4px"></span>
+          <div id="gs-custom-sounds-list" style="margin-top:8px"></div>
         </div>
       </fieldset>
       <div class="entry-actions" style="margin-top:16px">
