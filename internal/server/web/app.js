@@ -488,6 +488,7 @@
     csrfToken = null;
     if (ws) try { ws.close(); } catch {}
     ws = null;
+    clearChat();
     show('login-screen');
   }
 
@@ -870,6 +871,7 @@
     show('app');
     updateContestDisplay();
     applyContestReadonly();
+    clearChat();
     qsos = [];
     editingQsoId = null;
     const [qres, ores, rres] = await Promise.all([
@@ -1071,8 +1073,18 @@
 
   // ----- chat -----
   const chatHistory = [];
+  const chatSeen = new Set(); // fingerprints to deduplicate history replays
+  function clearChat() {
+    chatHistory.length = 0;
+    chatSeen.clear();
+    const list = $('chat-list');
+    if (list) list.innerHTML = '';
+  }
   function appendChatMessage(payload) {
     if (!payload) return;
+    const fp = `${payload.time}|${payload.from}|${payload.text}`;
+    if (chatSeen.has(fp)) return;
+    chatSeen.add(fp);
     chatHistory.push(payload);
     if (chatHistory.length > 200) chatHistory.shift();
     const list = $('chat-list');
