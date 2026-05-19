@@ -47,6 +47,15 @@ type Server struct {
 	nrNext         map[int64]int // per-contest next serial number to assign
 	qrz            *QRZClient
 	downloadsDir   string
+	soundsDir      string
+}
+
+// SetSoundsDir configures the directory where custom chat sounds are stored.
+func (s *Server) SetSoundsDir(dir string) {
+	s.soundsDir = dir
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Printf("warning: could not create sounds dir %s: %v", dir, err)
+	}
 }
 
 // SetDownloadsDir configures a directory whose files are served at /downloads/.
@@ -191,6 +200,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/cluster/spots", s.requireAuth(s.handleClusterSpots))
 	mux.HandleFunc("/api/cluster/log", s.requireAuth(s.handleClusterLog))
 	mux.HandleFunc("/api/rigs/set_freq", s.requireAuth(s.handleSetFreq))
+
+	// Custom sounds — must be registered before the catch-all below.
+	mux.HandleFunc("/api/sounds", s.requireAuth(s.handleSoundsAPI))
+	mux.HandleFunc("/api/sounds/", s.requireAuth(s.handleSoundsAPI))
+	mux.HandleFunc("/sounds/", s.requireAuth(s.handleSoundFile))
 
 	// WebSocket — auth-checked inside (browser uses cookie, helper uses token).
 	mux.HandleFunc("/ws", s.handleWS)
@@ -2274,4 +2288,127 @@ func (s *Server) handleDownloadsFile(w http.ResponseWriter, r *http.Request) {
 	fpath := filepath.Join(s.downloadsDir, filepath.Base(name))
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	http.ServeFile(w, r, fpath)
+}
+
+// soundNameSafe returns name with any characters outside [a-zA-Z0-9_\-.] replaced by '_'.
+func soundNameSafe(name string) string {
+	name = filepath.Base(name)
+	var b strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
+}
+
+var allowedSoundExts = map[string]bool{
+	".mp3": true, ".wav": true, ".ogg": true,
+	".aac": true, ".flac": true, ".m4a": true,
+}
+
+func (s *Server) handleSoundsAPI(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		var files []string
+		if s.soundsDir != "" {
+			entries, _ := os.ReadDir(s.soundsDir)
+			for _, e := range entries {
+				if !e.IsDir() {
+					files = append(files, e.Name())
+				}
+			}
+		}
+		if files == nil {
+			files = []string{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"files": files})
+
+	case http.MethodPost:
+		sess := sessionFor(s, r)
+		if !HasPermission(sess.Permissions, PermSettingsWrite) {
+			writeError(w, http.StatusForbidden, "missing permission: "+PermSettingsWrite)
+			return
+		}
+		if s.soundsDir == "" {
+			writeError(w, http.StatusInternalServerError, "sounds directory not configured")
+			return
+		}
+		if err := r.ParseMultipartForm(2 << 20); err != nil {
+			writeError(w, http.StatusBadRequest, "file too large (max 2 MB)")
+			return
+		}
+		f, hdr, err := r.FormFile("sound")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "missing file field 'sound'")
+			return
+		}
+		defer f.Close()
+		safe := soundNameSafe(hdr.Filename)
+		ext := strings.ToLower(filepath.Ext(safe))
+		if !allowedSoundExts[ext] {
+			writeError(w, http.StatusBadRequest, "unsupported type; allowed: mp3, wav, ogg, aac, flac, m4a")
+			return
+		}
+		if len(safe) > 64 {
+			safe = safe[:64-len(ext)] + ext
+		}
+		dest := filepath.Join(s.soundsDir, safe)
+		out, err := os.Create(dest)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "could not create file")
+			return
+		}
+		defer out.Close()
+		if _, err := io.Copy(out, f); err != nil {
+			writeError(w, http.StatusInternalServerError, "could not write file")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"filename": safe})
+
+	case http.MethodDelete:
+		sess := sessionFor(s, r)
+		if !HasPermission(sess.Permissions, PermSettingsWrite) {
+			writeError(w, http.StatusForbidden, "missing permission: "+PermSettingsWrite)
+			return
+		}
+		if s.soundsDir == "" {
+			writeError(w, http.StatusInternalServerError, "sounds directory not configured")
+			return
+		}
+		name := filepath.Base(strings.TrimPrefix(r.URL.Path, "/api/sounds/"))
+		if name == "" || name == "." {
+			writeError(w, http.StatusBadRequest, "invalid filename")
+			return
+		}
+		dest := filepath.Join(s.soundsDir, name)
+		if err := os.Remove(dest); err != nil {
+			if os.IsNotExist(err) {
+				writeError(w, http.StatusNotFound, "file not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *Server) handleSoundFile(w http.ResponseWriter, r *http.Request) {
+	if s.soundsDir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	name := filepath.Base(strings.TrimPrefix(r.URL.Path, "/sounds/"))
+	if name == "" || name == "." {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, filepath.Join(s.soundsDir, name))
 }

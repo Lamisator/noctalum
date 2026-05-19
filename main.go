@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -33,6 +34,8 @@ func main() {
 	if *downloadsDir != "" {
 		srv.SetDownloadsDir(*downloadsDir)
 	}
+	// Derive sounds directory from db location so no extra flag is needed.
+	srv.SetSoundsDir(filepath.Join(filepath.Dir(*dbPath), "sounds"))
 
 	httpSrv := &http.Server{
 		Addr:              *addr,
