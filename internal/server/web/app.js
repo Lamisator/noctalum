@@ -515,6 +515,7 @@
   async function showGlobalSettings() {
     show('global-settings-screen');
     $('global-settings-error').textContent = '';
+    let currentSound = '';
     try {
       const res = await api('/api/settings');
       if (res.ok) {
@@ -522,11 +523,75 @@
         $('gs-cluster-server').value = s.cluster_server || '';
         $('gs-cluster-call').value = s.cluster_call || '';
         $('gs-cluster-retention').value = s.cluster_retention_days || 7;
-        $('gs-chat-sound').value = s.chat_sound || '';
+        currentSound = s.chat_sound || '';
       }
     } catch {}
     loadGlobalClusterLog();
     loadDummyRigs();
+    loadCustomSounds(currentSound);
+  }
+
+  async function loadCustomSounds(currentVal) {
+    try {
+      const res = await api('/api/sounds');
+      if (!res.ok) return;
+      const data = await res.json();
+      populateSoundDropdown(data.files || [], currentVal);
+      renderCustomSoundsList(data.files || []);
+    } catch {}
+  }
+
+  function populateSoundDropdown(customFiles, currentVal) {
+    const sel = $('gs-chat-sound');
+    if (!sel) return;
+    // Remove existing custom options (anything with value starting 'custom:' or the separator)
+    Array.from(sel.options).filter(o => o.value.startsWith('custom:') || o.dataset.customSep).forEach(o => o.remove());
+    if (customFiles.length > 0) {
+      const sep = document.createElement('option');
+      sep.disabled = true;
+      sep.textContent = '── Custom ──';
+      sep.dataset.customSep = '1';
+      sel.appendChild(sep);
+      for (const f of customFiles) {
+        const o = document.createElement('option');
+        o.value = 'custom:' + f;
+        o.textContent = f;
+        sel.appendChild(o);
+      }
+    }
+    sel.value = currentVal;
+  }
+
+  function renderCustomSoundsList(files) {
+    const container = $('gs-custom-sounds-list');
+    if (!container) return;
+    if (!files.length) { container.innerHTML = ''; return; }
+    let html = '<p class="muted small" style="margin-bottom:4px">Uploaded sounds:</p>';
+    container.innerHTML = html;
+    for (const f of files) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:3px 0';
+      const name = document.createElement('span');
+      name.className = 'muted small';
+      name.style.flex = '1';
+      name.textContent = f;
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'ghost';
+      del.style.cssText = 'width:auto;margin:0;padding:2px 8px;font-size:11px';
+      del.textContent = 'Delete';
+      del.addEventListener('click', async () => {
+        const res = await api('/api/sounds/' + encodeURIComponent(f), { method: 'DELETE' });
+        if (res.ok) {
+          const sel = $('gs-chat-sound');
+          if (sel && sel.value === 'custom:' + f) sel.value = '';
+          await loadCustomSounds($('gs-chat-sound')?.value || '');
+        }
+      });
+      row.appendChild(name);
+      row.appendChild(del);
+      container.appendChild(row);
+    }
   }
 
   async function loadGlobalClusterLog() {
@@ -563,6 +628,33 @@
   $('gs-chat-sound-preview').addEventListener('click', () => {
     const type = $('gs-chat-sound').value;
     if (type) playChatSound(type);
+  });
+
+  $('gs-sound-upload-btn').addEventListener('click', async () => {
+    const fileInput = $('gs-sound-file');
+    const errEl = $('gs-sound-upload-error');
+    errEl.textContent = '';
+    if (!fileInput.files.length) { errEl.textContent = 'Select a file first.'; return; }
+    const file = fileInput.files[0];
+    if (file.size > 2 * 1024 * 1024) { errEl.textContent = 'File too large (max 2 MB).'; return; }
+    const form = new FormData();
+    form.append('sound', file);
+    try {
+      const res = await fetch('/api/sounds', {
+        method: 'POST',
+        headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {},
+        credentials: 'same-origin',
+        body: form,
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        errEl.textContent = j.error || 'Upload failed';
+        return;
+      }
+      fileInput.value = '';
+      const currentVal = $('gs-chat-sound')?.value || '';
+      await loadCustomSounds(currentVal);
+    } catch { errEl.textContent = 'Upload failed'; }
   });
 
   // ----- contest selection screen -----
@@ -1119,6 +1211,12 @@
   }
   function playChatSound(type) {
     if (!type || type === 'none') return;
+    if (type.startsWith('custom:')) {
+      const audio = new Audio('/sounds/' + encodeURIComponent(type.slice(7)));
+      audio.volume = 0.7;
+      audio.play().catch(() => {});
+      return;
+    }
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = ctx.createOscillator();
