@@ -115,7 +115,10 @@
       </div>
       <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
         <button id="global-settings-btn" class="ghost perm-required" data-perm="settings.write" style="font-size:12px">&#9881; Global Settings</button>
-        <button id="contest-logout-btn" class="ghost" style="font-size:12px">Sign out</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="chat-sound-toggle-btn" class="ghost" style="font-size:12px" title="Toggle chat sound notifications"></button>
+          <button id="contest-logout-btn" class="ghost" style="font-size:12px">Sign out</button>
+        </div>
       </div>
     </div>
     <div class="contest-screen-side">
@@ -148,6 +151,20 @@
         <label style="margin-top:10px">Spot retention (days)
           <input id="gs-cluster-retention" type="number" min="1" max="365" style="max-width:80px" placeholder="7" />
         </label>
+      </fieldset>
+      <fieldset style="margin-top:16px">
+        <legend>Chat</legend>
+        <label>New message sound
+          <select id="gs-chat-sound" style="max-width:160px">
+            <option value="">None (silent)</option>
+            <option value="beep">Beep</option>
+            <option value="ding">Ding</option>
+            <option value="chime">Chime</option>
+          </select>
+        </label>
+        <div style="margin-top:8px">
+          <button type="button" id="gs-chat-sound-preview" class="ghost" style="font-size:12px">&#9654; Preview</button>
+        </div>
       </fieldset>
       <div class="entry-actions" style="margin-top:16px">
         <span id="global-settings-error" class="error"></span>
@@ -451,6 +468,14 @@
             </label>
             <label>Default band
               <select id="s-band"></select>
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Notifications</legend>
+            <label class="row" style="align-items:center;gap:8px;cursor:pointer">
+              <input id="s-chat-mute" type="checkbox" />
+              Mute chat sounds on this device
             </label>
           </fieldset>
 
