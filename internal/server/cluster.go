@@ -265,64 +265,89 @@ func modeFromFreqKHz(s string) string {
 		return ""
 	}
 
-	// Well-known FT8 calling frequencies (±1.5 kHz), WSJT-X defaults.
-	for _, ff := range []float64{1840, 3573, 5357, 7074, 10136, 14074, 18100, 21074, 24915, 28074, 50313, 70154, 144174, 432174} {
-		if f >= ff-1.5 && f <= ff+1.5 {
+	// Well-known FT8 calling frequencies (WSJT-X defaults, ±2 kHz tolerance).
+	for _, ff := range []float64{
+		1840,   // 160 m
+		3573,   // 80 m
+		5357,   // 60 m
+		7074,   // 40 m
+		10136,  // 30 m
+		14074,  // 20 m
+		18100,  // 17 m
+		21074,  // 15 m
+		24915,  // 12 m
+		28074,  // 10 m
+		50313,  // 6 m
+		70154,  // 4 m
+		144174, // 2 m
+		432174, // 70 cm
+	} {
+		if f >= ff-2 && f <= ff+2 {
 			return "FT8"
 		}
 	}
-	// Well-known FT4 calling frequencies (±1.5 kHz).
-	for _, ff := range []float64{3575, 7047.5, 10140, 14080, 18104, 21091, 24919, 28091, 50323} {
-		if f >= ff-1.5 && f <= ff+1.5 {
+	// Well-known FT4 calling frequencies (±2 kHz tolerance).
+	for _, ff := range []float64{
+		3575,   // 80 m
+		7047.5, // 40 m
+		10140,  // 30 m
+		14080,  // 20 m
+		18104,  // 17 m
+		21091,  // 15 m
+		24919,  // 12 m
+		28091,  // 10 m
+		50323,  // 6 m
+	} {
+		if f >= ff-2 && f <= ff+2 {
 			return "FT4"
 		}
 	}
 
-	// Band-segment inference (IARU Region 1 band plan).
+	// Band-segment fallback (IARU Region 1 band plan, 2016 edition).
 	switch {
-	// 160 m
+	// 160 m: CW 1800-1838, DIGI 1838-1843, SSB 1843-2000
 	case f >= 1800 && f < 1838:
 		return "CW"
-	case f >= 1838 && f < 1840:
-		return "DIGI" // narrow digi segment before FT8
-	case f >= 1840 && f < 2000:
+	case f >= 1838 && f < 1843:
+		return "DIGI"
+	case f >= 1843 && f < 2000:
 		return "SSB"
 
-	// 80 m
-	case f >= 3500 && f < 3580:
+	// 80 m: CW 3500-3570, DIGI 3570-3600 (FT8@3573, FT4@3575), SSB 3600+
+	case f >= 3500 && f < 3570:
 		return "CW"
-	case f >= 3580 && f < 3600:
+	case f >= 3570 && f < 3600:
 		return "DIGI"
 	case f >= 3600 && f < 4000:
 		return "SSB"
 
-	// 60 m (mixed / channelised)
+	// 60 m: WRC-15 secondary allocation, mixed
 	case f >= 5351 && f <= 5367:
 		return "SSB"
 
-	// 40 m
+	// 40 m: CW 7000-7040, DIGI 7040-7100 (FT8@7074 lives here), SSB 7100+
 	case f >= 7000 && f < 7040:
 		return "CW"
-	case f >= 7040 && f < 7060:
+	case f >= 7040 && f < 7100:
 		return "DIGI"
-	case f >= 7060 && f < 7300:
+	case f >= 7100 && f < 7300:
 		return "SSB"
 
-	// 30 m (no phone)
+	// 30 m: CW 10100-10130, DIGI 10130-10150 (FT8@10136, FT4@10140); no phone
 	case f >= 10100 && f < 10130:
 		return "CW"
 	case f >= 10130 && f <= 10150:
 		return "DIGI"
 
-	// 20 m
+	// 20 m: CW 14000-14070, DIGI 14070-14101 (FT8@14074, FT4@14080), SSB 14101+
 	case f >= 14000 && f < 14070:
 		return "CW"
-	case f >= 14070 && f < 14100:
+	case f >= 14070 && f < 14101:
 		return "DIGI"
-	case f >= 14100 && f < 14350:
+	case f >= 14101 && f < 14350:
 		return "SSB"
 
-	// 17 m
+	// 17 m: CW 18068-18095, DIGI 18095-18110 (FT8@18100, FT4@18104), SSB 18110+
 	case f >= 18068 && f < 18095:
 		return "CW"
 	case f >= 18095 && f < 18110:
@@ -330,60 +355,70 @@ func modeFromFreqKHz(s string) string {
 	case f >= 18110 && f <= 18168:
 		return "SSB"
 
-	// 15 m
+	// 15 m: CW 21000-21070, DIGI 21070-21110 (FT8@21074, FT4@21091), SSB 21110+
 	case f >= 21000 && f < 21070:
 		return "CW"
-	case f >= 21070 && f < 21150:
+	case f >= 21070 && f < 21110:
 		return "DIGI"
-	case f >= 21150 && f < 21450:
+	case f >= 21110 && f < 21450:
 		return "SSB"
 
-	// 12 m
-	case f >= 24890 && f < 24915:
+	// 12 m: CW 24890-24920, DIGI 24920-24930 (FT8@24915, FT4@24919), SSB 24930+
+	case f >= 24890 && f < 24920:
 		return "CW"
-	case f >= 24915 && f < 24930:
+	case f >= 24920 && f < 24930:
 		return "DIGI"
 	case f >= 24930 && f <= 24990:
 		return "SSB"
 
-	// 10 m
+	// 10 m: CW 28000-28070, DIGI 28070-28190 (FT8@28074, FT4@28091), SSB 28190-29000, FM 29000+
 	case f >= 28000 && f < 28070:
 		return "CW"
-	case f >= 28070 && f < 28150:
+	case f >= 28070 && f < 28190:
 		return "DIGI"
-	case f >= 28150 && f < 29700:
+	case f >= 28190 && f < 29000:
 		return "SSB"
-
-	// 6 m
-	case f >= 50000 && f < 50100:
-		return "CW"
-	case f >= 50100 && f < 50400:
-		return "SSB"
-	case f >= 50400 && f < 54000:
+	case f >= 29000 && f < 29700:
 		return "FM"
 
-	// 4 m
+	// 6 m: CW 50000-50100, DIGI 50100-50500 (FT8@50313, FT4@50323), SSB 50500-52000, FM 52000+
+	case f >= 50000 && f < 50100:
+		return "CW"
+	case f >= 50100 && f < 50500:
+		return "DIGI"
+	case f >= 50500 && f < 52000:
+		return "SSB"
+	case f >= 52000 && f < 54000:
+		return "FM"
+
+	// 4 m: CW 70000-70100, DIGI 70100-70200 (FT8@70154), SSB 70200-70500, FM 70500+
 	case f >= 70000 && f < 70100:
 		return "CW"
 	case f >= 70100 && f < 70200:
+		return "DIGI"
+	case f >= 70200 && f < 70500:
 		return "SSB"
-	case f >= 70200 && f < 74000:
+	case f >= 70500 && f < 74000:
 		return "FM"
 
-	// 2 m
+	// 2 m: CW 144000-144150, DIGI 144150-144400 (FT8@144174), SSB 144400-145000, FM 145000+
 	case f >= 144000 && f < 144150:
 		return "CW"
 	case f >= 144150 && f < 144400:
+		return "DIGI"
+	case f >= 144400 && f < 145000:
 		return "SSB"
-	case f >= 144400 && f < 148000:
+	case f >= 145000 && f < 148000:
 		return "FM"
 
-	// 70 cm
+	// 70 cm: CW 430000-432100, DIGI 432100-432500 (FT8@432174), SSB 432500-433000, FM 433000+
 	case f >= 430000 && f < 432100:
 		return "CW"
-	case f >= 432100 && f < 432400:
+	case f >= 432100 && f < 432500:
+		return "DIGI"
+	case f >= 432500 && f < 433000:
 		return "SSB"
-	case f >= 432400 && f < 440000:
+	case f >= 433000 && f < 440000:
 		return "FM"
 	}
 	return ""
