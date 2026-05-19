@@ -952,6 +952,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		out := map[string]any{
 			"default_mode": s.settings.DefaultMode,
 			"default_band": s.settings.DefaultBand,
+			"chat_sound":   s.settings.ChatSound,
 		}
 		if HasPermission(sess.Permissions, PermSettingsWrite) {
 			out["helper_token"] = s.settings.HelperToken
@@ -976,6 +977,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			ClusterCall          string `json:"cluster_call"`
 			ClusterServer        string `json:"cluster_server"`
 			ClusterRetentionDays int    `json:"cluster_retention_days"`
+			ChatSound            string `json:"chat_sound"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -994,6 +996,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			ClusterCall:          s.settings.ClusterCall,
 			ClusterServer:        s.settings.ClusterServer,
 			ClusterRetentionDays: retDays,
+			ChatSound:            in.ChatSound,
 		}
 		if in.ClusterCall != "" {
 			ns.ClusterCall = strings.ToUpper(strings.TrimSpace(in.ClusterCall))
