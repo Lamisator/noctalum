@@ -848,6 +848,8 @@
       me.contest_bands = (j.contest_bands || []).join(',');
       me.contest_objective = j.contest_objective || '';
       me.contest_station_id = j.contest_station_id || '';
+      me.contest_qso_layout = j.contest_qso_layout || '';
+      me.contest_fields = j.contest_fields || '';
     }
     await enterApp();
   }
