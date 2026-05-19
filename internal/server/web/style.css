@@ -836,7 +836,7 @@ code {
   color: var(--text-muted);
   border-color: var(--border);
 }
-.contest-edit-pill {
+button.contest-edit-pill {
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
@@ -850,12 +850,12 @@ code {
   transition: opacity .15s, border-color .15s, color .15s;
   margin: 0;
   width: auto;
-  margin-top: 0;
+  font-weight: normal;
 }
 .contest-picker-item:hover .contest-edit-pill {
   opacity: 1;
 }
-.contest-edit-pill:hover {
+button.contest-edit-pill:hover {
   border-color: var(--accent) !important;
   color: var(--accent) !important;
   background: var(--accent-dim) !important;
