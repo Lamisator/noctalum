@@ -992,6 +992,12 @@
     renderBandPills();
     renderObjective();
     renderCustomFields();
+    // Snap q-band to a valid contest band when the global default isn't available here.
+    const cBands = contestBands();
+    if (cBands.length) {
+      const bandSel = $('q-band');
+      if (bandSel && !cBands.includes(bandSel.value)) bandSel.value = cBands[0];
+    }
     // Initialize Leaflet after the container is visible and laid out
     requestAnimationFrame(() => {
       initLeafletMap();
