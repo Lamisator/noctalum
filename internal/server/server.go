@@ -1969,9 +1969,31 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 
 // ----- exports -----
 
+// exportFilename builds "Contest Name - CALL.ext", replacing characters
+// that are invalid in filenames across common operating systems.
+func exportFilename(contestName, contestCall, ext string) string {
+	clean := func(s string) string {
+		var b strings.Builder
+		for _, r := range strings.TrimSpace(s) {
+			switch r {
+			case '"', '\\', '/', ':', '*', '?', '<', '>', '|':
+				b.WriteRune('_')
+			default:
+				b.WriteRune(r)
+			}
+		}
+		return b.String()
+	}
+	n, c := clean(contestName), clean(contestCall)
+	if c != "" {
+		return n + " - " + c + "." + ext
+	}
+	return n + "." + ext
+}
+
 func (s *Server) handleExportADIF(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFor(s, r)
-	contestID, _, _, contestName := sess.ContestInfo()
+	contestID, _, contestCall, contestName := sess.ContestInfo()
 	if contestID == 0 {
 		writeError(w, http.StatusBadRequest, "no contest selected")
 		return
@@ -1983,7 +2005,7 @@ func (s *Server) handleExportADIF(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: ADIF")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="noctalum.adi"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "adi")+`"`)
 	if err := ExportADIF(w, qsos, programID, programVersion); err != nil {
 		log.Printf("ADIF export error: %v", err)
 	}
@@ -2003,7 +2025,7 @@ func (s *Server) handleExportCabrillo(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: Cabrillo")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="noctalum.cbr"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "cbr")+`"`)
 	if err := ExportCabrillo(w, qsos, contestName, contestCall); err != nil {
 		log.Printf("Cabrillo export error: %v", err)
 	}
@@ -2011,7 +2033,7 @@ func (s *Server) handleExportCabrillo(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFor(s, r)
-	contestID, _, _, contestName := sess.ContestInfo()
+	contestID, _, contestCall, contestName := sess.ContestInfo()
 	if contestID == 0 {
 		writeError(w, http.StatusBadRequest, "no contest selected")
 		return
@@ -2023,7 +2045,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: CSV")
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="noctalum.csv"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "csv")+`"`)
 	if err := ExportCSV(w, qsos); err != nil {
 		log.Printf("CSV export error: %v", err)
 	}
@@ -2043,7 +2065,7 @@ func (s *Server) handleExportEDI(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: EDI")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="noctalum.edi"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "edi")+`"`)
 	if err := ExportEDI(w, qsos, contestName, contestCall, sess.ContestQTH()); err != nil {
 		log.Printf("EDI export error: %v", err)
 	}
