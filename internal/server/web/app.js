@@ -522,6 +522,7 @@
         $('gs-cluster-server').value = s.cluster_server || '';
         $('gs-cluster-call').value = s.cluster_call || '';
         $('gs-cluster-retention').value = s.cluster_retention_days || 7;
+        $('gs-chat-sound').value = s.chat_sound || '';
       }
     } catch {}
     loadGlobalClusterLog();
@@ -547,6 +548,7 @@
       cluster_server: $('gs-cluster-server').value.trim(),
       cluster_call: $('gs-cluster-call').value.trim().toUpperCase(),
       cluster_retention_days: parseInt($('gs-cluster-retention').value) || 7,
+      chat_sound: $('gs-chat-sound').value,
     };
     const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
     if (!res.ok) {
@@ -555,6 +557,12 @@
       return;
     }
     loadGlobalClusterLog();
+    if (settings) settings.chat_sound = body.chat_sound;
+  });
+
+  $('gs-chat-sound-preview').addEventListener('click', () => {
+    const type = $('gs-chat-sound').value;
+    if (type) playChatSound(type);
   });
 
   // ----- contest selection screen -----
@@ -626,6 +634,7 @@
     renderDownloads(downloads);
     renderGlobalOperators();
     show('contest-screen');
+    updateChatSoundToggleBtn();
   }
 
   function renderDownloads(files) {
@@ -1108,11 +1117,47 @@
     list.appendChild(li);
     list.scrollTop = list.scrollHeight;
   }
+  function playChatSound(type) {
+    if (!type || type === 'none') return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      if (type === 'beep') {
+        osc.frequency.value = 800;
+        gain.gain.setValueAtTime(0.25, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.15);
+      } else if (type === 'ding') {
+        osc.frequency.value = 1200;
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.45);
+      } else if (type === 'chime') {
+        osc.type = 'triangle';
+        osc.frequency.value = 1500;
+        gain.gain.setValueAtTime(0.25, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.7);
+      }
+      osc.onended = () => ctx.close();
+    } catch {}
+  }
   function onChatMessage(payload) {
     appendChatMessage(payload);
     const tab = document.querySelector('.ops-tab[data-ops-tab="chat"]');
     if (tab && !tab.classList.contains('active')) {
       tab.classList.add('chat-notify');
+    }
+    const soundType = settings?.chat_sound;
+    if (soundType && !isChatSoundMuted()) {
+      playChatSound(soundType);
     }
   }
   function sendChat() {
@@ -2010,6 +2055,22 @@
   });
 
   // ----- settings -----
+  function isChatSoundMuted() {
+    return localStorage.getItem('chatSoundMuted') === '1';
+  }
+  function setChatSoundMuted(muted) {
+    localStorage.setItem('chatSoundMuted', muted ? '1' : '0');
+    const cb = $('s-chat-mute');
+    if (cb) cb.checked = muted;
+    updateChatSoundToggleBtn();
+  }
+  function updateChatSoundToggleBtn() {
+    const btn = $('chat-sound-toggle-btn');
+    if (!btn) return;
+    const muted = isChatSoundMuted();
+    btn.textContent = muted ? '🔇 Chat sounds: Off' : '🔔 Chat sounds: On';
+  }
+
   async function loadSettings() {
     const res = await api('/api/settings');
     if (!res.ok) return;
@@ -2025,6 +2086,8 @@
         ? 'QRZ.com lookup is configured.'
         : 'QRZ.com lookup is not configured.';
     }
+    const cb = $('s-chat-mute');
+    if (cb) cb.checked = isChatSoundMuted();
     loadDummyRigs();
   }
   $('settings-form').addEventListener('submit', async (e) => {
@@ -2043,9 +2106,22 @@
       return;
     }
     if ($('s-qrz-pass')) $('s-qrz-pass').value = '';
+    const cb = $('s-chat-mute');
+    if (cb) setChatSoundMuted(cb.checked);
     await loadSettings();
     applyDefaults();
   });
+  {
+    const cb = $('s-chat-mute');
+    if (cb) cb.addEventListener('change', () => setChatSoundMuted(cb.checked));
+  }
+  {
+    const btn = $('chat-sound-toggle-btn');
+    if (btn) {
+      updateChatSoundToggleBtn();
+      btn.addEventListener('click', () => setChatSoundMuted(!isChatSoundMuted()));
+    }
+  }
   $('qrz-test-btn').addEventListener('click', async () => {
     const username = $('s-qrz-user').value.trim();
     const password = $('s-qrz-pass').value;
