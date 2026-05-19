@@ -1223,28 +1223,32 @@
       const gain = ctx.createGain();
       osc.connect(gain);
       gain.connect(ctx.destination);
-      osc.type = 'sine';
-      if (type === 'beep') {
-        osc.frequency.value = 800;
-        gain.gain.setValueAtTime(0.25, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + 0.15);
-      } else if (type === 'ding') {
-        osc.frequency.value = 1200;
-        gain.gain.setValueAtTime(0.3, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + 0.45);
-      } else if (type === 'chime') {
-        osc.type = 'triangle';
-        osc.frequency.value = 1500;
-        gain.gain.setValueAtTime(0.25, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + 0.7);
-      }
-      osc.onended = () => ctx.close();
+      // All scheduling must happen after resume() so ctx.currentTime is live.
+      ctx.resume().then(() => {
+        const t = ctx.currentTime;
+        osc.type = 'sine';
+        if (type === 'beep') {
+          osc.frequency.value = 800;
+          gain.gain.setValueAtTime(0.25, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+          osc.start(t);
+          osc.stop(t + 0.15);
+        } else if (type === 'ding') {
+          osc.frequency.value = 1200;
+          gain.gain.setValueAtTime(0.3, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+          osc.start(t);
+          osc.stop(t + 0.45);
+        } else if (type === 'chime') {
+          osc.type = 'triangle';
+          osc.frequency.value = 1500;
+          gain.gain.setValueAtTime(0.25, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+          osc.start(t);
+          osc.stop(t + 0.7);
+        }
+        osc.onended = () => ctx.close();
+      });
     } catch {}
   }
   function onChatMessage(payload) {
