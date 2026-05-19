@@ -232,6 +232,9 @@ func parseDXSpot(line string) (store.ClusterSpot, bool) {
 
 	band := freqKHzToBand(freq)
 	mode := modeFromComment(comment)
+	if mode == "" {
+		mode = modeFromFreqKHz(freq)
+	}
 
 	return store.ClusterSpot{
 		Time:    timeStr,
@@ -250,6 +253,138 @@ func modeFromComment(comment string) string {
 		if strings.Contains(upper, m) {
 			return m
 		}
+	}
+	return ""
+}
+
+// modeFromFreqKHz infers the most likely mode from a frequency string (kHz)
+// using IARU Region 1 band plans and WSJT-X default calling frequencies.
+func modeFromFreqKHz(s string) string {
+	var f float64
+	if _, err := fmt.Sscanf(s, "%f", &f); err != nil {
+		return ""
+	}
+
+	// Well-known FT8 calling frequencies (±1.5 kHz), WSJT-X defaults.
+	for _, ff := range []float64{1840, 3573, 5357, 7074, 10136, 14074, 18100, 21074, 24915, 28074, 50313, 70154, 144174, 432174} {
+		if f >= ff-1.5 && f <= ff+1.5 {
+			return "FT8"
+		}
+	}
+	// Well-known FT4 calling frequencies (±1.5 kHz).
+	for _, ff := range []float64{3575, 7047.5, 10140, 14080, 18104, 21091, 24919, 28091, 50323} {
+		if f >= ff-1.5 && f <= ff+1.5 {
+			return "FT4"
+		}
+	}
+
+	// Band-segment inference (IARU Region 1 band plan).
+	switch {
+	// 160 m
+	case f >= 1800 && f < 1838:
+		return "CW"
+	case f >= 1838 && f < 1840:
+		return "DIGI" // narrow digi segment before FT8
+	case f >= 1840 && f < 2000:
+		return "SSB"
+
+	// 80 m
+	case f >= 3500 && f < 3580:
+		return "CW"
+	case f >= 3580 && f < 3600:
+		return "DIGI"
+	case f >= 3600 && f < 4000:
+		return "SSB"
+
+	// 60 m (mixed / channelised)
+	case f >= 5351 && f <= 5367:
+		return "SSB"
+
+	// 40 m
+	case f >= 7000 && f < 7040:
+		return "CW"
+	case f >= 7040 && f < 7060:
+		return "DIGI"
+	case f >= 7060 && f < 7300:
+		return "SSB"
+
+	// 30 m (no phone)
+	case f >= 10100 && f < 10130:
+		return "CW"
+	case f >= 10130 && f <= 10150:
+		return "DIGI"
+
+	// 20 m
+	case f >= 14000 && f < 14070:
+		return "CW"
+	case f >= 14070 && f < 14100:
+		return "DIGI"
+	case f >= 14100 && f < 14350:
+		return "SSB"
+
+	// 17 m
+	case f >= 18068 && f < 18095:
+		return "CW"
+	case f >= 18095 && f < 18110:
+		return "DIGI"
+	case f >= 18110 && f <= 18168:
+		return "SSB"
+
+	// 15 m
+	case f >= 21000 && f < 21070:
+		return "CW"
+	case f >= 21070 && f < 21150:
+		return "DIGI"
+	case f >= 21150 && f < 21450:
+		return "SSB"
+
+	// 12 m
+	case f >= 24890 && f < 24915:
+		return "CW"
+	case f >= 24915 && f < 24930:
+		return "DIGI"
+	case f >= 24930 && f <= 24990:
+		return "SSB"
+
+	// 10 m
+	case f >= 28000 && f < 28070:
+		return "CW"
+	case f >= 28070 && f < 28150:
+		return "DIGI"
+	case f >= 28150 && f < 29700:
+		return "SSB"
+
+	// 6 m
+	case f >= 50000 && f < 50100:
+		return "CW"
+	case f >= 50100 && f < 50400:
+		return "SSB"
+	case f >= 50400 && f < 54000:
+		return "FM"
+
+	// 4 m
+	case f >= 70000 && f < 70100:
+		return "CW"
+	case f >= 70100 && f < 70200:
+		return "SSB"
+	case f >= 70200 && f < 74000:
+		return "FM"
+
+	// 2 m
+	case f >= 144000 && f < 144150:
+		return "CW"
+	case f >= 144150 && f < 144400:
+		return "SSB"
+	case f >= 144400 && f < 148000:
+		return "FM"
+
+	// 70 cm
+	case f >= 430000 && f < 432100:
+		return "CW"
+	case f >= 432100 && f < 432400:
+		return "SSB"
+	case f >= 432400 && f < 440000:
+		return "FM"
 	}
 	return ""
 }
