@@ -2243,10 +2243,11 @@ func (s *Server) handleWSBrowser(w http.ResponseWriter, r *http.Request) {
 		if msgs, err := s.store.RecentChatMessages(contestID); err == nil {
 			for _, m := range msgs {
 				p := map[string]any{
-					"from": m.From,
-					"user": m.User,
-					"text": m.Text,
-					"time": m.Time.Format(time.RFC3339),
+					"from":    m.From,
+					"user":    m.User,
+					"text":    m.Text,
+					"time":    m.Time.Format(time.RFC3339),
+					"history": true,
 				}
 				if data, err := json.Marshal(Event{Type: "chat", Payload: p}); err == nil {
 					select {
