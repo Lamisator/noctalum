@@ -161,6 +161,7 @@ func (s *Server) handlePasskeyRegisterFinish(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	s.audit(r, store.AuditInfo, AuditPasskeyRegister, sess.Username, name, "")
 	clearPasskeySessionCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "name": name})
 }
@@ -305,6 +306,7 @@ func (s *Server) handlePasskeyCredentials(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.audit(r, store.AuditWarn, AuditPasskeyDelete, sess.Username, credID, "")
 		s.sessions.DeleteAllForUser(sess.UserID)
 		ClearSessionCookie(w)
 		w.WriteHeader(http.StatusNoContent)

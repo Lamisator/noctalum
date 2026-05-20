@@ -36,11 +36,23 @@ const (
 	AuditContestDelete       = "contest.delete"
 	AuditContestGrantAccess  = "contest.grant_access"
 	AuditContestRevokeAccess = "contest.revoke_access"
-	AuditRigRelease         = "rig.release"
-	AuditRigDummyCreate     = "rig.dummy_create"
-	AuditRigDummyDelete     = "rig.dummy_delete"
-	AuditExport             = "export"
-	AuditAccessDenied       = "access.denied"
+	AuditRigRelease          = "rig.release"
+	AuditRigSelect           = "rig.select"
+	AuditRigDummyCreate      = "rig.dummy_create"
+	AuditRigDummyDelete      = "rig.dummy_delete"
+	AuditQSOCreate           = "qso.create"
+	AuditQSOUpdate           = "qso.update"
+	AuditQSODelete           = "qso.delete"
+	AuditContestSelect       = "contest.select"
+	AuditPasskeyRegister     = "passkey.register"
+	AuditPasskeyDelete       = "passkey.delete"
+	AuditSoundUpload         = "sound.upload"
+	AuditSoundDelete         = "sound.delete"
+	AuditFeatureRequestCreate = "feature_request.create"
+	AuditFeatureRequestUpdate = "feature_request.update"
+	AuditFeatureRequestDelete = "feature_request.delete"
+	AuditExport              = "export"
+	AuditAccessDenied        = "access.denied"
 )
 
 // AllAuditActions is used by the UI to populate the action filter dropdown.
@@ -51,8 +63,12 @@ var AllAuditActions = []string{
 	AuditUserUnlock, AuditUserPasswordReset, AuditUserPasswordChange, AuditUserHelperTokenRegen, AuditUserRolesChange,
 	AuditRoleCreate, AuditRoleDelete, AuditRolePermsChange,
 	AuditSettingsChange,
-	AuditContestCreate, AuditContestUpdate, AuditContestDelete, AuditContestGrantAccess, AuditContestRevokeAccess,
-	AuditRigRelease, AuditRigDummyCreate, AuditRigDummyDelete,
+	AuditContestCreate, AuditContestUpdate, AuditContestDelete, AuditContestGrantAccess, AuditContestRevokeAccess, AuditContestSelect,
+	AuditQSOCreate, AuditQSOUpdate, AuditQSODelete,
+	AuditRigRelease, AuditRigSelect, AuditRigDummyCreate, AuditRigDummyDelete,
+	AuditPasskeyRegister, AuditPasskeyDelete,
+	AuditSoundUpload, AuditSoundDelete,
+	AuditFeatureRequestCreate, AuditFeatureRequestUpdate, AuditFeatureRequestDelete,
 	AuditExport,
 	AuditAccessDenied,
 }

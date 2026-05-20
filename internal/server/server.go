@@ -697,6 +697,7 @@ func (s *Server) handleReserveNr(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFor(s, r)
 	if !HasPermission(sess.Permissions, PermQSOWrite) {
+		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermQSOWrite, "reserve nr")
 		writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
 		return
 	}
@@ -729,6 +730,7 @@ func (s *Server) handleReserveNr(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFor(s, r)
 	if !HasPermission(sess.Permissions, PermQSOWrite) {
+		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermQSOWrite, "create qso")
 		writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
 		return
 	}
@@ -835,6 +837,8 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ID = id
+	s.audit(r, store.AuditInfo, AuditQSOCreate, sess.Username, in.Callsign,
+		"contest: "+contestName+", band: "+in.Band+", mode: "+in.Mode)
 	s.hub.BroadcastToContest(contestID, Event{Type: "qso", Payload: in})
 	writeJSON(w, http.StatusCreated, in)
 }
@@ -842,6 +846,7 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFor(s, r)
 	if !HasPermission(sess.Permissions, PermQSOWrite) {
+		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermQSOWrite, r.Method+" qso")
 		writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
 		return
 	}
@@ -864,6 +869,7 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if existing.ContestID != contestID {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, strconv.FormatInt(id, 10), "qso belongs to different contest")
 			writeError(w, http.StatusForbidden, "QSO belongs to a different contest")
 			return
 		}
@@ -934,6 +940,8 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.audit(r, store.AuditInfo, AuditQSOUpdate, sess.Username, in.Callsign,
+			"id: "+strconv.FormatInt(id, 10)+", band: "+in.Band+", mode: "+in.Mode)
 		s.hub.BroadcastToContest(contestID, Event{Type: "qso_updated", Payload: in})
 		writeJSON(w, http.StatusOK, in)
 	case http.MethodDelete:
@@ -943,6 +951,7 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if existing.ContestID != contestID {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, strconv.FormatInt(id, 10), "qso belongs to different contest")
 			writeError(w, http.StatusForbidden, "QSO belongs to a different contest")
 			return
 		}
@@ -950,6 +959,8 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.audit(r, store.AuditInfo, AuditQSODelete, sess.Username, existing.Callsign,
+			"id: "+strconv.FormatInt(id, 10)+", band: "+existing.Band+", mode: "+existing.Mode)
 		s.hub.BroadcastToContest(contestID, Event{Type: "qso_deleted", Payload: map[string]int64{"id": id}})
 		w.WriteHeader(http.StatusNoContent)
 	default:
@@ -979,6 +990,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, out)
 	case http.MethodPut:
 		if !HasPermission(sess.Permissions, PermSettingsWrite) {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermSettingsWrite, "update settings")
 			writeError(w, http.StatusForbidden, "missing permission: "+PermSettingsWrite)
 			return
 		}
@@ -1201,6 +1213,7 @@ func (s *Server) handleSelectRig(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessionFor(s, r)
 	if !HasPermission(sess.Permissions, PermRigUse) {
+		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermRigUse, "select rig")
 		writeError(w, http.StatusForbidden, "missing permission: "+PermRigUse)
 		return
 	}
@@ -1219,6 +1232,9 @@ func (s *Server) handleSelectRig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sess.SetSelectedRig(desired)
+	if desired != "" {
+		s.audit(r, store.AuditInfo, AuditRigSelect, sess.Username, desired, "")
+	}
 	s.broadcastRigs()
 	s.broadcastOperators()
 	writeJSON(w, http.StatusOK, map[string]string{"selected_rig": sess.SelectedRig()})
@@ -1240,6 +1256,7 @@ func (s *Server) handleReleaseRig(w http.ResponseWriter, r *http.Request) {
 	target := strings.ToUpper(strings.TrimSpace(body.Callsign))
 	if target != "" && target != strings.ToUpper(sess.Callsign) {
 		if !HasPermission(sess.Permissions, PermRigRelease) {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermRigRelease, "force release rig for "+target)
 			writeError(w, http.StatusForbidden, "missing permission: "+PermRigRelease)
 			return
 		}
@@ -1700,11 +1717,13 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		canCreatePrivate := HasPermission(sess.Permissions, PermContestsCreatePrivate)
 		if in.Private {
 			if !canManage && !canCreatePrivate {
+				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsCreatePrivate, "create private contest")
 				writeError(w, http.StatusForbidden, "missing permission: "+PermContestsCreatePrivate)
 				return
 			}
 		} else {
 			if !canManage {
+				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "create contest")
 				writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
 				return
 			}
@@ -1771,12 +1790,14 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		if c.Private && c.OwnerUserID != sess.UserID {
 			ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
 			if err != nil || !ok {
+				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "private contest, no access")
 				writeError(w, http.StatusForbidden, "this contest is private")
 				return
 			}
 		}
 		bandsStr := strings.Join(c.Bands, ",")
 		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective, c.StationID, c.Private, c.OwnerUserID, c.CustomFields, c.QSOLayout)
+		s.audit(r, store.AuditInfo, AuditContestSelect, sess.Username, c.Name, "call: "+c.StationCall)
 		// Refresh operator panels: previous contest now lacks this user, new contest gains them.
 		s.broadcastOperators()
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -1810,6 +1831,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		isAdmin := HasPermission(sess.Permissions, PermContestAdmin)
 		isOwner := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
 		if !isAdmin && !isOwner {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "manage contest access: not owner or contest.admin")
 			writeError(w, http.StatusForbidden, "only the contest owner or contest.admin can manage access")
 			return
 		}
@@ -1870,6 +1892,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPut {
 		sess := sessionFor(s, r)
 		if !HasPermission(sess.Permissions, PermContestsManage) {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "update contest id: "+idStr)
 			writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
 			return
 		}
@@ -1952,6 +1975,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		isAdmin := HasPermission(sess.Permissions, PermContestAdmin)
 		isOwner := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
 		if !isAdmin && !isOwner {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "delete contest: not owner or contest.admin")
 			writeError(w, http.StatusForbidden, "only the contest owner or contest.admin can delete this contest")
 			return
 		}
@@ -2078,6 +2102,7 @@ func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		if !HasPermission(sess.Permissions, PermFeatureRequestsRead) {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermFeatureRequestsRead, "list feature requests")
 			writeError(w, http.StatusForbidden, "missing permission: "+PermFeatureRequestsRead)
 			return
 		}
@@ -2092,6 +2117,7 @@ func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, list)
 	case http.MethodPost:
 		if !HasPermission(sess.Permissions, PermFeatureRequestsWrite) {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermFeatureRequestsWrite, "create feature request")
 			writeError(w, http.StatusForbidden, "missing permission: "+PermFeatureRequestsWrite)
 			return
 		}
@@ -2111,6 +2137,7 @@ func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.audit(r, store.AuditInfo, AuditFeatureRequestCreate, sess.Username, "", strings.TrimSpace(in.Text))
 		writeJSON(w, http.StatusCreated, fr)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -2120,6 +2147,7 @@ func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFeatureRequestByID(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFor(s, r)
 	if !HasPermission(sess.Permissions, PermFeatureRequestsRead) {
+		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermFeatureRequestsRead, r.Method+" feature request")
 		writeError(w, http.StatusForbidden, "missing permission: "+PermFeatureRequestsRead)
 		return
 	}
@@ -2147,12 +2175,14 @@ func (s *Server) handleFeatureRequestByID(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.audit(r, store.AuditInfo, AuditFeatureRequestUpdate, sess.Username, idStr, "status: "+in.Status)
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:
 		if err := s.store.DeleteFeatureRequest(id); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.audit(r, store.AuditInfo, AuditFeatureRequestDelete, sess.Username, idStr, "")
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -2353,6 +2383,7 @@ func (s *Server) handleSoundsAPI(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		sess := sessionFor(s, r)
 		if !HasPermission(sess.Permissions, PermSettingsWrite) {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermSettingsWrite, "upload sound")
 			writeError(w, http.StatusForbidden, "missing permission: "+PermSettingsWrite)
 			return
 		}
@@ -2390,11 +2421,13 @@ func (s *Server) handleSoundsAPI(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "could not write file")
 			return
 		}
+		s.audit(r, store.AuditInfo, AuditSoundUpload, sess.Username, safe, "")
 		writeJSON(w, http.StatusOK, map[string]any{"filename": safe})
 
 	case http.MethodDelete:
 		sess := sessionFor(s, r)
 		if !HasPermission(sess.Permissions, PermSettingsWrite) {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermSettingsWrite, "delete sound")
 			writeError(w, http.StatusForbidden, "missing permission: "+PermSettingsWrite)
 			return
 		}
@@ -2416,6 +2449,7 @@ func (s *Server) handleSoundsAPI(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.audit(r, store.AuditInfo, AuditSoundDelete, sess.Username, name, "")
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 
 	default:
