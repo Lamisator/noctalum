@@ -276,6 +276,7 @@ func (s *Server) handlePasskeyLoginFinish(w http.ResponseWriter, r *http.Request
 		return
 	}
 	s.audit(r, store.AuditInfo, AuditLoginSuccess, u.Username, "", "passkey")
+	go s.store.TouchUserActivity(u.ID)
 	appSess := s.sessions.Create(u)
 	SetSessionCookie(w, appSess.ID)
 	clearPasskeySessionCookie(w)

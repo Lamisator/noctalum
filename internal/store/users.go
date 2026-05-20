@@ -15,17 +15,18 @@ import (
 
 // User is one account that can log in to the application.
 type User struct {
-	ID             int64      `json:"id"`
-	Username       string     `json:"username"`
-	Callsign       string     `json:"callsign"`
-	PasswordHash   string     `json:"-"`
-	HelperToken    string     `json:"-"` // per-user helper auth token, never sent to the browser in user lists
-	FailedAttempts int        `json:"failed_attempts"`
-	LockedUntil    *time.Time `json:"locked_until,omitempty"`
-	Disabled       bool       `json:"disabled"`
-	CreatedAt      time.Time  `json:"created_at"`
-	Roles          []string   `json:"roles"`
-	Permissions    []string   `json:"permissions"`
+	ID               int64      `json:"id"`
+	Username         string     `json:"username"`
+	Callsign         string     `json:"callsign"`
+	PasswordHash     string     `json:"-"`
+	HelperToken      string     `json:"-"` // per-user helper auth token, never sent to the browser in user lists
+	FailedAttempts   int        `json:"failed_attempts"`
+	LockedUntil      *time.Time `json:"locked_until,omitempty"`
+	Disabled         bool       `json:"disabled"`
+	CreatedAt        time.Time  `json:"created_at"`
+	LastActivityAt   *time.Time `json:"last_activity_at,omitempty"`
+	Roles            []string   `json:"roles"`
+	Permissions      []string   `json:"permissions"`
 }
 
 func generateHelperToken() string {
@@ -88,7 +89,11 @@ func (s *Store) migrateUsers() error {
 	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN helper_token TEXT NOT NULL DEFAULT ''`)
 	_, err := s.db.Exec(
 		`UPDATE users SET helper_token = lower(hex(randomblob(24))) WHERE helper_token = ''`)
-	return err
+	if err != nil {
+		return err
+	}
+	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN last_activity_at TEXT NOT NULL DEFAULT ''`)
+	return nil
 }
 
 // EnsureBuiltinRoles inserts the default "admin" and "user" roles if missing.
@@ -242,13 +247,13 @@ func (s *Store) GetUserByUsername(username string) (User, error) {
 func (s *Store) getUser(where string, arg interface{}) (User, error) {
 	row := s.db.QueryRow(
 		`SELECT id, username, callsign, password_hash, helper_token, failed_attempts,
-		        locked_until, disabled, created_at FROM users WHERE `+where, arg)
+		        locked_until, disabled, created_at, last_activity_at FROM users WHERE `+where, arg)
 	var u User
 	var lockStr sql.NullString
-	var createdStr string
+	var createdStr, lastActStr string
 	var disabledInt int
 	err := row.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash, &u.HelperToken,
-		&u.FailedAttempts, &lockStr, &disabledInt, &createdStr)
+		&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -261,6 +266,10 @@ func (s *Store) getUser(where string, arg interface{}) (User, error) {
 	}
 	u.Disabled = disabledInt != 0
 	u.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+	if lastActStr != "" {
+		t, _ := time.Parse(time.RFC3339, lastActStr)
+		u.LastActivityAt = &t
+	}
 
 	roles, perms, err := s.userRolesAndPermissions(u.ID)
 	if err != nil {
@@ -275,7 +284,7 @@ func (s *Store) getUser(where string, arg interface{}) (User, error) {
 func (s *Store) ListUsers() ([]User, error) {
 	rows, err := s.db.Query(
 		`SELECT id, username, callsign, password_hash, helper_token, failed_attempts,
-		        locked_until, disabled, created_at
+		        locked_until, disabled, created_at, last_activity_at
 		 FROM users ORDER BY username`)
 	if err != nil {
 		return nil, err
@@ -285,10 +294,10 @@ func (s *Store) ListUsers() ([]User, error) {
 	for rows.Next() {
 		var u User
 		var lockStr sql.NullString
-		var createdStr string
+		var createdStr, lastActStr string
 		var disabledInt int
 		if err := rows.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash, &u.HelperToken,
-			&u.FailedAttempts, &lockStr, &disabledInt, &createdStr); err != nil {
+			&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr); err != nil {
 			return nil, err
 		}
 		if lockStr.Valid && lockStr.String != "" {
@@ -297,6 +306,10 @@ func (s *Store) ListUsers() ([]User, error) {
 		}
 		u.Disabled = disabledInt != 0
 		u.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+		if lastActStr != "" {
+			t, _ := time.Parse(time.RFC3339, lastActStr)
+			u.LastActivityAt = &t
+		}
 		out = append(out, u)
 	}
 	if err := rows.Err(); err != nil {
@@ -515,6 +528,14 @@ func (s *Store) getRoleByID(id int64) (Role, error) {
 		}
 	}
 	return r, nil
+}
+
+// TouchUserActivity records the current UTC time as last_activity_at for the given user.
+func (s *Store) TouchUserActivity(userID int64) error {
+	_, err := s.db.Exec(
+		`UPDATE users SET last_activity_at = ? WHERE id = ?`,
+		time.Now().UTC().Format(time.RFC3339), userID)
+	return err
 }
 
 // GetUserByHelperToken looks up a user by their personal helper token.

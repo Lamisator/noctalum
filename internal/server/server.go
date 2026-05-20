@@ -516,6 +516,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	switch code {
 	case LoginOK:
 		s.audit(r, store.AuditInfo, AuditLoginSuccess, u.Username, "", "password")
+		go s.store.TouchUserActivity(u.ID)
 		sess := s.sessions.Create(u)
 		SetSessionCookie(w, sess.ID)
 		writeJSON(w, http.StatusOK, sessionInfo(sess))
@@ -2252,6 +2253,7 @@ func (s *Server) handleWSBrowser(w http.ResponseWriter, r *http.Request) {
 		send:    make(chan []byte, 64),
 	}
 	s.hub.add(c)
+	go s.store.TouchUserActivity(sess.UserID)
 	// Initial state push: operators list (scoped to this client's contest), full rig list.
 	contestID, _, _, _ := sess.ContestInfo()
 	if data, err := json.Marshal(Event{Type: "operators", Payload: s.hub.OperatorsForContest(contestID, s.rigBand)}); err == nil {

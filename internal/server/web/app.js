@@ -3175,11 +3175,13 @@
         status.push(`<span class="badge locked">locked (${Number(u.failed_attempts)} fails)</span>`);
       }
       if (!status.length) status.push('<span class="muted">active</span>');
+      const lastAct = u.last_activity_at ? fmtRelTime(u.last_activity_at) : '<span class="muted">never</span>';
       tr.innerHTML = `
         <td>${escHtml(u.username)}</td>
         <td>${escHtml(fmtCall(u.callsign))}</td>
         <td>${roles}</td>
         <td>${status.join(' ')}</td>
+        <td class="muted small">${lastAct}</td>
         <td class="actions">
           <button class="ghost" data-action="edit" data-id="${Number(u.id)}">Edit</button>
           <button class="ghost" data-action="password" data-id="${Number(u.id)}">Reset password</button>
