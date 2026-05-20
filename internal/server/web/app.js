@@ -3679,18 +3679,97 @@
   let auditSort = { col: 'timestamp', desc: true };
   let auditActions = [];
 
+  const AUDIT_TZ_KEY = 'auditTimezone';
+  function getAuditTZ() { return localStorage.getItem(AUDIT_TZ_KEY) || 'UTC'; }
+  function setAuditTZ(tz) { localStorage.setItem(AUDIT_TZ_KEY, tz); }
+
+  // Format a UTC ISO timestamp for display in the selected timezone.
+  function formatAuditTimestamp(isoStr) {
+    const tz = getAuditTZ();
+    const d = new Date(isoStr);
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      }).formatToParts(d);
+      const get = t => parts.find(p => p.type === t)?.value || '00';
+      return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
+    } catch {
+      return d.toISOString().substring(0, 19).replace('T', ' ');
+    }
+  }
+
+  // Compute tz offset in ms at a given UTC date: (UTC moment) - (same wall-clock read back as UTC).
+  function tzOffsetMs(tz, utcDate) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }).formatToParts(utcDate);
+    const get = t => parts.find(p => p.type === t)?.value || '00';
+    const apparent = new Date(`${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}Z`);
+    return utcDate.getTime() - apparent.getTime();
+  }
+
+  // Interpret a datetime-local string as a wall-clock time in the selected tz, return UTC ISO.
+  function auditLocalToUTC(str) {
+    if (!str) return null;
+    const tz = getAuditTZ();
+    const rough = new Date(str + ':00Z'); // treat input as UTC to get a Date object
+    if (tz === 'UTC') return rough.toISOString();
+    try {
+      const offset = tzOffsetMs(tz, rough);
+      return new Date(rough.getTime() + offset).toISOString();
+    } catch {
+      return rough.toISOString();
+    }
+  }
+
+  function updateAuditTZHeader() {
+    const tz = getAuditTZ();
+    const h = $('audit-ts-header');
+    if (h) h.textContent = tz === 'UTC' ? 'Time UTC' : `Time (${tz})`;
+  }
+
+  function initAuditTZSelect() {
+    const sel = $('audit-tz');
+    if (!sel) return;
+    const saved = getAuditTZ();
+    let zones = ['UTC'];
+    try { zones = ['UTC', ...Intl.supportedValuesOf('timeZone').filter(z => z !== 'UTC')]; } catch {}
+    for (const z of zones) {
+      const o = document.createElement('option');
+      o.value = z; o.textContent = z;
+      if (z === saved) o.selected = true;
+      sel.appendChild(o);
+    }
+    // If saved value wasn't in the list, add it at top
+    if (!zones.includes(saved)) {
+      const o = document.createElement('option');
+      o.value = saved; o.textContent = saved; o.selected = true;
+      sel.insertBefore(o, sel.firstChild);
+    }
+    sel.addEventListener('change', () => {
+      setAuditTZ(sel.value);
+      updateAuditTZHeader();
+      renderAuditLog();
+    });
+    updateAuditTZHeader();
+  }
+
+  initAuditTZSelect();
+
   function auditFilterParams(offset) {
     const params = new URLSearchParams();
     const level = $('audit-level').value;
     const action = $('audit-action').value;
     const search = $('audit-search').value.trim();
-    const since = $('audit-since').value;
-    const until = $('audit-until').value;
+    const sinceUTC = auditLocalToUTC($('audit-since').value);
+    const untilUTC = auditLocalToUTC($('audit-until').value);
     if (level) params.set('level', level);
     if (action) params.set('action', action);
     if (search) params.set('search', search);
-    if (since) params.set('since', new Date(since).toISOString());
-    if (until) params.set('until', new Date(until).toISOString());
+    if (sinceUTC) params.set('since', sinceUTC);
+    if (untilUTC) params.set('until', untilUTC);
     params.set('sort', auditSort.col);
     params.set('dir', auditSort.desc ? 'desc' : 'asc');
     params.set('limit', String(auditPageSize));
@@ -3726,10 +3805,8 @@
     tbody.innerHTML = '';
     for (const e of auditEntries) {
       const tr = document.createElement('tr');
-      const ts = new Date(e.timestamp);
-      const utc = ts.toISOString().substring(0, 19).replace('T', ' ');
       tr.innerHTML = `
-        <td class="mono">${escHtml(utc)}</td>
+        <td class="mono">${escHtml(formatAuditTimestamp(e.timestamp))}</td>
         <td><span class="audit-level audit-level-${escHtml(e.level)}">${escHtml(e.level)}</span></td>
         <td class="mono small">${escHtml(e.action)}</td>
         <td>${escHtml(e.actor)}</td>

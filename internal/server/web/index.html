@@ -681,6 +681,9 @@
         <label>Until
           <input id="audit-until" type="datetime-local" />
         </label>
+        <label>Timezone
+          <select id="audit-tz"></select>
+        </label>
         <button id="audit-apply" class="primary">Apply</button>
         <button id="audit-reset" class="ghost">Reset</button>
       </div>
@@ -691,7 +694,7 @@
         <table id="audit-table">
           <thead>
             <tr>
-              <th class="sortable" data-col="timestamp">Time UTC <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="timestamp"><span id="audit-ts-header">Time UTC</span> <span class="sort-arrow"></span></th>
               <th class="sortable" data-col="level">Level <span class="sort-arrow"></span></th>
               <th class="sortable" data-col="action">Action <span class="sort-arrow"></span></th>
               <th class="sortable" data-col="actor">Actor <span class="sort-arrow"></span></th>
