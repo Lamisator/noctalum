@@ -13,17 +13,18 @@
 <!-- Setup screen (first run) -->
 <div id="setup-screen" class="screen login-screen hidden">
   <div class="login-card wide">
+    <div class="lang-switcher-host" id="lang-switcher-setup"></div>
     <img src="/noctalum.png" alt="Noctalum" class="app-logo" />
-    <h1>Welcome to Noctalum</h1>
-    <p class="muted">Create the initial administrator account.</p>
+    <h1 data-i18n="setup.welcome">Welcome to Noctalum</h1>
+    <p class="muted" data-i18n="setup.intro">Create the initial administrator account.</p>
     <form id="setup-form" autocomplete="off">
-      <label>Username</label>
+      <label data-i18n="login.username">Username</label>
       <input id="setup-username" type="text" autocomplete="off" required />
-      <label>Password (min 8 chars)</label>
+      <label data-i18n="setup.passwordHint">Password (min 8 chars)</label>
       <input id="setup-password" type="password" minlength="8" autocomplete="new-password" required />
-      <label>Operator callsign</label>
+      <label data-i18n="setup.operatorCall">Operator callsign</label>
       <input id="setup-callsign" type="text" autocapitalize="characters" spellcheck="false" required />
-      <button type="submit">Create admin and sign in</button>
+      <button type="submit" data-i18n="setup.createAdmin">Create admin and sign in</button>
       <div id="setup-error" class="error"></div>
     </form>
   </div>
@@ -32,19 +33,20 @@
 <!-- Login screen -->
 <div id="login-screen" class="screen login-screen hidden">
   <div class="login-card">
+    <div class="lang-switcher-host" id="lang-switcher-login"></div>
     <img src="/noctalum.png" alt="Noctalum" class="app-logo" />
     <h1>Noctalum</h1>
-    <p class="muted">Sign in</p>
+    <p class="muted" data-i18n="login.signIn">Sign in</p>
     <form id="login-form" autocomplete="on">
-      <label>Username</label>
+      <label data-i18n="login.username">Username</label>
       <input id="login-username" type="text" autocomplete="username" required />
-      <label>Password</label>
+      <label data-i18n="login.password">Password</label>
       <input id="login-password" type="password" autocomplete="current-password" required />
-      <button type="submit">Sign in</button>
+      <button type="submit" data-i18n="login.signIn">Sign in</button>
       <div id="login-error" class="error"></div>
     </form>
-    <div id="passkey-divider" class="passkey-divider"><span>or</span></div>
-    <button id="passkey-login-btn" class="passkey-btn">&#128273; Sign in with passkey</button>
+    <div id="passkey-divider" class="passkey-divider"><span data-i18n="login.or">or</span></div>
+    <button id="passkey-login-btn" class="passkey-btn" data-i18n="login.signInWithPasskey">&#128273; Sign in with passkey</button>
     <div id="passkey-login-error" class="error"></div>
   </div>
 </div>
@@ -53,19 +55,22 @@
 <div id="contest-screen" class="screen login-screen hidden">
   <div class="contest-screen-layout">
     <div class="login-card wide">
-      <h1>Select Contest</h1>
-      <p class="muted">Choose a contest to participate in.</p>
+      <div class="contest-header-row">
+        <h1 data-i18n="contestScreen.title">Select Contest</h1>
+        <div class="lang-switcher-host" id="lang-switcher-contest"></div>
+      </div>
+      <p class="muted" data-i18n="contestScreen.intro">Choose a contest to participate in.</p>
       <div class="contest-toolbar">
         <div class="contest-filter-bar">
-          <button class="cpill" data-cf="">All</button>
-          <button class="cpill" data-cf="open">Active</button>
-          <button class="cpill" data-cf="finished">Closed</button>
+          <button class="cpill" data-cf="" data-i18n="contestScreen.all">All</button>
+          <button class="cpill" data-cf="open" data-i18n="contestScreen.active">Active</button>
+          <button class="cpill" data-cf="finished" data-i18n="contestScreen.closed">Closed</button>
           <span class="cpill-sep"></span>
-          <button class="cpill" id="cf-recent">Recent first</button>
+          <button class="cpill" id="cf-recent" data-i18n="contestScreen.recentFirst">Recent first</button>
         </div>
         <div class="contest-view-toggle">
-          <button class="cvbtn" data-cv="cards" title="Card view">Cards</button>
-          <button class="cvbtn" data-cv="list" title="List view">List</button>
+          <button class="cvbtn" data-cv="cards" data-i18n-title="contestScreen.cardView" data-i18n="contestScreen.cards" title="Card view">Cards</button>
+          <button class="cvbtn" data-cv="list" data-i18n-title="contestScreen.listView" data-i18n="contestScreen.list" title="List view">List</button>
         </div>
       </div>
       <div id="contest-card-view">
@@ -73,14 +78,14 @@
           <div class="contest-col">
             <div id="contest-picker-list" class="contest-picker-list"></div>
             <div id="contest-create-section" class="hidden" style="margin-top:16px">
-              <button id="create-contest-btn" class="primary" style="width:100%">+ New Contest</button>
+              <button id="create-contest-btn" class="primary" style="width:100%" data-i18n="contestScreen.newContest">+ New Contest</button>
             </div>
           </div>
           <div class="contest-col contest-col-private hidden" id="private-contest-col">
-            <div class="contest-col-heading">Private</div>
+            <div class="contest-col-heading" data-i18n="contestScreen.private">Private</div>
             <div id="private-contest-picker-list" class="contest-picker-list"></div>
             <div id="private-contest-create-section" class="hidden" style="margin-top:16px">
-              <button id="create-private-contest-btn" class="primary" style="width:100%">+ New Private Contest</button>
+              <button id="create-private-contest-btn" class="primary" style="width:100%" data-i18n="contestScreen.newPrivateContest">+ New Private Contest</button>
             </div>
           </div>
         </div>
@@ -88,47 +93,47 @@
       <div id="contest-list-view" class="hidden">
         <div class="contest-list-table">
           <div class="clt-head">
-            <div class="cl-col cl-name" data-sort="name">Name</div>
-            <div class="cl-col cl-call" data-sort="station_call">Call</div>
-            <div class="cl-col cl-status" data-sort="status">Status</div>
-            <div class="cl-col cl-date" data-sort="created_at">Created</div>
-            <div class="cl-col cl-activity" data-sort="last_activity_at">Last activity</div>
+            <div class="cl-col cl-name" data-sort="name" data-i18n="contestScreen.colName">Name</div>
+            <div class="cl-col cl-call" data-sort="station_call" data-i18n="contestScreen.colCall">Call</div>
+            <div class="cl-col cl-status" data-sort="status" data-i18n="contestScreen.colStatus">Status</div>
+            <div class="cl-col cl-date" data-sort="created_at" data-i18n="contestScreen.colCreated">Created</div>
+            <div class="cl-col cl-activity" data-sort="last_activity_at" data-i18n="contestScreen.colLastActivity">Last activity</div>
             <div class="cl-col cl-actions"></div>
           </div>
           <div id="contest-list-body"></div>
         </div>
         <div class="contest-list-actions">
           <div id="contest-list-create-section" class="hidden">
-            <button id="create-contest-btn-list" class="ghost">+ New Contest</button>
+            <button id="create-contest-btn-list" class="ghost" data-i18n="contestScreen.newContest">+ New Contest</button>
           </div>
           <div id="contest-list-create-private-section" class="hidden">
-            <button id="create-private-contest-btn-list" class="ghost">+ New Private Contest</button>
+            <button id="create-private-contest-btn-list" class="ghost" data-i18n="contestScreen.newPrivateContest">+ New Private Contest</button>
           </div>
         </div>
       </div>
       <div id="contest-pick-error" class="error" style="margin-top:10px"></div>
       <div class="contest-admin-actions">
-        <button id="contests-admin-btn" class="ghost perm-required" data-perm="contests.manage">Contests</button>
-        <button id="users-admin-btn" class="ghost perm-required" data-perm="users.manage">Users</button>
-        <button id="audit-admin-btn" class="ghost perm-required" data-perm="audit.log">Audit Log</button>
-        <button id="featurerequests-admin-btn" class="ghost perm-required" data-perm="feature_requests.read">Feature Requests</button>
+        <button id="contests-admin-btn" class="ghost perm-required" data-perm="contests.manage" data-i18n="contestScreen.contests">Contests</button>
+        <button id="users-admin-btn" class="ghost perm-required" data-perm="users.manage" data-i18n="contestScreen.users">Users</button>
+        <button id="audit-admin-btn" class="ghost perm-required" data-perm="audit.log" data-i18n="contestScreen.auditLog">Audit Log</button>
+        <button id="featurerequests-admin-btn" class="ghost perm-required" data-perm="feature_requests.read" data-i18n="contestScreen.featureRequests">Feature Requests</button>
       </div>
       <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
-        <button id="global-settings-btn" class="ghost perm-required" data-perm="settings.write" style="font-size:12px">&#9881; Global Settings</button>
+        <button id="global-settings-btn" class="ghost perm-required" data-perm="settings.write" style="font-size:12px" data-i18n="contestScreen.globalSettings">&#9881; Global Settings</button>
         <div style="display:flex;gap:8px;align-items:center">
-          <button id="chat-sound-toggle-btn" class="ghost" style="font-size:12px" title="Toggle chat sound notifications"></button>
-          <button id="contest-logout-btn" class="ghost" style="font-size:12px">Sign out</button>
+          <button id="chat-sound-toggle-btn" class="ghost" style="font-size:12px" data-i18n-title="contestScreen.chatSoundToggleTitle" title="Toggle chat sound notifications"></button>
+          <button id="contest-logout-btn" class="ghost" style="font-size:12px" data-i18n="common.signOut">Sign out</button>
         </div>
       </div>
     </div>
     <div class="contest-screen-side">
       <div class="online-panel" id="online-panel">
-        <div class="online-panel-title">Online Now</div>
-        <div id="online-operators-list"><p class="muted" style="font-size:12px;margin:0">Connecting&#8230;</p></div>
+        <div class="online-panel-title" data-i18n="contestScreen.onlineNow">Online Now</div>
+        <div id="online-operators-list"><p class="muted" style="font-size:12px;margin:0" data-i18n="contestScreen.connecting">Connecting&#8230;</p></div>
       </div>
       <div class="downloads-panel" id="downloads-panel">
-        <div class="downloads-panel-title">Download Apps</div>
-        <div id="downloads-list"><p class="muted" style="font-size:12px;margin:0">Loading&#8230;</p></div>
+        <div class="downloads-panel-title" data-i18n="contestScreen.downloadApps">Download Apps</div>
+        <div id="downloads-list"><p class="muted" style="font-size:12px;margin:0" data-i18n="contestScreen.loading">Loading&#8230;</p></div>
       </div>
     </div>
   </div>
@@ -137,39 +142,39 @@
 <!-- Global Settings screen -->
 <div id="global-settings-screen" class="screen login-screen hidden">
   <div class="login-card wide">
-    <h1>Global Settings</h1>
+    <h1 data-i18n="globalSettings.title">Global Settings</h1>
     <form id="global-settings-form">
       <fieldset>
-        <legend>DX Cluster</legend>
-        <p class="muted small">Telnet DX cluster feed shared across all operators. The connection is re-established automatically on failure.</p>
-        <label>Cluster server (host:port)
+        <legend data-i18n="globalSettings.dxClusterTitle">DX Cluster</legend>
+        <p class="muted small" data-i18n="globalSettings.dxClusterHint">Telnet DX cluster feed shared across all operators. The connection is re-established automatically on failure.</p>
+        <label><span data-i18n="globalSettings.clusterServer">Cluster server (host:port)</span>
           <input id="gs-cluster-server" type="text" autocomplete="off" placeholder="dxc.ve7cc.net:23" style="max-width:260px" />
         </label>
-        <label style="margin-top:10px">Cluster callsign
+        <label style="margin-top:10px"><span data-i18n="globalSettings.clusterCall">Cluster callsign</span>
           <input id="gs-cluster-call" type="text" autocomplete="off" autocapitalize="characters" placeholder="e.g. OH2BH" style="max-width:160px" />
         </label>
-        <label style="margin-top:10px">Spot retention (days)
+        <label style="margin-top:10px"><span data-i18n="globalSettings.clusterRetention">Spot retention (days)</span>
           <input id="gs-cluster-retention" type="number" min="1" max="365" style="max-width:80px" placeholder="7" />
         </label>
       </fieldset>
       <fieldset style="margin-top:16px">
-        <legend>Chat</legend>
-        <label>New message sound
+        <legend data-i18n="globalSettings.chatTitle">Chat</legend>
+        <label><span data-i18n="globalSettings.newMessageSound">New message sound</span>
           <select id="gs-chat-sound" style="max-width:200px">
-            <option value="">None (silent)</option>
-            <option value="beep">Beep</option>
-            <option value="ding">Ding</option>
-            <option value="chime">Chime</option>
+            <option value="" data-i18n="globalSettings.soundNone">None (silent)</option>
+            <option value="beep" data-i18n="globalSettings.soundBeep">Beep</option>
+            <option value="ding" data-i18n="globalSettings.soundDing">Ding</option>
+            <option value="chime" data-i18n="globalSettings.soundChime">Chime</option>
           </select>
         </label>
         <div style="margin-top:8px">
-          <button type="button" id="gs-chat-sound-preview" class="ghost" style="font-size:12px">&#9654; Preview</button>
+          <button type="button" id="gs-chat-sound-preview" class="ghost" style="font-size:12px">&#9654; <span data-i18n="common.preview">Preview</span></button>
         </div>
         <div style="margin-top:16px">
-          <p class="muted small" style="margin-bottom:6px">Upload a custom sound (mp3, wav, ogg, aac, flac, m4a — max 2 MB):</p>
+          <p class="muted small" style="margin-bottom:6px" data-i18n="globalSettings.customSoundsTitle">Upload a custom sound (mp3, wav, ogg, aac, flac, m4a — max 2 MB):</p>
           <div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
             <input id="gs-sound-file" type="file" accept=".mp3,.wav,.ogg,.aac,.flac,.m4a" style="max-width:280px" />
-            <button type="button" id="gs-sound-upload-btn" class="ghost" style="width:auto;margin-top:0">Upload</button>
+            <button type="button" id="gs-sound-upload-btn" class="ghost" style="width:auto;margin-top:0" data-i18n="common.upload">Upload</button>
           </div>
           <span id="gs-sound-upload-error" class="error" style="display:block;margin-top:4px"></span>
           <div id="gs-custom-sounds-list" style="margin-top:8px"></div>
@@ -177,43 +182,44 @@
       </fieldset>
       <div class="entry-actions" style="margin-top:16px">
         <span id="global-settings-error" class="error"></span>
-        <button type="submit" class="primary">Save</button>
+        <button type="submit" class="primary" data-i18n="common.save">Save</button>
       </div>
     </form>
     <div class="perm-required" data-perm="rig.simulate" style="margin-top:20px">
       <fieldset>
-        <legend>Dummy TRXs</legend>
+        <legend data-i18n="globalSettings.dummyRigsTitle">Dummy TRXs</legend>
         <p class="muted small">
-          Simulated transceivers that appear in the TRX list and react to frequency changes — useful for testing without physical hardware.
-          They are clearly marked <strong>(dummy)</strong> in the TRX list.
+          <span data-i18n="globalSettings.dummyRigsHint">Simulated transceivers that appear in the TRX list and react to frequency changes — useful for testing without physical hardware. They are clearly marked</span>
+          <strong data-i18n="globalSettings.dummyMarkedAs">(dummy)</strong>
+          <span data-i18n="globalSettings.dummyMarkedTail">in the TRX list.</span>
         </p>
         <div id="dummy-rig-list"></div>
         <div style="margin-top:14px">
           <div class="row" style="gap:8px;align-items:flex-end;flex-wrap:wrap">
             <label style="margin:0">
-              <span class="muted small">Name</span>
+              <span class="muted small" data-i18n="globalSettings.dummyName">Name</span>
               <input id="dummy-rig-name" type="text" placeholder="e.g. IC-7300 (sim)" style="max-width:180px" autocomplete="off" />
             </label>
             <label style="margin:0">
-              <span class="muted small">Default freq (MHz)</span>
+              <span class="muted small" data-i18n="globalSettings.dummyDefaultFreq">Default freq (MHz)</span>
               <input id="dummy-rig-freq" type="number" step="0.001" min="0.1" max="2400" placeholder="14.074" value="14.074" style="max-width:110px" />
             </label>
-            <button type="button" id="add-dummy-rig-btn" class="primary" style="align-self:flex-end;width:auto;margin-top:0">Add dummy TRX</button>
+            <button type="button" id="add-dummy-rig-btn" class="primary" style="align-self:flex-end;width:auto;margin-top:0" data-i18n="globalSettings.addDummy">Add dummy TRX</button>
           </div>
           <span id="dummy-rig-error" class="error" style="display:block;margin-top:6px"></span>
         </div>
       </fieldset>
     </div>
     <div style="margin-top:16px">
-      <p class="muted small" style="margin-bottom:6px">Telnet log (last 200 lines, newest first):</p>
+      <p class="muted small" style="margin-bottom:6px" data-i18n="globalSettings.telnetLog">Telnet log (last 200 lines, newest first):</p>
       <div class="row" style="align-items:center;gap:8px;margin-bottom:6px">
         <span id="gs-cluster-log-status" class="muted small"></span>
-        <button type="button" id="gs-cluster-log-refresh-btn" class="ghost" style="margin-left:auto;font-size:12px">↻ Refresh log</button>
+        <button type="button" id="gs-cluster-log-refresh-btn" class="ghost" style="margin-left:auto;font-size:12px" data-i18n="globalSettings.refreshLog">↻ Refresh log</button>
       </div>
       <pre id="gs-cluster-log-pre" style="height:220px;overflow-y:auto;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:var(--fg)"></pre>
     </div>
     <div style="margin-top:16px;text-align:left">
-      <button id="global-settings-back-btn" class="ghost" style="font-size:12px">&#8592; Back to contests</button>
+      <button id="global-settings-back-btn" class="ghost" style="font-size:12px" data-i18n="common.backToContests">&#8592; Back to contests</button>
     </div>
   </div>
 </div>
@@ -224,15 +230,16 @@
     <div class="topbar-left">
       <img src="/noctalum.png" alt="" class="topbar-logo" />
       <div class="brand">Noctalum</div>
-      <span class="op-badge">Logged in as <strong id="current-op"></strong></span>
-      <button id="feature-request-btn" class="ghost fr-btn hidden" title="Submit a feature request">Feature Request</button>
+      <span class="op-badge"><span data-i18n="topbar.loggedInAs">Logged in as</span> <strong id="current-op"></strong></span>
+      <div class="lang-switcher-host" id="lang-switcher-topbar"></div>
+      <button id="feature-request-btn" class="ghost fr-btn hidden" data-i18n-title="topbar.featureRequestTitle" title="Submit a feature request" data-i18n="topbar.featureRequest">Feature Request</button>
     </div>
 
     <div class="station-area">
-      <div class="station-id-pill hidden" id="station-id-pill" title="Contest station identifier">
+      <div class="station-id-pill hidden" id="station-id-pill" data-i18n-title="topbar.stationIdTitle" title="Contest station identifier">
         <span id="station-id"></span>
       </div>
-      <div class="station-pill" id="station-pill" title="Click to change contest">
+      <div class="station-pill" id="station-pill" data-i18n-title="topbar.stationPillTitle" title="Click to change contest">
         <span class="station-call" id="station-call">—</span>
         <span class="station-contest-name" id="station-contest-name"></span>
       </div>
@@ -240,24 +247,24 @@
 
     <div class="topbar-right">
       <nav class="tabs">
-        <button class="tab active" data-tab="log">Logging</button>
-        <button class="tab" data-tab="statistics">Statistics</button>
-        <button class="tab" data-tab="settings">Settings</button>
-        <button class="tab tab-perm" data-tab="export" data-perm="qso.export">Export</button>
+        <button class="tab active" data-tab="log" data-i18n="topbar.tabLog">Logging</button>
+        <button class="tab" data-tab="statistics" data-i18n="topbar.tabStatistics">Statistics</button>
+        <button class="tab" data-tab="settings" data-i18n="topbar.tabSettings">Settings</button>
+        <button class="tab tab-perm" data-tab="export" data-perm="qso.export" data-i18n="topbar.tabExport">Export</button>
       </nav>
-      <div class="rig-status" id="rig-status" title="Selected transceiver">
+      <div class="rig-status" id="rig-status" data-i18n-title="topbar.rigTitle" title="Selected transceiver">
         <span class="rig-dot"></span>
-        <span class="rig-label">RIG</span>
-        <span class="rig-detail">no rig selected</span>
+        <span class="rig-label" data-i18n="topbar.rigLabel">RIG</span>
+        <span class="rig-detail" data-i18n="topbar.rigNoneSelected">no rig selected</span>
       </div>
-      <button id="logout-btn" class="ghost">Logout</button>
+      <button id="logout-btn" class="ghost" data-i18n="common.logout">Logout</button>
     </div>
   </header>
 
   <main class="layout">
     <!-- Logging tab -->
     <section id="tab-log" class="tab-pane active">
-      <div id="contest-readonly-banner" class="contest-readonly-banner hidden">
+      <div id="contest-readonly-banner" class="contest-readonly-banner hidden" data-i18n="topbar.contestReadonly">
         Contest is finished — log is read-only.
       </div>
       <div class="layout-outer" id="layout-outer">
@@ -274,7 +281,7 @@
           </div>
           <div id="map-canvas" class="map-canvas"></div>
           <div id="bearing-display" class="bearing-display">
-            <div class="muted small">Antenna rotation</div>
+            <div class="muted small" data-i18n="qso.antennaRotation">Antenna rotation</div>
             <div class="bearing-value" id="bearing-value">—</div>
           </div>
         </aside>
@@ -284,71 +291,71 @@
         <div class="center-col">
         <div class="entry-panel card">
           <div class="rig-bar">
-            <label>Rig:
+            <label><span data-i18n="qso.rig">Rig:</span>
               <select id="rig-select">
-                <option value="">— none (manual entry) —</option>
+                <option value="" data-i18n="qso.rigNone">— none (manual entry) —</option>
               </select>
             </label>
             <span class="muted small" id="rig-bar-detail"></span>
           </div>
-          <h2><span id="entry-panel-title">New QSO</span> <span id="dup-badge" class="dup-badge hidden"></span></h2>
+          <h2><span id="entry-panel-title" data-i18n="qso.newQSO">New QSO</span> <span id="dup-badge" class="dup-badge hidden"></span></h2>
           <form id="qso-form" autocomplete="off">
             <div id="band-pills-bar" class="qrz-info-bar hidden"></div>
             <div id="qso-grid" class="qso-grid">
-              <label data-qso-field="callsign" data-qso-pinned="1"><span>Callsign <a id="qrz-pill" class="qrz-pill hidden" target="_blank" rel="noopener">QRZ</a></span>
+              <label data-qso-field="callsign" data-qso-pinned="1"><span><span data-i18n="qso.callsign">Callsign</span> <a id="qrz-pill" class="qrz-pill hidden" target="_blank" rel="noopener">QRZ</a></span>
                 <input id="q-call" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
                 <div id="q-call-country" class="call-country"></div>
               </label>
-              <label data-qso-field="rst_sent" data-qso-pinned="1">RST sent
+              <label data-qso-field="rst_sent" data-qso-pinned="1" data-i18n="qso.rstSent">RST sent
                 <input id="q-rst-sent" type="text" maxlength="6" />
               </label>
-              <label data-qso-field="rst_received" data-qso-pinned="1">RST rcvd
+              <label data-qso-field="rst_received" data-qso-pinned="1" data-i18n="qso.rstReceived">RST rcvd
                 <input id="q-rst-rcvd" type="text" maxlength="6" />
               </label>
-              <label data-qso-field="nr_received">Nr rcvd
+              <label data-qso-field="nr_received" data-i18n="qso.nrReceived">Nr rcvd
                 <input id="q-nr-rcvd" type="text" inputmode="numeric" />
               </label>
-              <label data-qso-field="nr_sent">Nr sent
+              <label data-qso-field="nr_sent" data-i18n="qso.nrSent">Nr sent
                 <input id="q-nr-sent" type="text" inputmode="numeric" />
               </label>
-              <label data-qso-field="mode">Mode
+              <label data-qso-field="mode" data-i18n="qso.mode">Mode
                 <select id="q-mode" required></select>
               </label>
-              <label data-qso-field="band">Band
+              <label data-qso-field="band" data-i18n="qso.band">Band
                 <select id="q-band" required></select>
               </label>
-              <label data-qso-field="freq">Frequency (kHz)
+              <label data-qso-field="freq" data-i18n="qso.frequencyKHz">Frequency (kHz)
                 <input id="q-freq" type="text" inputmode="decimal" />
               </label>
-              <label data-qso-field="name">Name
+              <label data-qso-field="name" data-i18n="qso.name">Name
                 <input id="q-name" type="text" maxlength="80" autocomplete="off" />
               </label>
-              <label data-qso-field="dok">DOK
+              <label data-qso-field="dok" data-i18n="qso.dok">DOK
                 <input id="q-dok" type="text" maxlength="10" autocapitalize="characters" />
               </label>
-              <label data-qso-field="locator">Locator
+              <label data-qso-field="locator" data-i18n="qso.locator">Locator
                 <input id="q-loc" type="text" maxlength="6" autocapitalize="characters" />
               </label>
-              <label data-qso-field="itu">ITU
+              <label data-qso-field="itu" data-i18n="qso.itu">ITU
                 <input id="q-itu" type="text" maxlength="2" />
               </label>
-              <label data-qso-field="cq">CQ
+              <label data-qso-field="cq" data-i18n="qso.cq">CQ
                 <input id="q-cq" type="text" maxlength="2" />
               </label>
-              <label data-qso-field="notes">Notes
+              <label data-qso-field="notes" data-i18n="qso.notes">Notes
                 <input id="q-notes" type="text" />
               </label>
-              <label data-qso-field="lighthouse">Lighthouse
+              <label data-qso-field="lighthouse" data-i18n="qso.lighthouse">Lighthouse
                 <input id="q-lh" type="text" />
               </label>
-              <label data-qso-field="time">UTC time (optional)
+              <label data-qso-field="time" data-i18n="qso.utcTimeOptional">UTC time (optional)
                 <input id="q-time" type="datetime-local" step="1" />
               </label>
             </div>
             <div class="entry-actions">
               <span id="qso-error" class="error"></span>
-              <button type="button" id="cancel-edit-btn" class="ghost">Cancel <span class="kbd">Esc</span></button>
-              <button type="submit" class="primary" id="log-qso-btn">Log QSO <span class="kbd">Enter</span></button>
+              <button type="button" id="cancel-edit-btn" class="ghost"><span data-i18n="common.cancel">Cancel</span> <span class="kbd">Esc</span></button>
+              <button type="submit" class="primary" id="log-qso-btn"><span data-i18n="qso.logQSO">Log QSO</span> <span class="kbd">Enter</span></button>
             </div>
           </form>
         </div>
@@ -357,24 +364,24 @@
 
         <div class="history-panel card">
           <div class="history-header">
-            <h2>QSO history</h2>
-            <input id="history-filter" type="search" placeholder="Filter by call, band, mode, op…" />
+            <h2 data-i18n="qso.history">QSO history</h2>
+            <input id="history-filter" type="search" data-i18n-placeholder="qso.filterPlaceholder" placeholder="Filter by call, band, mode, op…" />
           </div>
           <div class="table-scroll">
             <table id="qso-table">
               <thead>
                 <tr>
-                  <th class="sortable" data-col="nr_sent">Nr <span class="sort-arrow"></span></th>
-                  <th class="sortable" data-col="time">Time UTC <span class="sort-arrow"></span></th>
-                  <th class="sortable" data-col="callsign">Call <span class="sort-arrow"></span></th>
-                  <th class="sortable" data-col="band">Band <span class="sort-arrow"></span></th>
-                  <th class="sortable" data-col="freq_hz">Freq <span class="sort-arrow"></span></th>
-                  <th class="sortable" data-col="mode">Mode <span class="sort-arrow"></span></th>
-                  <th class="sortable" data-col="rst_sent">Snt <span class="sort-arrow"></span></th>
-                  <th class="sortable" data-col="rst_received">Rcv <span class="sort-arrow"></span></th>
-                  <th class="sortable" data-col="locator">Loc <span class="sort-arrow"></span></th>
-                  <th class="sortable" data-col="itu_zone">ITU/CQ <span class="sort-arrow"></span></th>
-                  <th class="sortable" data-col="operator">Op <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="nr_sent"><span data-i18n="qso.colNr">Nr</span> <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="time"><span data-i18n="qso.colTimeUTC">Time UTC</span> <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="callsign"><span data-i18n="qso.colCall">Call</span> <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="band"><span data-i18n="qso.colBand">Band</span> <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="freq_hz"><span data-i18n="qso.colFreq">Freq</span> <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="mode"><span data-i18n="qso.colMode">Mode</span> <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="rst_sent"><span data-i18n="qso.colSent">Snt</span> <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="rst_received"><span data-i18n="qso.colRcv">Rcv</span> <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="locator"><span data-i18n="qso.colLoc">Loc</span> <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="itu_zone"><span data-i18n="qso.colItuCQ">ITU/CQ</span> <span class="sort-arrow"></span></th>
+                  <th class="sortable" data-col="operator"><span data-i18n="qso.colOp">Op</span> <span class="sort-arrow"></span></th>
                   <th></th>
                 </tr>
               </thead>
@@ -392,20 +399,20 @@
 
         <aside class="ops-panel card">
           <div class="ops-header">
-            <div class="muted">Operating as</div>
+            <div class="muted" data-i18n="ops.operatingAs">Operating as</div>
             <div class="ops-station" id="ops-station-call">—</div>
           </div>
           <div class="ops-tabs">
-            <button class="ops-tab active" data-ops-tab="status">Status</button>
-            <button class="ops-tab" data-ops-tab="cluster">Cluster</button>
-            <button class="ops-tab" data-ops-tab="chat">Chat</button>
-            <button class="ops-tab" data-ops-tab="objective">Objective</button>
+            <button class="ops-tab active" data-ops-tab="status" data-i18n="ops.statusTab">Status</button>
+            <button class="ops-tab" data-ops-tab="cluster" data-i18n="ops.clusterTab">Cluster</button>
+            <button class="ops-tab" data-ops-tab="chat" data-i18n="ops.chatTab">Chat</button>
+            <button class="ops-tab" data-ops-tab="objective" data-i18n="ops.objectiveTab">Objective</button>
           </div>
 
           <div id="ops-tab-status" class="ops-tab-pane active">
-            <h3>Connected operators</h3>
+            <h3 data-i18n="ops.connectedOperators">Connected operators</h3>
             <ul id="ops-list" class="ops-list"></ul>
-            <h3 style="margin-top:18px">Available rigs</h3>
+            <h3 style="margin-top:18px" data-i18n="ops.availableRigs">Available rigs</h3>
             <ul id="rig-list" class="rig-list"></ul>
           </div>
 
@@ -413,23 +420,23 @@
             <div class="cluster-filters">
               <div class="cluster-filters-row">
                 <select id="cluster-band-filter">
-                  <option value="">All bands</option>
+                  <option value="" data-i18n="cluster.allBands">All bands</option>
                 </select>
                 <select id="cluster-mode-filter">
-                  <option value="">All modes</option>
+                  <option value="" data-i18n="cluster.allModes">All modes</option>
                 </select>
-                <button id="cluster-refresh-btn" class="ghost" title="Refresh">↻</button>
+                <button id="cluster-refresh-btn" class="ghost" data-i18n-title="cluster.refreshTitle" title="Refresh">↻</button>
               </div>
               <div class="cluster-filters-row">
                 <select id="cluster-spotter-filter" style="flex:1">
-                  <option value="">All spotters</option>
-                  <option value="DE">DE (Germany)</option>
-                  <option value="EU">Europe</option>
-                  <option value="AS">Asia</option>
-                  <option value="NA">North Am.</option>
-                  <option value="SA">South Am.</option>
-                  <option value="OC">Oceania</option>
-                  <option value="AF">Africa</option>
+                  <option value="" data-i18n="cluster.allSpotters">All spotters</option>
+                  <option value="DE" data-i18n="cluster.sptDE">DE (Germany)</option>
+                  <option value="EU" data-i18n="cluster.sptEU">Europe</option>
+                  <option value="AS" data-i18n="cluster.sptAS">Asia</option>
+                  <option value="NA" data-i18n="cluster.sptNA">North Am.</option>
+                  <option value="SA" data-i18n="cluster.sptSA">South Am.</option>
+                  <option value="OC" data-i18n="cluster.sptOC">Oceania</option>
+                  <option value="AF" data-i18n="cluster.sptAF">Africa</option>
                 </select>
               </div>
             </div>
@@ -437,11 +444,11 @@
               <table id="cluster-table">
                 <thead>
                   <tr>
-                    <th>UTC</th>
-                    <th>DX</th>
-                    <th>kHz</th>
-                    <th>Md</th>
-                    <th>Info</th>
+                    <th data-i18n="cluster.colUTC">UTC</th>
+                    <th data-i18n="cluster.colDX">DX</th>
+                    <th data-i18n="cluster.colKHz">kHz</th>
+                    <th data-i18n="cluster.colMd">Md</th>
+                    <th data-i18n="cluster.colInfo">Info</th>
                   </tr>
                 </thead>
                 <tbody id="cluster-tbody"></tbody>
@@ -453,8 +460,8 @@
           <div id="ops-tab-chat" class="ops-tab-pane">
             <ul id="chat-list" class="chat-list"></ul>
             <div class="chat-input-row">
-              <input id="chat-input" type="text" placeholder="Message…" maxlength="500" autocomplete="off">
-              <button id="chat-send-btn" class="primary">Send</button>
+              <input id="chat-input" type="text" data-i18n-placeholder="chat.messagePlaceholder" placeholder="Message…" maxlength="500" autocomplete="off">
+              <button id="chat-send-btn" class="primary" data-i18n="chat.send">Send</button>
             </div>
           </div>
 
@@ -468,36 +475,37 @@
     <!-- Settings tab -->
     <section id="tab-settings" class="tab-pane">
       <div class="card settings-card">
-        <h2>Settings</h2>
+        <h2 data-i18n="settings.title">Settings</h2>
         <form id="settings-form">
           <fieldset>
-            <legend>Defaults</legend>
-            <label>Default mode
+            <legend data-i18n="settings.defaults">Defaults</legend>
+            <label><span data-i18n="settings.defaultMode">Default mode</span>
               <select id="s-mode"></select>
             </label>
-            <label>Default band
+            <label><span data-i18n="settings.defaultBand">Default band</span>
               <select id="s-band"></select>
             </label>
           </fieldset>
 
           <fieldset>
-            <legend>Notifications</legend>
+            <legend data-i18n="settings.notifications">Notifications</legend>
             <label class="row" style="align-items:center;gap:8px;cursor:pointer">
               <input id="s-chat-mute" type="checkbox" />
-              Mute chat sounds on this device
+              <span data-i18n="settings.muteChat">Mute chat sounds on this device</span>
             </label>
           </fieldset>
 
           <fieldset id="helper-fieldset">
-            <legend>My helper token</legend>
+            <legend data-i18n="settings.helperToken">My helper token</legend>
             <p class="muted small">
-              Use this personal token with the <code>noctalum-helper</code>
-              binary to connect your transceiver to this station.
+              <span data-i18n="settings.helperHintPre">Use this personal token with the</span>
+              <code>noctalum-helper</code>
+              <span data-i18n="settings.helperHintPost">binary to connect your transceiver to this station.</span>
             </p>
             <div class="row">
               <input id="s-token" type="text" readonly />
-              <button type="button" id="copy-token" class="ghost">Copy</button>
-              <button type="button" id="regen-token" class="ghost">Regenerate</button>
+              <button type="button" id="copy-token" class="ghost" data-i18n="settings.copy">Copy</button>
+              <button type="button" id="regen-token" class="ghost" data-i18n="settings.regen">Regenerate</button>
             </div>
             <pre class="snippet">noctalum-helper \
   -server <span id="hint-server">http://this-server:8080</span> \
@@ -506,27 +514,27 @@
           </fieldset>
 
           <fieldset id="qrz-fieldset" class="perm-required" data-perm="settings.write">
-            <legend>QRZ.com lookup</legend>
-            <p class="muted small">
+            <legend data-i18n="settings.qrz">QRZ.com lookup</legend>
+            <p class="muted small" data-i18n="settings.qrzHint">
               When configured, callsign lookups fetch the operator's name,
               Maidenhead locator and profile picture from QRZ.com.
               Requires a QRZ.com XML data subscription.
             </p>
-            <label>QRZ.com username
+            <label><span data-i18n="settings.qrzUser">QRZ.com username</span>
               <input id="s-qrz-user" type="text" autocomplete="off" autocapitalize="off" />
             </label>
-            <label>QRZ.com password
-              <input id="s-qrz-pass" type="password" autocomplete="off" placeholder="leave blank to keep existing" />
+            <label><span data-i18n="settings.qrzPass">QRZ.com password</span>
+              <input id="s-qrz-pass" type="password" autocomplete="off" data-i18n-placeholder="settings.qrzKeep" placeholder="leave blank to keep existing" />
             </label>
             <div style="margin-top:10px">
-              <button type="button" id="qrz-test-btn" class="ghost">Test connection</button>
+              <button type="button" id="qrz-test-btn" class="ghost" data-i18n="settings.qrzTest">Test connection</button>
             </div>
             <div id="qrz-status" class="muted small" style="margin-top:6px"></div>
           </fieldset>
 
           <div class="entry-actions">
             <span id="settings-error" class="error"></span>
-            <button type="submit" class="primary perm-required" data-perm="settings.write">
+            <button type="submit" class="primary perm-required" data-perm="settings.write" data-i18n="settings.saveSettings">
               Save settings
             </button>
           </div>
@@ -534,42 +542,41 @@
       </div>
 
       <div class="card settings-card" style="margin-top:14px">
-        <h2>Change own password</h2>
+        <h2 data-i18n="settings.changePwd">Change own password</h2>
         <form id="own-pwd-form">
-          <label>Current password
+          <label><span data-i18n="settings.currentPassword">Current password</span>
             <input id="op-old" type="password" autocomplete="current-password" required />
           </label>
-          <label>New password (min 8 chars)
+          <label><span data-i18n="settings.newPassword">New password (min 8 chars)</span>
             <input id="op-new" type="password" minlength="8" autocomplete="new-password" required />
           </label>
           <div class="entry-actions">
             <span id="op-error" class="error"></span>
-            <button type="submit" class="primary">Change password</button>
+            <button type="submit" class="primary" data-i18n="settings.changePassword">Change password</button>
           </div>
         </form>
       </div>
 
       <div class="card settings-card" style="margin-top:14px">
-        <h2>Passkeys</h2>
-        <p class="muted small">Passkeys let you sign in without a password using your device's biometrics or PIN.</p>
+        <h2 data-i18n="settings.passkeys">Passkeys</h2>
+        <p class="muted small" data-i18n="settings.passkeysIntro">Passkeys let you sign in without a password using your device's biometrics or PIN.</p>
         <div id="passkey-list" class="passkey-list"></div>
         <div class="entry-actions" style="margin-top:10px">
           <span id="passkey-error" class="error"></span>
           <div class="row" style="gap:8px;align-items:center">
-            <input id="passkey-name" type="text" placeholder="Passkey name (e.g. MacBook)" style="max-width:220px" />
-            <button type="button" id="register-passkey-btn" class="primary">&#128273; Register passkey</button>
+            <input id="passkey-name" type="text" data-i18n-placeholder="settings.passkeyNamePlaceholder" placeholder="Passkey name (e.g. MacBook)" style="max-width:220px" />
+            <button type="button" id="register-passkey-btn" class="primary" data-i18n="settings.registerPasskey">&#128273; Register passkey</button>
           </div>
         </div>
       </div>
 
     </section>
 
-    <!-- Export tab -->
     <!-- Statistics tab -->
     <section id="tab-statistics" class="tab-pane">
       <div class="card">
-        <h2>Statistics</h2>
-        <p class="muted">Live breakdown of QSOs in the current contest.</p>
+        <h2 data-i18n="stats.title">Statistics</h2>
+        <p class="muted" data-i18n="stats.intro">Live breakdown of QSOs in the current contest.</p>
         <div id="stats-summary" class="muted small" style="margin-bottom:8px"></div>
         <div id="stats-grid" class="stats-grid"></div>
       </div>
@@ -577,13 +584,13 @@
 
     <section id="tab-export" class="tab-pane">
       <div class="card">
-        <h2>Export log</h2>
-        <p class="muted">Download the full shared log in standard formats.</p>
+        <h2 data-i18n="export.title">Export log</h2>
+        <p class="muted" data-i18n="export.intro">Download the full shared log in standard formats.</p>
         <div class="export-actions">
-          <a class="primary as-button" href="/api/export/adif" download>Download ADIF</a>
-          <a class="primary as-button" href="/api/export/cabrillo" download>Download Cabrillo</a>
-          <a class="primary as-button" href="/api/export/csv" download>Download CSV</a>
-          <a class="primary as-button" href="/api/export/edi" download>Download EDI</a>
+          <a class="primary as-button" href="/api/export/adif" download data-i18n="export.adif">Download ADIF</a>
+          <a class="primary as-button" href="/api/export/cabrillo" download data-i18n="export.cabrillo">Download Cabrillo</a>
+          <a class="primary as-button" href="/api/export/csv" download data-i18n="export.csv">Download CSV</a>
+          <a class="primary as-button" href="/api/export/edi" download data-i18n="export.edi">Download EDI</a>
         </div>
       </div>
     </section>
@@ -594,19 +601,24 @@
 <!-- Admin screens (accessed from contest selection screen) -->
 <div id="contests-admin-screen" class="screen admin-screen hidden">
   <div class="admin-screen-header">
-    <button class="ghost admin-back-btn">&#8592; Back to contests</button>
-    <h1>Contests</h1>
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="contestsAdmin.title">Contests</h1>
   </div>
   <div class="admin-screen-body">
     <div class="card">
       <div class="history-header">
-        <h2>Contests</h2>
-        <button id="new-contest-btn" class="primary">New contest</button>
+        <h2 data-i18n="contestsAdmin.title">Contests</h2>
+        <button id="new-contest-btn" class="primary" data-i18n="contestsAdmin.newContest">New contest</button>
       </div>
       <table id="contests-table">
         <thead>
           <tr>
-            <th>Name</th><th>Station call</th><th>QTH</th><th>Status</th><th>Created</th><th></th>
+            <th data-i18n="contestsAdmin.colName">Name</th>
+            <th data-i18n="contestsAdmin.colStationCall">Station call</th>
+            <th data-i18n="contestsAdmin.colQTH">QTH</th>
+            <th data-i18n="contestsAdmin.colStatus">Status</th>
+            <th data-i18n="contestsAdmin.colCreated">Created</th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="contests-tbody"></tbody>
@@ -617,20 +629,24 @@
 
 <div id="users-admin-screen" class="screen admin-screen hidden">
   <div class="admin-screen-header">
-    <button class="ghost admin-back-btn">&#8592; Back to contests</button>
-    <h1>Users</h1>
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="users.title">Users</h1>
   </div>
   <div class="admin-screen-body">
     <div class="card">
       <div class="history-header">
-        <h2>Users</h2>
-        <button id="new-user-btn" class="primary">New user</button>
+        <h2 data-i18n="users.title">Users</h2>
+        <button id="new-user-btn" class="primary" data-i18n="users.newUser">New user</button>
       </div>
       <table id="users-table">
         <thead>
           <tr>
-            <th>Username</th><th>Callsign</th><th>Roles</th>
-            <th>Status</th><th>Last activity</th><th></th>
+            <th data-i18n="users.colUsername">Username</th>
+            <th data-i18n="users.colCallsign">Callsign</th>
+            <th data-i18n="users.colRoles">Roles</th>
+            <th data-i18n="users.colStatus">Status</th>
+            <th data-i18n="users.colLastActivity">Last activity</th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="users-tbody"></tbody>
@@ -638,8 +654,8 @@
     </div>
     <div class="card" style="margin-top:14px">
       <div class="history-header">
-        <h2>Roles</h2>
-        <button id="new-role-btn" class="primary">New role</button>
+        <h2 data-i18n="users.rolesTitle">Roles</h2>
+        <button id="new-role-btn" class="primary" data-i18n="users.newRole">New role</button>
       </div>
       <div id="roles-list"></div>
     </div>
@@ -648,44 +664,44 @@
 
 <div id="audit-admin-screen" class="screen admin-screen hidden">
   <div class="admin-screen-header">
-    <button class="ghost admin-back-btn">&#8592; Back to contests</button>
-    <h1>Audit Log</h1>
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="audit.title">Audit Log</h1>
   </div>
   <div class="admin-screen-body">
     <div class="card">
       <div class="history-header">
-        <h2>Audit Log</h2>
-        <span class="muted small">365-day retention &middot; immutable</span>
+        <h2 data-i18n="audit.title">Audit Log</h2>
+        <span class="muted small" data-i18n="audit.retention">365-day retention &middot; immutable</span>
       </div>
 
       <div class="audit-filters">
-        <label>Level
+        <label><span data-i18n="audit.level">Level</span>
           <select id="audit-level">
-            <option value="">All levels</option>
-            <option value="info">Info</option>
-            <option value="warn">Warn</option>
-            <option value="error">Error</option>
+            <option value="" data-i18n="audit.allLevels">All levels</option>
+            <option value="info" data-i18n="audit.levelInfo">Info</option>
+            <option value="warn" data-i18n="audit.levelWarn">Warn</option>
+            <option value="error" data-i18n="audit.levelError">Error</option>
           </select>
         </label>
-        <label>Action
+        <label><span data-i18n="audit.action">Action</span>
           <select id="audit-action">
-            <option value="">All actions</option>
+            <option value="" data-i18n="audit.allActions">All actions</option>
           </select>
         </label>
-        <label>Search
-          <input id="audit-search" type="search" placeholder="actor, target, details…" />
+        <label><span data-i18n="audit.search">Search</span>
+          <input id="audit-search" type="search" data-i18n-placeholder="audit.searchPlaceholder" placeholder="actor, target, details…" />
         </label>
-        <label>Since
+        <label><span data-i18n="audit.since">Since</span>
           <input id="audit-since" type="datetime-local" />
         </label>
-        <label>Until
+        <label><span data-i18n="audit.until">Until</span>
           <input id="audit-until" type="datetime-local" />
         </label>
-        <label>Timezone
+        <label><span data-i18n="audit.timezone">Timezone</span>
           <select id="audit-tz"></select>
         </label>
-        <button id="audit-apply" class="primary">Apply</button>
-        <button id="audit-reset" class="ghost">Reset</button>
+        <button id="audit-apply" class="primary" data-i18n="audit.apply">Apply</button>
+        <button id="audit-reset" class="ghost" data-i18n="audit.reset">Reset</button>
       </div>
 
       <div class="audit-status muted small" id="audit-status">—</div>
@@ -694,13 +710,13 @@
         <table id="audit-table">
           <thead>
             <tr>
-              <th class="sortable" data-col="timestamp"><span id="audit-ts-header">Time UTC</span> <span class="sort-arrow"></span></th>
-              <th class="sortable" data-col="level">Level <span class="sort-arrow"></span></th>
-              <th class="sortable" data-col="action">Action <span class="sort-arrow"></span></th>
-              <th class="sortable" data-col="actor">Actor <span class="sort-arrow"></span></th>
-              <th class="sortable" data-col="target">Target <span class="sort-arrow"></span></th>
-              <th>Details</th>
-              <th class="sortable" data-col="ip">IP <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="timestamp"><span id="audit-ts-header" data-i18n="audit.colTime">Time UTC</span> <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="level"><span data-i18n="audit.colLevel">Level</span> <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="action"><span data-i18n="audit.colAction">Action</span> <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="actor"><span data-i18n="audit.colActor">Actor</span> <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="target"><span data-i18n="audit.colTarget">Target</span> <span class="sort-arrow"></span></th>
+              <th data-i18n="audit.colDetails">Details</th>
+              <th class="sortable" data-col="ip"><span data-i18n="audit.colIP">IP</span> <span class="sort-arrow"></span></th>
             </tr>
           </thead>
           <tbody id="audit-tbody"></tbody>
@@ -708,7 +724,7 @@
       </div>
 
       <div class="history-footer">
-        <button id="audit-load-more" class="ghost hidden">Load more</button>
+        <button id="audit-load-more" class="ghost hidden" data-i18n="audit.loadMore">Load more</button>
       </div>
     </div>
   </div>
@@ -716,26 +732,26 @@
 
 <div id="featurerequests-admin-screen" class="screen admin-screen hidden">
   <div class="admin-screen-header">
-    <button class="ghost admin-back-btn">&#8592; Back to contests</button>
-    <h1>Feature Requests</h1>
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="featureRequests.title">Feature Requests</h1>
   </div>
   <div class="admin-screen-body">
     <div class="card">
       <div class="history-header">
-        <h2>Feature Requests</h2>
+        <h2 data-i18n="featureRequests.title">Feature Requests</h2>
         <div style="display:flex;gap:8px;align-items:center">
-          <button id="fr-export-btn" class="ghost">Export selected</button>
-          <button id="fr-delete-selected-btn" class="ghost">Delete selected</button>
+          <button id="fr-export-btn" class="ghost" data-i18n="featureRequests.exportSel">Export selected</button>
+          <button id="fr-delete-selected-btn" class="ghost" data-i18n="featureRequests.deleteSel">Delete selected</button>
         </div>
       </div>
       <table id="fr-table">
         <thead>
           <tr>
             <th style="width:32px"><input type="checkbox" id="fr-select-all" title="Select all" /></th>
-            <th>From</th>
-            <th>Date</th>
-            <th>Status</th>
-            <th>Request</th>
+            <th data-i18n="featureRequests.colFrom">From</th>
+            <th data-i18n="featureRequests.colDate">Date</th>
+            <th data-i18n="featureRequests.colStatus">Status</th>
+            <th data-i18n="featureRequests.colRequest">Request</th>
             <th></th>
           </tr>
         </thead>
@@ -758,13 +774,14 @@
   <div class="modal-card confirm-card">
     <p id="confirm-msg" class="confirm-msg"></p>
     <div class="modal-actions">
-      <button class="ghost" id="confirm-cancel">Cancel</button>
-      <button id="confirm-ok">Confirm</button>
+      <button class="ghost" id="confirm-cancel" data-i18n="common.cancel">Cancel</button>
+      <button id="confirm-ok" data-i18n="common.confirm">Confirm</button>
     </div>
   </div>
 </div>
 
 <script src="/leaflet.min.js"></script>
+<script src="/i18n.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

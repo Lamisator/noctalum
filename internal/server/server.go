@@ -164,6 +164,7 @@ func (s *Server) Routes() http.Handler {
 	// Authenticated
 	mux.HandleFunc("/api/me/password", s.requireAuth(s.handleChangeOwnPassword))
 	mux.HandleFunc("/api/me/helper-token", s.requireAuth(s.handleRegenHelperToken))
+	mux.HandleFunc("/api/me/language", s.requireAuth(s.handleMeLanguage))
 	mux.HandleFunc("/api/passkey/register/begin", s.requireAuth(s.handlePasskeyRegisterBegin))
 	mux.HandleFunc("/api/passkey/register/finish", s.requireAuth(s.handlePasskeyRegisterFinish))
 	mux.HandleFunc("/api/passkey/credentials", s.requireAuth(s.handlePasskeyCredentials))
@@ -574,8 +575,36 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	info := sessionInfo(sess)
 	if u, err := s.store.GetUserByID(sess.UserID); err == nil {
 		info["helper_token"] = u.HelperToken
+		info["language"] = u.Language
 	}
 	writeJSON(w, http.StatusOK, info)
+}
+
+// handleMeLanguage persists the user's preferred UI language.
+func (s *Server) handleMeLanguage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeError(w, http.StatusMethodNotAllowed, "PUT required")
+		return
+	}
+	sess := sessionFor(s, r)
+	var body struct {
+		Language string `json:"language"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	lang := strings.ToLower(strings.TrimSpace(body.Language))
+	allowed := map[string]bool{"en": true, "de": true, "": true}
+	if !allowed[lang] {
+		writeError(w, http.StatusBadRequest, "unsupported language")
+		return
+	}
+	if err := s.store.SetLanguage(sess.UserID, lang); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func sessionInfo(sess *Session) map[string]any {

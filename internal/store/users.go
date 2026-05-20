@@ -25,6 +25,7 @@ type User struct {
 	Disabled         bool       `json:"disabled"`
 	CreatedAt        time.Time  `json:"created_at"`
 	LastActivityAt   *time.Time `json:"last_activity_at,omitempty"`
+	Language         string     `json:"language"`
 	Roles            []string   `json:"roles"`
 	Permissions      []string   `json:"permissions"`
 }
@@ -93,6 +94,7 @@ func (s *Store) migrateUsers() error {
 		return err
 	}
 	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN last_activity_at TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT ''`)
 	return nil
 }
 
@@ -211,6 +213,12 @@ func assignRolesTx(tx *sql.Tx, userID int64, roleNames []string) error {
 	return nil
 }
 
+// SetLanguage updates a user's preferred language code (e.g. "en", "de").
+func (s *Store) SetLanguage(userID int64, language string) error {
+	_, err := s.db.Exec(`UPDATE users SET language = ? WHERE id = ?`, language, userID)
+	return err
+}
+
 // SetCallsign updates a user's callsign.
 func (s *Store) SetCallsign(userID int64, callsign string) error {
 	_, err := s.db.Exec(`UPDATE users SET callsign = ? WHERE id = ?`,
@@ -247,13 +255,13 @@ func (s *Store) GetUserByUsername(username string) (User, error) {
 func (s *Store) getUser(where string, arg interface{}) (User, error) {
 	row := s.db.QueryRow(
 		`SELECT id, username, callsign, password_hash, helper_token, failed_attempts,
-		        locked_until, disabled, created_at, last_activity_at FROM users WHERE `+where, arg)
+		        locked_until, disabled, created_at, last_activity_at, language FROM users WHERE `+where, arg)
 	var u User
 	var lockStr sql.NullString
-	var createdStr, lastActStr string
+	var createdStr, lastActStr, lang string
 	var disabledInt int
 	err := row.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash, &u.HelperToken,
-		&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr)
+		&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr, &lang)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -270,6 +278,7 @@ func (s *Store) getUser(where string, arg interface{}) (User, error) {
 		t, _ := time.Parse(time.RFC3339, lastActStr)
 		u.LastActivityAt = &t
 	}
+	u.Language = lang
 
 	roles, perms, err := s.userRolesAndPermissions(u.ID)
 	if err != nil {
@@ -284,7 +293,7 @@ func (s *Store) getUser(where string, arg interface{}) (User, error) {
 func (s *Store) ListUsers() ([]User, error) {
 	rows, err := s.db.Query(
 		`SELECT id, username, callsign, password_hash, helper_token, failed_attempts,
-		        locked_until, disabled, created_at, last_activity_at
+		        locked_until, disabled, created_at, last_activity_at, language
 		 FROM users ORDER BY username`)
 	if err != nil {
 		return nil, err
@@ -294,10 +303,10 @@ func (s *Store) ListUsers() ([]User, error) {
 	for rows.Next() {
 		var u User
 		var lockStr sql.NullString
-		var createdStr, lastActStr string
+		var createdStr, lastActStr, lang string
 		var disabledInt int
 		if err := rows.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash, &u.HelperToken,
-			&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr); err != nil {
+			&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr, &lang); err != nil {
 			return nil, err
 		}
 		if lockStr.Valid && lockStr.String != "" {
@@ -310,6 +319,7 @@ func (s *Store) ListUsers() ([]User, error) {
 			t, _ := time.Parse(time.RFC3339, lastActStr)
 			u.LastActivityAt = &t
 		}
+		u.Language = lang
 		out = append(out, u)
 	}
 	if err := rows.Err(); err != nil {

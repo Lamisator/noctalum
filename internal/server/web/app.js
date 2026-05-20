@@ -1,5 +1,15 @@
 // Noctalum frontend
 (() => {
+  // i18n shortcut.  i18n.js loads first and exposes window.I18N; we keep a tiny
+  // local alias so calling sites stay terse.  Fallback returns the key so
+  // missing-catalog setups still render something.
+  const t = (key, vars) => (window.I18N ? window.I18N.t(key, vars) : key);
+  const applyI18n = (root) => { if (window.I18N) window.I18N.apply(root); };
+  const localeForFmt = () => {
+    const code = window.I18N ? window.I18N.lang() : 'en';
+    return code === 'de' ? 'de-DE' : 'en-GB';
+  };
+
   const MODES = ['CW', 'SSB', 'USB', 'LSB', 'FM', 'AM', 'RTTY', 'FT8', 'FT4', 'PSK31', 'PSK63', 'JT65', 'DIGI'];
   const BANDS = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m', '4m', '2m', '70cm', '23cm', '13cm', '3cm'];
 
@@ -450,7 +460,7 @@
     const res = await api('/api/setup', { method: 'POST', body: JSON.stringify(body) });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      $('setup-error').textContent = j.error || 'Setup failed';
+      $('setup-error').textContent = j.error || t('setup.setupFailed');
       return;
     }
     await bootstrap();
@@ -468,9 +478,9 @@
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
       if (res.status === 423) {
-        $('login-error').textContent = `Account locked for ${j.locked_seconds || '?'}s`;
+        $('login-error').textContent = t('login.accountLocked', { s: j.locked_seconds || '?' });
       } else {
-        $('login-error').textContent = j.error || 'Login failed';
+        $('login-error').textContent = j.error || t('login.loginFailed');
       }
       return;
     }
@@ -549,7 +559,7 @@
     if (customFiles.length > 0) {
       const sep = document.createElement('option');
       sep.disabled = true;
-      sep.textContent = '── Custom ──';
+      sep.textContent = t('globalSettings.customSepLabel');
       sep.dataset.customSep = '1';
       sel.appendChild(sep);
       for (const f of customFiles) {
@@ -566,7 +576,7 @@
     const container = $('gs-custom-sounds-list');
     if (!container) return;
     if (!files.length) { container.innerHTML = ''; return; }
-    let html = '<p class="muted small" style="margin-bottom:4px">Uploaded sounds:</p>';
+    let html = '<p class="muted small" style="margin-bottom:4px">' + escHtml(t('globalSettings.uploadedSounds')) + '</p>';
     container.innerHTML = html;
     for (const f of files) {
       const row = document.createElement('div');
@@ -579,7 +589,7 @@
       del.type = 'button';
       del.className = 'ghost';
       del.style.cssText = 'width:auto;margin:0;padding:2px 8px;font-size:11px';
-      del.textContent = 'Delete';
+      del.textContent = t('common.delete');
       del.addEventListener('click', async () => {
         const res = await api('/api/sounds/' + encodeURIComponent(f), { method: 'DELETE' });
         if (res.ok) {
@@ -600,9 +610,9 @@
       if (!res.ok) return;
       const data = await res.json();
       $('gs-cluster-log-pre').textContent = (data.lines || []).join('\n');
-      const conn = data.connected ? 'Connected' : 'Disconnected';
+      const conn = data.connected ? t('globalSettings.connected') : t('globalSettings.disconnected');
       const srv = data.server || 'dxc.ve7cc.net:23';
-      $('gs-cluster-log-status').textContent = `${conn} · ${srv} · callsign: ${data.call || 'none'}`;
+      $('gs-cluster-log-status').textContent = t('globalSettings.clusterStatus', { conn, srv, call: data.call || t('globalSettings.clusterCallNone') });
     } catch {}
   }
 
@@ -618,7 +628,7 @@
     const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      $('global-settings-error').textContent = j.error || 'Save failed';
+      $('global-settings-error').textContent = j.error || t('common.saveFailed');
       return;
     }
     loadGlobalClusterLog();
@@ -634,9 +644,9 @@
     const fileInput = $('gs-sound-file');
     const errEl = $('gs-sound-upload-error');
     errEl.textContent = '';
-    if (!fileInput.files.length) { errEl.textContent = 'Select a file first.'; return; }
+    if (!fileInput.files.length) { errEl.textContent = t('globalSettings.selectFileFirst'); return; }
     const file = fileInput.files[0];
-    if (file.size > 2 * 1024 * 1024) { errEl.textContent = 'File too large (max 2 MB).'; return; }
+    if (file.size > 2 * 1024 * 1024) { errEl.textContent = t('globalSettings.fileTooLarge'); return; }
     const form = new FormData();
     form.append('sound', file);
     try {
@@ -648,13 +658,13 @@
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        errEl.textContent = j.error || 'Upload failed';
+        errEl.textContent = j.error || t('common.uploadFailed');
         return;
       }
       fileInput.value = '';
       const currentVal = $('gs-chat-sound')?.value || '';
       await loadCustomSounds(currentVal);
-    } catch { errEl.textContent = 'Upload failed'; }
+    } catch { errEl.textContent = t('common.uploadFailed'); }
   });
 
   // ----- contest selection screen -----
@@ -730,6 +740,7 @@
   }
 
   function renderDownloads(files) {
+    window.__downloadsCache = files || [];
     const list = $('downloads-list');
     const panel = $('downloads-panel');
     if (!files || files.length === 0) {
@@ -750,9 +761,9 @@
     // the plain-helper bucket with platform=="gui-linux-amd64", and the user
     // sees an unlabelled link they can't distinguish from the curses CLI.
     const GROUP_LABELS = {
-      'helper-gui': 'Rig Control Helper — GUI (recommended)',
-      'helper':     'Rig Control Helper — CLI / curses',
-      'wsjtx':      'WSJT-X Bridge',
+      'helper-gui': t('downloads.helperGUI'),
+      'helper':     t('downloads.helperCLI'),
+      'wsjtx':      t('downloads.wsjtx'),
     };
     const GROUP_ORDER = ['helper-gui', 'helper', 'wsjtx'];
 
@@ -777,14 +788,14 @@
       }
       html += '</div>';
     }
-    list.innerHTML = html || '<p class="muted" style="font-size:12px;margin:0">No files available.</p>';
+    list.innerHTML = html || `<p class="muted" style="font-size:12px;margin:0">${escHtml(t('downloads.noFiles'))}</p>`;
   }
 
   function renderGlobalOperators() {
     const list = $('online-operators-list');
     if (!list) return;
     if (globalOperators.length === 0) {
-      list.innerHTML = '<p class="muted" style="font-size:12px;margin:0">No operators online.</p>';
+      list.innerHTML = `<p class="muted" style="font-size:12px;margin:0">${escHtml(t('contestScreen.noOperatorsOnline'))}</p>`;
       return;
     }
     list.innerHTML = '';
@@ -814,13 +825,14 @@
     const accessBtn = canManageAccess
       ? `<button class="contest-edit-pill contest-access-pill" title="Manage access" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
       : (c.access_restricted ? `<span class="contest-access-indicator" title="Access restricted">&#128274;</span>` : '');
+    const statusLabel = c.status === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished');
     item.innerHTML = `
       <div>
         <div class="contest-picker-name">${escHtml(c.name)}</div>
         <div class="contest-picker-call">${escHtml(fmtCall(c.station_call))}</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="contest-picker-status ${c.status}">${c.status}</span>
+        <span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span>
         ${accessBtn}
         ${editBtn}
       </div>
@@ -846,7 +858,7 @@
     const r = await api('/api/contests/' + c.id + '/select', { method: 'POST' });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      $('contest-pick-error').textContent = j.error || 'Failed to select contest';
+      $('contest-pick-error').textContent = j.error || t('contestScreen.failedSelect');
       return;
     }
     const j = await r.json();
@@ -922,13 +934,13 @@
     const privateContests = contests.filter(c => c.private);
 
     if (publicContests.length === 0) {
-      list.innerHTML = '<p class="muted" style="text-align:center;padding:20px">No contests yet.</p>';
+      list.innerHTML = `<p class="muted" style="text-align:center;padding:20px">${escHtml(t('contestScreen.noContests'))}</p>`;
     } else {
       for (const c of publicContests) list.appendChild(makePickerItem(c));
     }
     if (canPriv) {
       if (privateContests.length === 0) {
-        privateList.innerHTML = '<p class="muted" style="text-align:center;padding:12px 0">No private contests yet.</p>';
+        privateList.innerHTML = `<p class="muted" style="text-align:center;padding:12px 0">${escHtml(t('contestScreen.noPrivateContests'))}</p>`;
       } else {
         for (const c of privateContests) privateList.appendChild(makePickerItem(c));
       }
@@ -946,7 +958,7 @@
         el.classList.add(contestSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
     });
     if (contests.length === 0) {
-      body.innerHTML = '<div class="cl-empty">No contests match the current filter.</div>';
+      body.innerHTML = `<div class="cl-empty">${escHtml(t('contestScreen.noMatchFilter'))}</div>`;
     } else {
       for (const c of contests) body.appendChild(makeListItem(c));
     }
@@ -957,19 +969,20 @@
   function makeListItem(c) {
     const row = document.createElement('div');
     row.className = 'cl-row' + (c.status === 'finished' ? ' finished' : '');
-    const createdDate = c.created_at ? new Date(c.created_at).toLocaleDateString() : '—';
+    const createdDate = c.created_at ? new Date(c.created_at).toLocaleDateString(localeForFmt()) : '—';
     const actDate = fmtRelTime(c.last_activity_at);
-    const privateBadge = c.private ? '<span class="cl-priv-badge">Private</span>' : '';
+    const privateBadge = c.private ? `<span class="cl-priv-badge">${escHtml(t('contestScreen.private'))}</span>` : '';
     const canManageAccess = hasPerm('contest.admin') || (c.owner_user_id && c.owner_user_id === me?.user_id);
     const editBtn = hasPerm('contests.manage')
-      ? `<button class="contest-edit-pill" title="Edit contest" tabindex="-1">&#128295;</button>` : '';
+      ? `<button class="contest-edit-pill" title="${escHtml(t('contestScreen.editTitle'))}" tabindex="-1">&#128295;</button>` : '';
     const accessBtn = canManageAccess
-      ? `<button class="contest-edit-pill contest-access-pill" title="Manage access" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
-      : (c.access_restricted ? `<span class="contest-access-indicator" title="Access restricted">&#128274;</span>` : '');
+      ? `<button class="contest-edit-pill contest-access-pill" title="${escHtml(t('contestScreen.accessAuthorize'))}" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
+      : (c.access_restricted ? `<span class="contest-access-indicator" title="${escHtml(t('contestScreen.accessRestricted'))}">&#128274;</span>` : '');
+    const statusLabel = c.status === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished');
     row.innerHTML = `
       <div class="cl-col cl-name">${escHtml(c.name)}${privateBadge}</div>
       <div class="cl-col cl-call">${escHtml(fmtCall(c.station_call))}</div>
-      <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${c.status}</span></div>
+      <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span></div>
       <div class="cl-col cl-date">${createdDate}</div>
       <div class="cl-col cl-activity">${actDate}</div>
       <div class="cl-col cl-actions">${accessBtn}${editBtn}</div>
@@ -1060,18 +1073,18 @@
   }
 
   // ----- tabs -----
-  document.querySelectorAll('.tab').forEach(t => {
-    t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
       document.querySelectorAll('.tab-pane').forEach(x => x.classList.remove('active'));
-      t.classList.add('active');
-      $('tab-' + t.dataset.tab).classList.add('active');
-      if (t.dataset.tab === 'log') {
+      tab.classList.add('active');
+      $('tab-' + tab.dataset.tab).classList.add('active');
+      if (tab.dataset.tab === 'log') {
         $('q-call').focus();
         requestAnimationFrame(() => { if (leafletMap) leafletMap.invalidateSize(); });
       }
-      if (t.dataset.tab === 'settings') { loadPasskeys(); }
-      if (t.dataset.tab === 'statistics') renderStatistics();
+      if (tab.dataset.tab === 'settings') { loadPasskeys(); }
+      if (tab.dataset.tab === 'statistics') renderStatistics();
     });
   });
 
@@ -1080,7 +1093,7 @@
     return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
   function _statsSvgBars(items, color) {
-    if (!items.length) return '<div class="muted small">No data.</div>';
+    if (!items.length) return '<div class="muted small">' + escHtml(t('stats.noDataShort')) + '</div>';
     const max = Math.max(...items.map(i => i.value)) || 1;
     const rowH = 18, gap = 4, padL = 90, padR = 40;
     const w = 320, h = items.length * (rowH + gap) + 8;
@@ -1097,7 +1110,7 @@
     return svg;
   }
   function _statsSvgPie(items, palette) {
-    if (!items.length) return '<div class="muted small">No data.</div>';
+    if (!items.length) return '<div class="muted small">' + escHtml(t('stats.noDataShort')) + '</div>';
     const total = items.reduce((s, i) => s + i.value, 0) || 1;
     const cx = 80, cy = 80, r = 70;
     let a0 = -Math.PI / 2;
@@ -1163,36 +1176,36 @@
     if (!grid) return;
     if (!qsos.length) {
       sum.textContent = '';
-      grid.innerHTML = '<div class="muted small">No QSOs logged yet.</div>';
+      grid.innerHTML = '<div class="muted small">' + escHtml(t('stats.noData')) + '</div>';
       return;
     }
     const total = qsos.length;
     const uniqueCalls = new Set(qsos.map(q => (q.callsign || '').toUpperCase())).size;
-    sum.textContent = `${total} QSOs · ${uniqueCalls} unique callsigns`;
+    sum.textContent = t('stats.summary', { total, uniq: uniqueCalls });
     const palette = ['#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'];
     const bands = _statsTally(qsos, 'band');
     const modes = _statsTally(qsos, 'mode');
     const hours = _statsByHour(qsos);
     const countries = _statsByCountry(qsos).slice(0, 12);
     const card = (title, body) =>
-      `<div class="stats-card"><h3>${title}</h3>${body}</div>`;
+      `<div class="stats-card"><h3>${escHtml(title)}</h3>${body}</div>`;
     grid.innerHTML =
-      card('QSOs per band', _statsSvgBars(bands, '#4e79a7')) +
-      card('QSOs per mode', _statsSvgPie(modes, palette)) +
-      card('QSOs per hour (UTC)', _statsSvgBars(hours, '#59a14f')) +
-      card('Top countries', _statsSvgBars(countries, '#f28e2c'));
+      card(t('stats.qsoPerBand'), _statsSvgBars(bands, '#4e79a7')) +
+      card(t('stats.qsoPerMode'), _statsSvgPie(modes, palette)) +
+      card(t('stats.qsoPerHourUTC'), _statsSvgBars(hours, '#59a14f')) +
+      card(t('stats.topCountries'), _statsSvgBars(countries, '#f28e2c'));
   }
 
   // ----- ops panel tabs -----
-  document.querySelectorAll('.ops-tab').forEach(t => {
-    t.addEventListener('click', () => {
+  document.querySelectorAll('.ops-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
       document.querySelectorAll('.ops-tab').forEach(x => x.classList.remove('active'));
       document.querySelectorAll('.ops-tab-pane').forEach(x => x.classList.remove('active'));
-      t.classList.add('active');
-      $('ops-tab-' + t.dataset.opsTab).classList.add('active');
-      if (t.dataset.opsTab === 'cluster') loadClusterSpots();
-      if (t.dataset.opsTab === 'chat') {
-        t.classList.remove('chat-notify');
+      tab.classList.add('active');
+      $('ops-tab-' + tab.dataset.opsTab).classList.add('active');
+      if (tab.dataset.opsTab === 'cluster') loadClusterSpots();
+      if (tab.dataset.opsTab === 'chat') {
+        tab.classList.remove('chat-notify');
         const inp = $('chat-input');
         if (inp) inp.focus();
         const list = $('chat-list');
@@ -1314,21 +1327,21 @@
   let clusterTimer = null;
 
   async function loadClusterSpots() {
-    $('cluster-status').textContent = 'Loading…';
+    $('cluster-status').textContent = t('cluster.loading');
     try {
       const res = await api('/api/cluster/spots');
       if (!res.ok) {
-        $('cluster-status').textContent = 'Cluster unavailable.';
+        $('cluster-status').textContent = t('cluster.unavailable');
         return;
       }
       const data = await res.json();
       clusterSpots = data.spots || [];
       updateClusterFilters();
       renderClusterSpots();
-      const connStr = data.connected ? 'live' : 'connecting…';
-      $('cluster-status').textContent = `${clusterSpots.length} spots · ${connStr} · ${new Date().toLocaleTimeString()}`;
+      const connStr = data.connected ? t('cluster.live') : t('cluster.connecting');
+      $('cluster-status').textContent = t('cluster.status', { count: clusterSpots.length, conn: connStr, time: new Date().toLocaleTimeString(localeForFmt()) });
     } catch {
-      $('cluster-status').textContent = 'Failed to load cluster.';
+      $('cluster-status').textContent = t('cluster.failed');
     }
     // auto-refresh every 60s while the tab is visible
     clearTimeout(clusterTimer);
@@ -1495,9 +1508,9 @@
   }
 
   function applyPermissionsToUI() {
-    document.querySelectorAll('.tab-perm').forEach(t => {
-      if (hasPerm(t.dataset.perm)) t.classList.add('visible');
-      else t.classList.remove('visible');
+    document.querySelectorAll('.tab-perm').forEach(tab => {
+      if (hasPerm(tab.dataset.perm)) tab.classList.add('visible');
+      else tab.classList.remove('visible');
     });
     document.querySelectorAll('.perm-required').forEach(el => {
       if (hasPerm(el.dataset.perm)) el.removeAttribute('data-perm-denied');
@@ -1685,10 +1698,10 @@
     const mode = $('q-mode').value;
     if (worked.some(q => q.band === band && q.mode === mode)) {
       badge.className = 'dup-badge dup-duplicate';
-      badge.textContent = 'DUPLICATE';
+      badge.textContent = t('qso.duplicate');
     } else {
       badge.className = 'dup-badge dup-worked';
-      badge.textContent = 'WORKED OTHER BAND/MODE';
+      badge.textContent = t('qso.workedOther');
     }
     renderBandPills();
   }
@@ -1826,10 +1839,10 @@
     $('q-cq').value = q.cq_zone || '';
     $('q-lh').value = q.lighthouse || '';
     $('q-notes').value = q.notes || '';
-    const t = new Date(q.time);
-    $('q-time').value = t.toISOString().substring(0, 19);
-    $('log-qso-btn').textContent = 'Save Edit';
-    $('entry-panel-title').textContent = 'Edit QSO';
+    const qTime = new Date(q.time);
+    $('q-time').value = qTime.toISOString().substring(0, 19);
+    $('log-qso-btn').textContent = t('qso.saveEdit');
+    $('entry-panel-title').textContent = t('qso.editQSO');
     callsignFilter = null;
     renderQsos();
     updateDuplicateBadge();
@@ -1850,8 +1863,8 @@
     updateDuplicateBadge();
     renderQsos();
     updateNrPreview();
-    $('log-qso-btn').textContent = 'Log QSO';
-    $('entry-panel-title').textContent = 'New QSO';
+    $('log-qso-btn').textContent = t('qso.logQSO');
+    $('entry-panel-title').textContent = t('qso.newQSO');
     $('q-call').focus();
     renderBandPills();
   }
@@ -1879,8 +1892,8 @@
       lighthouse: $('q-lh').value.trim(),
       notes: $('q-notes').value.trim(),
     };
-    const t = $('q-time').value;
-    if (t) body.time = new Date(t + 'Z').toISOString();
+    const qTimeRaw = $('q-time').value;
+    if (qTimeRaw) body.time = new Date(qTimeRaw + 'Z').toISOString();
     // Custom fields: enforce mandatory ones and attach to body.extras as a JSON string.
     const cfResult = collectCustomFieldsValues();
     if (cfResult.error) {
@@ -1894,11 +1907,11 @@
     $('qso-error').textContent = '';
 
     if (editingQsoId !== null) {
-      if (!await showConfirm('Save changes to this QSO?', { ok: 'Save', safe: true })) return;
+      if (!await showConfirm(t('qso.confirmSaveEdit'), { ok: t('qso.confirmSave'), safe: true })) return;
       const res = await api('/api/qsos/' + editingQsoId, { method: 'PUT', body: JSON.stringify(body) });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        $('qso-error').textContent = j.error || 'Failed to update QSO';
+        $('qso-error').textContent = j.error || t('qso.updateFail');
         return;
       }
       const updated = await res.json();
@@ -1910,12 +1923,12 @@
 
     let res = await api('/api/qsos', { method: 'POST', body: JSON.stringify(body) });
     if (res.status === 409) {
-      if (!await showConfirm('Possible duplicate QSO with this station, band, and mode in the last 10 minutes. Log anyway?', { ok: 'Log anyway' })) return;
+      if (!await showConfirm(t('qso.confirmDuplicate'), { ok: t('qso.confirmLogAnyway') })) return;
       res = await api('/api/qsos?force=1', { method: 'POST', body: JSON.stringify(body) });
     }
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      $('qso-error').textContent = j.error || 'Failed to save QSO';
+      $('qso-error').textContent = j.error || t('qso.saveFail');
       return;
     }
     ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
@@ -1939,7 +1952,7 @@
   function renderRigSelect() {
     const sel = $('rig-select');
     const cur = me?.selected_rig || '';
-    sel.innerHTML = '<option value="">— none (manual entry) —</option>';
+    sel.innerHTML = '<option value="">' + escHtml(t('qso.rigNone')) + '</option>';
     for (const r of rigs) {
       const o = document.createElement('option');
       o.value = r.name;
@@ -1956,7 +1969,7 @@
     $('rig-bar-detail').textContent = r
       ? (r.connected
           ? `${(r.freq_hz/1_000_000).toFixed(4)} MHz · ${r.mode || ''} · ${r.band || ''}`
-          : (r.error || 'rig offline'))
+          : (r.error || t('ops.rigOfflineShort')))
       : '';
     updateRigStatusPill();
   }
@@ -1977,7 +1990,7 @@
     if (rigs.length === 0) {
       const li = document.createElement('li');
       li.className = 'muted';
-      li.textContent = 'No helpers connected.';
+      li.textContent = t('ops.noHelpers');
       li.style.cursor = 'default';
       list.appendChild(li);
       return;
@@ -1987,18 +2000,18 @@
       if (r.name === me?.selected_rig) li.classList.add('selected');
       const data = r.connected
         ? `${escHtml((r.freq_hz/1_000_000).toFixed(4))} MHz · ${escHtml(r.mode || '-')} · ${escHtml(r.band || '-')}`
-        : 'disconnected';
+        : t('ops.rigDisconnected');
       const inUse = (r.in_use_by || []);
       const otherContests = (r.other_contests || []);
       let useLine = '';
       if (inUse.length) {
-        useLine = `<div class="in-use">in use by ${escHtml(inUse.map(fmtCall).join(', '))}</div>`;
+        useLine = `<div class="in-use">${escHtml(t('ops.inUseBy', { who: inUse.map(fmtCall).join(', ') }))}</div>`;
       }
       if (otherContests.length) {
-        useLine += `<div class="in-use-other">also in: ${escHtml(otherContests.join(', '))}</div>`;
+        useLine += `<div class="in-use-other">${escHtml(t('ops.alsoIn', { list: otherContests.join(', ') }))}</div>`;
       }
       let errLine = (r.error && !r.connected) ? `<div class="rig-err">rigctld: ${escHtml(r.error)}</div>` : '';
-      const displayName = r.dummy ? `${escHtml(r.name)} <span class="dummy-badge">(dummy)</span>` : escHtml(r.name);
+      const displayName = r.dummy ? `${escHtml(r.name)} <span class="dummy-badge">${escHtml(t('globalSettings.dummyMarkedAs'))}</span>` : escHtml(r.name);
       li.innerHTML = `<div class="rig-name">${displayName}</div>
                      <div class="rig-data">${data}</div>${useLine}${errLine}`;
       li.addEventListener('click', async () => {
@@ -2020,15 +2033,15 @@
     el.classList.remove('ok', 'err');
     const detail = el.querySelector('.rig-detail');
     const cur = me?.selected_rig;
-    if (!cur) { detail.textContent = 'no rig selected'; return; }
+    if (!cur) { detail.textContent = t('topbar.rigNoneSelected'); return; }
     const r = rigs.find(x => x.name === cur);
-    if (!r) { detail.textContent = `${cur} (offline)`; return; }
+    if (!r) { detail.textContent = t('ops.rigOffline', { name: cur }); return; }
     if (r.connected) {
       el.classList.add('ok');
-      detail.textContent = `${cur} · ${(r.freq_hz/1_000_000).toFixed(4)} MHz`;
+      detail.textContent = t('ops.rigConnected', { name: cur, mhz: (r.freq_hz/1_000_000).toFixed(4) });
     } else {
       el.classList.add('err');
-      detail.textContent = `${cur}: ${r.error || 'disconnected'}`;
+      detail.textContent = t('ops.rigError', { name: cur, err: r.error || t('ops.rigDisconnected') });
     }
   }
 
@@ -2056,11 +2069,11 @@
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'op-release-btn';
-        btn.title = 'Release ' + rigName + ' from ' + op.callsign;
+        btn.title = t('ops.releaseRigTitle', { rig: rigName, call: op.callsign });
         btn.textContent = '✕';
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
-          if (!await showConfirm('Release ' + rigName + ' from ' + op.callsign + '?', { ok: 'Release' })) return;
+          if (!await showConfirm(t('ops.releaseRigQ', { rig: rigName, call: op.callsign }), { ok: t('ops.release') })) return;
           await api('/api/rigs/release', { method: 'POST', body: JSON.stringify({ callsign: op.callsign }) });
         });
         li.appendChild(btn);
@@ -2136,8 +2149,8 @@
       }
       const tr = document.createElement('tr');
       if (q.id === highlightId) tr.classList.add('fresh');
-      const t = new Date(q.time);
-      const utc = t.toISOString().substring(0, 19).replace('T', ' ');
+      const qDate = new Date(q.time);
+      const utc = qDate.toISOString().substring(0, 19).replace('T', ' ');
       const mhz = q.freq_hz ? (q.freq_hz / 1_000_000).toFixed(4) : '';
       const zone = (q.itu_zone || q.cq_zone) ? `${escHtml(q.itu_zone || '-')}/${escHtml(q.cq_zone || '-')}` : '';
       const isEditing = q.id === editingQsoId;
@@ -2171,16 +2184,17 @@
       shown++;
     }
     const filterParts = [];
-    if (csFiltered) filterParts.push(`with ${callsignFilter}`);
-    if (textFilter) filterParts.push(`filtered from ${qsos.length}`);
-    $('qso-count').textContent = `${shown} QSO${shown===1?'':'s'}` + (filterParts.length ? ` (${filterParts.join(', ')})` : '');
+    if (csFiltered) filterParts.push(t('qso.filterWith', { call: callsignFilter }));
+    if (textFilter) filterParts.push(t('qso.filterFrom', { n: qsos.length }));
+    const base = shown === 1 ? t('qso.count', { n: shown }) : t('qso.countPlural', { n: shown });
+    $('qso-count').textContent = filterParts.length ? `${base} (${filterParts.join(', ')})` : base;
   }
   $('history-filter').addEventListener('input', () => renderQsos());
   $('qso-tbody').addEventListener('click', async (e) => {
     const btn = e.target.closest('.del-btn');
     if (!btn) return;
     if (!contestIsOpen()) return;
-    if (!await showConfirm('Delete this QSO?', { ok: 'Delete' })) return;
+    if (!await showConfirm(t('qso.deleteConfirm'), { ok: t('common.delete') })) return;
     const id = parseInt(btn.dataset.id, 10);
     const res = await api('/api/qsos/' + id, { method: 'DELETE' });
     if (res.ok) { qsos = qsos.filter(q => q.id !== id); renderQsos(); }
@@ -2200,7 +2214,7 @@
     const btn = $('chat-sound-toggle-btn');
     if (!btn) return;
     const muted = isChatSoundMuted();
-    btn.textContent = muted ? '🔇 Chat sounds: Off' : '🔔 Chat sounds: On';
+    btn.textContent = muted ? t('contestScreen.chatSoundsOff') : t('contestScreen.chatSoundsOn');
   }
 
   async function loadSettings() {
@@ -2215,8 +2229,8 @@
     if ('qrz_username' in settings) {
       $('s-qrz-user').value = settings.qrz_username || '';
       $('qrz-status').textContent = settings.qrz_configured
-        ? 'QRZ.com lookup is configured.'
-        : 'QRZ.com lookup is not configured.';
+        ? t('settings.qrzConfigured')
+        : t('settings.qrzNotConfigured');
     }
     const cb = $('s-chat-mute');
     if (cb) cb.checked = isChatSoundMuted();
@@ -2234,7 +2248,7 @@
     const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      $('settings-error').textContent = j.error || 'Save failed';
+      $('settings-error').textContent = j.error || t('common.saveFailed');
       return;
     }
     if ($('s-qrz-pass')) $('s-qrz-pass').value = '';
@@ -2258,12 +2272,12 @@
     const username = $('s-qrz-user').value.trim();
     const password = $('s-qrz-pass').value;
     if (!username) {
-      $('qrz-status').textContent = 'Enter a username first.';
+      $('qrz-status').textContent = t('settings.qrzEnterUsername');
       $('qrz-status').style.color = 'var(--error)';
       return;
     }
     $('qrz-test-btn').disabled = true;
-    $('qrz-status').textContent = 'Testing…';
+    $('qrz-status').textContent = t('settings.qrzTesting');
     $('qrz-status').style.color = '';
     const res = await api('/api/qrz/test', {
       method: 'POST',
@@ -2272,15 +2286,15 @@
     $('qrz-test-btn').disabled = false;
     const j = await res.json().catch(() => ({}));
     if (j.ok) {
-      $('qrz-status').textContent = `Connected — W1AW: ${j.name || '(no name)'}`;
+      $('qrz-status').textContent = t('settings.qrzConnected', { name: j.name || t('settings.qrzNoName') });
       $('qrz-status').style.color = 'var(--success)';
     } else {
-      $('qrz-status').textContent = 'Failed: ' + (j.error || 'unknown error');
+      $('qrz-status').textContent = t('settings.qrzFailed', { err: j.error || t('common.unknownError') });
       $('qrz-status').style.color = 'var(--error)';
     }
   });
   $('regen-token').addEventListener('click', async () => {
-    if (!await showConfirm('Generate a new helper token? Your helper will need to be restarted with the new value.', { ok: 'Generate' })) return;
+    if (!await showConfirm(t('settings.regenConfirm'), { ok: t('settings.regenButton') })) return;
     const res = await api('/api/me/helper-token', { method: 'POST' });
     if (res.ok) {
       const j = await res.json();
@@ -2303,11 +2317,11 @@
     const res = await api('/api/me/password', { method: 'POST', body: JSON.stringify(body) });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      $('op-error').textContent = j.error || 'Change failed';
+      $('op-error').textContent = j.error || t('settings.pwdChangeFail');
       return;
     }
     $('op-old').value = ''; $('op-new').value = '';
-    $('op-error').textContent = 'Password changed.';
+    $('op-error').textContent = t('settings.pwdChanged');
     $('op-error').style.color = 'var(--success)';
   });
 
@@ -2321,18 +2335,18 @@
     if (!el) return;
     el.innerHTML = '';
     if (!list || list.length === 0) {
-      el.innerHTML = '<p class="muted small">No dummy TRXs configured.</p>';
+      el.innerHTML = '<p class="muted small">' + escHtml(t('globalSettings.noDummies')) + '</p>';
       return;
     }
     for (const d of list) {
       const row = document.createElement('div');
       row.className = 'row dummy-rig-row';
       row.innerHTML = `<span class="dummy-rig-name">${escHtml(d.name)}</span>
-        <span class="muted small">${escHtml((d.default_freq_hz/1_000_000).toFixed(4))} MHz default</span>
-        <button class="ghost" data-name="${escHtml(d.name)}" style="margin-left:auto;width:auto;margin-top:0">Delete</button>`;
+        <span class="muted small">${escHtml(t('globalSettings.dummyDefaultMHz', { mhz: (d.default_freq_hz/1_000_000).toFixed(4) }))}</span>
+        <button class="ghost" data-name="${escHtml(d.name)}" style="margin-left:auto;width:auto;margin-top:0">${escHtml(t('common.delete'))}</button>`;
       row.querySelector('button').addEventListener('click', async (e) => {
         const name = e.currentTarget.dataset.name;
-        if (!await showConfirm(`Delete dummy TRX "${name}"?`, { ok: 'Delete' })) return;
+        if (!await showConfirm(t('globalSettings.deleteDummyQ', { name }), { ok: t('common.delete') })) return;
         const r = await api('/api/rigs/dummy/' + encodeURIComponent(name), { method: 'DELETE' });
         if (r.ok) await loadDummyRigs();
       });
@@ -2348,8 +2362,8 @@
       errEl.textContent = '';
       const name = nameEl.value.trim();
       const freqHz = Math.round(parseFloat(freqEl.value) * 1_000_000);
-      if (!name)   { errEl.textContent = 'Name required'; return; }
-      if (!freqHz || freqHz <= 0) { errEl.textContent = 'Valid default frequency (MHz) required'; return; }
+      if (!name)   { errEl.textContent = t('globalSettings.nameRequired'); return; }
+      if (!freqHz || freqHz <= 0) { errEl.textContent = t('globalSettings.validFreqRequired'); return; }
       const res = await api('/api/rigs/dummy', {
         method: 'POST',
         body: JSON.stringify({ name, default_freq_hz: freqHz }),
@@ -2360,7 +2374,7 @@
         await loadDummyRigs();
       } else {
         const j = await res.json().catch(() => ({}));
-        errEl.textContent = j.error || 'Failed to add dummy TRX';
+        errEl.textContent = j.error || t('globalSettings.addDummyFail');
       }
     });
   }
@@ -2382,17 +2396,18 @@
     tbody.innerHTML = '';
     for (const c of allContests) {
       const tr = document.createElement('tr');
-      const date = c.created_at ? new Date(c.created_at).toLocaleDateString() : '';
+      const date = c.created_at ? new Date(c.created_at).toLocaleDateString(localeForFmt()) : '';
+      const statusLabel = c.status === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished');
       tr.innerHTML = `
         <td>${escHtml(c.name)}</td>
         <td style="color:var(--accent);font-weight:600">${escHtml(fmtCall(c.station_call))}</td>
         <td class="muted">${escHtml(c.qth || '—')}</td>
-        <td><span class="badge ${c.status}">${escHtml(c.status)}</span></td>
+        <td><span class="badge ${c.status}">${escHtml(statusLabel)}</span></td>
         <td class="muted">${date}</td>
         <td class="actions">
-          <button class="ghost" data-action="edit" data-id="${Number(c.id)}">Edit</button>
+          <button class="ghost" data-action="edit" data-id="${Number(c.id)}">${escHtml(t('common.edit'))}</button>
           <button class="ghost" data-action="toggle" data-id="${Number(c.id)}"
-            data-status="${escHtml(c.status)}">${c.status === 'open' ? 'Finish' : 'Reopen'}</button>
+            data-status="${escHtml(c.status)}">${c.status === 'open' ? escHtml(t('contestScreen.markFinished')) : escHtml(t('contestScreen.reopen'))}</button>
         </td>
       `;
       tr.querySelectorAll('button').forEach(b => b.addEventListener('click', () => contestAction(c, b.dataset.action)));
@@ -2405,8 +2420,8 @@
       contestEditModal(c);
     } else if (action === 'toggle') {
       const newStatus = c.status === 'open' ? 'finished' : 'open';
-      const label = newStatus === 'finished' ? 'Mark this contest as finished (read-only)?' : 'Reopen this contest?';
-      if (!await showConfirm(label, { ok: newStatus === 'finished' ? 'Mark finished' : 'Reopen', safe: newStatus !== 'finished' })) return;
+      const label = newStatus === 'finished' ? t('contestScreen.markFinishedQ') : t('contestScreen.reopenQ');
+      if (!await showConfirm(label, { ok: newStatus === 'finished' ? t('contestScreen.markFinished') : t('contestScreen.reopen'), safe: newStatus !== 'finished' })) return;
       api('/api/contests/' + c.id, {
         method: 'PUT',
         body: JSON.stringify({ name: c.name, station_call: c.station_call, station_id: c.station_id || '', qth: c.qth || '', status: newStatus, bands: c.bands || [], objective: c.objective || '', custom_fields: c.custom_fields || '', qso_layout: c.qso_layout || '' }),
@@ -2415,7 +2430,7 @@
   }
 
   function buildBandSelectHTML(selectedBands) {
-    return `<label>Active bands</label>
+    return `<label>${escHtml(t('contestScreen.activeBands'))}</label>
       <div class="band-select-grid" id="modal-band-grid">
         ${BANDS.map(b => `<span class="band-select-pill${selectedBands.includes(b) ? ' selected' : ''}" data-band="${escHtml(b)}">${escHtml(b)}</span>`).join('')}
       </div>`;
@@ -2434,31 +2449,31 @@
   function contestCreateModal(forcePrivate = false) {
     const canPriv = hasPerm('contests.create_private');
     showModal(`
-      <h3>New Contest</h3>
+      <h3>${escHtml(t('contestScreen.createTitle'))}</h3>
       <form>
-        <label>Contest name</label>
-        <input name="name" placeholder="e.g. CQ-WW-DX-CW 2025" required />
-        <label>Station callsign</label>
-        <input name="station_call" autocapitalize="characters" placeholder="e.g. DK0XYZ" required />
-        <label>Station identifier <span class="muted small">(optional, e.g. operator number)</span></label>
-        <input name="station_id" placeholder="e.g. 042" />
-        <label>QTH locator (optional)</label>
-        <input name="qth" placeholder="e.g. JO50de" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
+        <label>${escHtml(t('contestScreen.contestName'))}</label>
+        <input name="name" placeholder="${escHtml(t('contestScreen.contestNamePlaceholder'))}" required />
+        <label>${escHtml(t('contestScreen.stationCall'))}</label>
+        <input name="station_call" autocapitalize="characters" placeholder="${escHtml(t('contestScreen.stationCallPlaceholder'))}" required />
+        <label>${escHtml(t('contestScreen.stationIdentifier'))} <span class="muted small">${escHtml(t('contestScreen.stationIdentifierOptionalOp'))}</span></label>
+        <input name="station_id" placeholder="${escHtml(t('contestScreen.stationIdPlaceholder'))}" />
+        <label>${escHtml(t('contestScreen.qthLocator'))}</label>
+        <input name="qth" placeholder="${escHtml(t('contestScreen.qthPlaceholder'))}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
         ${buildBandSelectHTML([])}
-        ${canPriv ? `<label style="margin-top:10px"><input type="checkbox" name="private"${forcePrivate ? ' checked' : ''} /> Private contest <span class="muted small">(only visible to you)</span></label>` : ''}
-        <label style="margin-top:10px">Custom fields <span class="muted small">(per-QSO; optional)</span></label>
+        ${canPriv ? `<label style="margin-top:10px"><input type="checkbox" name="private"${forcePrivate ? ' checked' : ''} /> ${escHtml(t('contestScreen.privateContest'))} <span class="muted small">${escHtml(t('contestScreen.privateOnlyYou'))}</span></label>` : ''}
+        <label style="margin-top:10px">${escHtml(t('contestScreen.customFields'))} <span class="muted small">${escHtml(t('contestScreen.customFieldsPerQSO'))}</span></label>
         ${buildCustomFieldsEditorHTML([])}
-        <label style="margin-top:10px">New QSO mask layout <span class="muted small">(drag tiles to arrange)</span></label>
+        <label style="margin-top:10px">${escHtml(t('contestScreen.layoutEditor'))} <span class="muted small">${escHtml(t('contestScreen.layoutHint'))}</span></label>
         ${buildLayoutEditorHTML()}
-        <label style="margin-top:10px">Objective <span class="muted small">(Markdown, optional)</span></label>
+        <label style="margin-top:10px">${escHtml(t('contestScreen.objective'))} <span class="muted small">${escHtml(t('contestScreen.objectiveMdOptional'))}</span></label>
         <div class="md-editor-wrap">
-          <textarea name="objective" placeholder="Describe the contest objective…"></textarea>
+          <textarea name="objective" placeholder="${escHtml(t('contestScreen.objectivePlaceholder'))}"></textarea>
           <div class="md-preview-pane objective-content" id="modal-md-preview"></div>
         </div>
         <div class="modal-err error"></div>
         <div class="modal-actions">
-          <button type="button" class="ghost cancel-btn">Cancel</button>
-          <button type="submit" class="primary">Create</button>
+          <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
+          <button type="submit" class="primary">${escHtml(t('contestScreen.create'))}</button>
         </div>
       </form>
     `, async (form) => {
@@ -2478,7 +2493,7 @@
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || 'Failed to create contest');
+        throw new Error(j.error || t('contestScreen.createFail'));
       }
       await refreshContests();
       // Also refresh the picker list if we're on contest-screen
@@ -2501,30 +2516,30 @@
   function contestEditModal(c) {
     const existingFields = parseCustomFields(c.custom_fields);
     showModal(`
-      <h3>Edit Contest</h3>
+      <h3>${escHtml(t('contestScreen.editTitle'))}</h3>
       <form>
-        <label>Contest name</label>
+        <label>${escHtml(t('contestScreen.contestName'))}</label>
         <input name="name" value="${escHtml(c.name)}" required />
-        <label>Station callsign</label>
+        <label>${escHtml(t('contestScreen.stationCall'))}</label>
         <input name="station_call" value="${escHtml(c.station_call)}" autocapitalize="characters" required />
-        <label>Station identifier <span class="muted small">(optional)</span></label>
-        <input name="station_id" value="${escHtml(c.station_id || '')}" placeholder="e.g. 042" />
-        <label>QTH locator (optional)</label>
-        <input name="qth" value="${escHtml(c.qth || '')}" placeholder="e.g. JO50de" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
+        <label>${escHtml(t('contestScreen.stationIdentifier'))} <span class="muted small">${escHtml(t('contestScreen.stationIdentifierOptional'))}</span></label>
+        <input name="station_id" value="${escHtml(c.station_id || '')}" placeholder="${escHtml(t('contestScreen.stationIdPlaceholder'))}" />
+        <label>${escHtml(t('contestScreen.qthLocator'))}</label>
+        <input name="qth" value="${escHtml(c.qth || '')}" placeholder="${escHtml(t('contestScreen.qthPlaceholder'))}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
         ${buildBandSelectHTML(c.bands || [])}
-        <label style="margin-top:10px">Custom fields <span class="muted small">(per-QSO)</span></label>
+        <label style="margin-top:10px">${escHtml(t('contestScreen.customFields'))} <span class="muted small">${escHtml(t('contestScreen.customFieldsPerQSO2'))}</span></label>
         ${buildCustomFieldsEditorHTML(existingFields)}
-        <label style="margin-top:10px">New QSO mask layout <span class="muted small">(drag tiles to arrange)</span></label>
+        <label style="margin-top:10px">${escHtml(t('contestScreen.layoutEditor'))} <span class="muted small">${escHtml(t('contestScreen.layoutHint'))}</span></label>
         ${buildLayoutEditorHTML()}
-        <label style="margin-top:10px">Objective <span class="muted small">(Markdown)</span></label>
+        <label style="margin-top:10px">${escHtml(t('contestScreen.objective'))} <span class="muted small">${escHtml(t('contestScreen.objectiveMd'))}</span></label>
         <div class="md-editor-wrap">
-          <textarea name="objective" placeholder="Describe the contest objective…">${escHtml(c.objective || '')}</textarea>
+          <textarea name="objective" placeholder="${escHtml(t('contestScreen.objectivePlaceholder'))}">${escHtml(c.objective || '')}</textarea>
           <div class="md-preview-pane objective-content" id="modal-md-preview"></div>
         </div>
         <div class="modal-err error"></div>
         <div class="modal-actions">
-          <button type="button" class="ghost cancel-btn">Cancel</button>
-          <button type="submit" class="primary">Save</button>
+          <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
+          <button type="submit" class="primary">${escHtml(t('common.save'))}</button>
         </div>
       </form>
     `, async (form) => {
@@ -2544,7 +2559,7 @@
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || 'Failed to update contest');
+        throw new Error(j.error || t('contestScreen.updateFail'));
       }
       await refreshContests();
     }, { wide: true });
@@ -2564,36 +2579,36 @@
   // ----- Contest access modal -----
   async function contestAccessModal(c) {
     const res = await api('/api/contests/' + c.id + '/access');
-    if (!res.ok) { alert('Failed to load access list'); return; }
+    if (!res.ok) { alert(t('contestScreen.accessLoadFail')); return; }
     const users = await res.json();
 
     const restrictedChecked = c.access_restricted ? 'checked' : '';
     const userRows = users.length ? users.map(u => `
       <div class="access-user-row" data-uid="${Number(u.user_id)}">
         <span>${escHtml(u.username)}${u.callsign ? ` <span class="muted small">${escHtml(fmtCall(u.callsign))}</span>` : ''}</span>
-        <button type="button" class="ghost access-revoke-btn" data-uid="${Number(u.user_id)}">Remove</button>
+        <button type="button" class="ghost access-revoke-btn" data-uid="${Number(u.user_id)}">${escHtml(t('common.remove'))}</button>
       </div>
-    `).join('') : '<p class="muted small">No users granted access.</p>';
+    `).join('') : `<p class="muted small">${escHtml(t('contestScreen.accessNoUsers'))}</p>`;
 
     const root = $('modal-root');
     const card = $('modal-card');
     card.classList.remove('modal-wide');
     card.innerHTML = `
-      <h3>Access &#8212; ${escHtml(c.name)}</h3>
+      <h3>${escHtml(t('contestScreen.accessTitle', { name: c.name }))}</h3>
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer">
         <input type="checkbox" id="access-restricted-toggle" ${restrictedChecked} />
-        Restrict access to authorized users only
+        ${escHtml(t('contestScreen.accessRestrict'))}
       </label>
       <div id="access-user-list">${userRows}</div>
       <div style="display:flex;gap:8px;margin-top:12px;align-items:flex-end">
-        <label style="flex:1;margin:0">Add user (username)
-          <input id="access-add-input" type="text" placeholder="username" autocomplete="off" style="margin-top:4px" />
+        <label style="flex:1;margin:0">${escHtml(t('contestScreen.accessAddUser'))}
+          <input id="access-add-input" type="text" placeholder="${escHtml(t('contestScreen.accessAddPlaceholder'))}" autocomplete="off" style="margin-top:4px" />
         </label>
-        <button type="button" id="access-add-btn" class="primary" style="width:auto;margin:0">Add</button>
+        <button type="button" id="access-add-btn" class="primary" style="width:auto;margin:0">${escHtml(t('common.add'))}</button>
       </div>
       <div id="access-modal-err" class="error" style="margin-top:6px"></div>
       <div class="modal-actions">
-        <button type="button" class="ghost cancel-btn">Close</button>
+        <button type="button" class="ghost cancel-btn">${escHtml(t('common.close'))}</button>
       </div>
     `;
     root.classList.remove('hidden');
@@ -2609,7 +2624,7 @@
       });
       if (!r.ok) {
         toggle.checked = !toggle.checked;
-        errEl.textContent = 'Failed to update restriction setting';
+        errEl.textContent = t('contestScreen.accessRestrictFail');
         return;
       }
       c.access_restricted = toggle.checked;
@@ -2625,7 +2640,7 @@
         if (r.ok) {
           btn.closest('.access-user-row').remove();
         } else {
-          errEl.textContent = 'Failed to remove user';
+          errEl.textContent = t('contestScreen.accessRemoveFail');
         }
       });
     });
@@ -2641,7 +2656,7 @@
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        errEl.textContent = j.error || 'Failed to add user';
+        errEl.textContent = j.error || t('contestScreen.accessAddFail');
         return;
       }
       root.classList.add('hidden');
@@ -2667,25 +2682,25 @@
     return `
       <div class="cf-editor" id="cf-editor">
         <div class="cf-editor-rows">${rows}</div>
-        <button type="button" class="ghost cf-add-btn" id="cf-add-btn">+ Add field</button>
+        <button type="button" class="ghost cf-add-btn" id="cf-add-btn">${escHtml(t('contestScreen.cfAdd'))}</button>
       </div>`;
   }
   function customFieldRowHTML(f, i) {
     const types = ['text', 'number', 'select'];
-    const tOpt = types.map(t => `<option value="${t}"${f.type === t ? ' selected' : ''}>${t}</option>`).join('');
+    const tOpt = types.map(tp => `<option value="${tp}"${f.type === tp ? ' selected' : ''}>${tp}</option>`).join('');
     return `
       <div class="cf-row" data-i="${i}">
         <div class="cf-row-fields">
-          <input class="cf-name" placeholder="name (e.g. exchange)" value="${escHtml(f.name || '')}" />
-          <input class="cf-label" placeholder="label" value="${escHtml(f.label || '')}" />
+          <input class="cf-name" placeholder="${escHtml(t('contestScreen.cfNamePlaceholder'))}" value="${escHtml(f.name || '')}" />
+          <input class="cf-label" placeholder="${escHtml(t('contestScreen.cfLabelPlaceholder'))}" value="${escHtml(f.label || '')}" />
           <select class="cf-type">${tOpt}</select>
-          <input class="cf-options" placeholder="options (comma-separated, for select)" value="${escHtml((f.options || []).join(','))}" />
-          <button type="button" class="ghost cf-del" title="Remove field">✕</button>
+          <input class="cf-options" placeholder="${escHtml(t('contestScreen.cfOptionsPlaceholder'))}" value="${escHtml((f.options || []).join(','))}" />
+          <button type="button" class="ghost cf-del" title="${escHtml(t('contestScreen.cfRemoveTitle'))}">✕</button>
         </div>
         <div class="cf-row-opts">
           <label class="cf-req">
             <input type="checkbox" class="cf-required"${f.required ? ' checked' : ''} />
-            <span>Required</span>
+            <span>${escHtml(t('contestScreen.cfRequired'))}</span>
           </label>
         </div>
       </div>`;
@@ -2707,24 +2722,26 @@
     });
   }
   // ----- New QSO mask layout -----
+  // labelKey resolves through t() at render time so the editor matches the active language.
   const QSO_FIELD_DEFS = [
-    { key: 'callsign',     label: 'Callsign',     defaultW: 3, defaultPos: { x: 0, y: 0 } },
-    { key: 'rst_sent',     label: 'RST sent',     defaultW: 2, defaultPos: { x: 3, y: 0 } },
-    { key: 'rst_received', label: 'RST rcvd',     defaultW: 2, defaultPos: { x: 5, y: 0 } },
-    { key: 'nr_received',  label: 'Nr rcvd',      defaultW: 2, defaultPos: { x: 7, y: 0 } },
-    { key: 'nr_sent',      label: 'Nr sent',      defaultW: 2, defaultPos: { x: 9, y: 0 } },
-    { key: 'mode',         label: 'Mode',         defaultW: 2, defaultPos: { x: 0, y: 1 } },
-    { key: 'band',         label: 'Band',         defaultW: 2, defaultPos: { x: 2, y: 1 } },
-    { key: 'freq',         label: 'Frequency',    defaultW: 3, defaultPos: { x: 4, y: 1 } },
-    { key: 'name',         label: 'Name',         defaultW: 3, defaultPos: { x: 7, y: 1 } },
-    { key: 'dok',          label: 'DOK',          defaultW: 2, defaultHidden: true, defaultPos: { x: 0, y: 2 } },
-    { key: 'locator',      label: 'Locator',      defaultW: 3, defaultPos: { x: 2, y: 2 } },
-    { key: 'itu',          label: 'ITU',          defaultW: 2, defaultHidden: true, defaultPos: { x: 5, y: 2 } },
-    { key: 'cq',           label: 'CQ',           defaultW: 2, defaultHidden: true, defaultPos: { x: 7, y: 2 } },
-    { key: 'lighthouse',   label: 'Lighthouse',   defaultW: 3, defaultHidden: true, defaultPos: { x: 9, y: 2 } },
-    { key: 'notes',        label: 'Notes',        defaultW: 6, defaultPos: { x: 0, y: 3 } },
-    { key: 'time',         label: 'UTC time',     defaultW: 3, defaultPos: { x: 6, y: 3 } },
+    { key: 'callsign',     labelKey: 'qso.callsign',     defaultW: 3, defaultPos: { x: 0, y: 0 } },
+    { key: 'rst_sent',     labelKey: 'qso.rstSent',      defaultW: 2, defaultPos: { x: 3, y: 0 } },
+    { key: 'rst_received', labelKey: 'qso.rstReceived',  defaultW: 2, defaultPos: { x: 5, y: 0 } },
+    { key: 'nr_received',  labelKey: 'qso.nrReceived',   defaultW: 2, defaultPos: { x: 7, y: 0 } },
+    { key: 'nr_sent',      labelKey: 'qso.nrSent',       defaultW: 2, defaultPos: { x: 9, y: 0 } },
+    { key: 'mode',         labelKey: 'qso.mode',         defaultW: 2, defaultPos: { x: 0, y: 1 } },
+    { key: 'band',         labelKey: 'qso.band',         defaultW: 2, defaultPos: { x: 2, y: 1 } },
+    { key: 'freq',         labelKey: 'qso.frequency',    defaultW: 3, defaultPos: { x: 4, y: 1 } },
+    { key: 'name',         labelKey: 'qso.name',         defaultW: 3, defaultPos: { x: 7, y: 1 } },
+    { key: 'dok',          labelKey: 'qso.dok',          defaultW: 2, defaultHidden: true, defaultPos: { x: 0, y: 2 } },
+    { key: 'locator',      labelKey: 'qso.locator',      defaultW: 3, defaultPos: { x: 2, y: 2 } },
+    { key: 'itu',          labelKey: 'qso.itu',          defaultW: 2, defaultHidden: true, defaultPos: { x: 5, y: 2 } },
+    { key: 'cq',           labelKey: 'qso.cq',           defaultW: 2, defaultHidden: true, defaultPos: { x: 7, y: 2 } },
+    { key: 'lighthouse',   labelKey: 'qso.lighthouse',   defaultW: 3, defaultHidden: true, defaultPos: { x: 9, y: 2 } },
+    { key: 'notes',        labelKey: 'qso.notes',        defaultW: 6, defaultPos: { x: 0, y: 3 } },
+    { key: 'time',         labelKey: 'qso.utcTime',      defaultW: 3, defaultPos: { x: 6, y: 3 } },
   ];
+  function _qsoFieldLabel(def) { return def && def.labelKey ? t(def.labelKey) : (def?.label || ''); }
   // Mandatory fields cannot be removed from the layout but can be moved/resized.
   const QSO_MANDATORY_KEYS = new Set([
     'callsign', 'rst_sent', 'rst_received',
@@ -2873,7 +2890,7 @@
       const required = el.dataset.cfRequired === '1';
       const v = (el.value || '').trim();
       if (required && !v) {
-        return { error: 'Field "' + name + '" is required' };
+        return { error: t('qso.requiredField', { name }) };
       }
       if (v) values[name] = v;
     }
@@ -2902,14 +2919,14 @@
     return `
       <div class="layout-editor" id="layout-editor"></div>
       <div class="layout-suggested-wrap">
-        <div class="layout-suggested-title">Suggested (drag into the mask above)</div>
+        <div class="layout-suggested-title">${escHtml(t('contestScreen.suggestedTitle'))}</div>
         <div class="layout-suggested" id="layout-suggested"></div>
       </div>
       <div class="layout-editor-help">
-        Drag tiles to rearrange — they snap to the grid and never overlap.
-        Drag a left or right edge to resize. Right-click a tile to remove it.
-        ★ mandatory tiles (Callsign, RST, Mode, Band, Frequency, UTC time, …) can be moved but not removed.
-        <button type="button" class="ghost" id="layout-reset-btn" style="margin-left:8px">Reset to defaults</button>
+        ${escHtml(t('contestScreen.layoutHelp1'))}
+        ${escHtml(t('contestScreen.layoutHelp2'))}
+        ${escHtml(t('contestScreen.layoutHelp3'))}
+        <button type="button" class="ghost" id="layout-reset-btn" style="margin-left:8px">${escHtml(t('contestScreen.resetDefaults'))}</button>
       </div>`;
   }
 
@@ -2923,7 +2940,7 @@
       return (cf && cf.label) ? cf.label : name;
     }
     const def = QSO_FIELD_DEFS.find(d => d.key === key);
-    return def ? def.label : key;
+    return def ? _qsoFieldLabel(def) : key;
   }
 
   function _layoutItemsForEditor() {
@@ -2990,11 +3007,11 @@
       .map(k => QSO_FIELD_DEFS.find(d => d.key === k))
       .filter(Boolean);
     if (suggested.length === 0) {
-      root.innerHTML = '<span class="muted small" style="padding:2px 4px">All suggested fields are in the mask.</span>';
+      root.innerHTML = '<span class="muted small" style="padding:2px 4px">' + escHtml(t('contestScreen.suggestedAllUsed')) + '</span>';
       return;
     }
     root.innerHTML = suggested.map(d =>
-      `<div class="layout-suggested-tile" data-suggested-key="${escHtml(d.key)}">+ ${escHtml(d.label)}</div>`
+      `<div class="layout-suggested-tile" data-suggested-key="${escHtml(d.key)}">+ ${escHtml(_qsoFieldLabel(d))}</div>`
     ).join('');
     _attachSuggestedDragHandlers();
   }
@@ -3169,7 +3186,7 @@
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'layout-context-item';
-    btn.textContent = 'Remove';
+    btn.textContent = t('common.remove');
     btn.addEventListener('click', () => {
       _closeLayoutContextMenu();
       _removeFieldFromLayout(key);
@@ -3310,6 +3327,7 @@
     renderRoles();
   }
   function renderUsers(users) {
+    window.__usersCache = users || [];
     const tbody = $('users-tbody');
     tbody.innerHTML = '';
     for (const u of users) {
@@ -3317,12 +3335,12 @@
       const roles = (u.roles || []).map(r =>
         `<span class="badge ${r === 'admin' ? 'admin' : ''}">${escHtml(r)}</span>`).join('');
       const status = [];
-      if (u.disabled) status.push('<span class="badge disabled">disabled</span>');
+      if (u.disabled) status.push(`<span class="badge disabled">${escHtml(t('users.statusDisabled'))}</span>`);
       if (u.locked_until && new Date(u.locked_until) > new Date()) {
-        status.push(`<span class="badge locked">locked (${Number(u.failed_attempts)} fails)</span>`);
+        status.push(`<span class="badge locked">${escHtml(t('users.lockedFailures', { n: Number(u.failed_attempts) }))}</span>`);
       }
-      if (!status.length) status.push('<span class="muted">active</span>');
-      const lastAct = u.last_activity_at ? fmtRelTime(u.last_activity_at) : '<span class="muted">never</span>';
+      if (!status.length) status.push(`<span class="muted">${escHtml(t('users.statusActive'))}</span>`);
+      const lastAct = u.last_activity_at ? fmtRelTime(u.last_activity_at) : `<span class="muted">${escHtml(t('users.never'))}</span>`;
       tr.innerHTML = `
         <td>${escHtml(u.username)}</td>
         <td>${escHtml(fmtCall(u.callsign))}</td>
@@ -3330,11 +3348,11 @@
         <td>${status.join(' ')}</td>
         <td class="muted small">${lastAct}</td>
         <td class="actions">
-          <button class="ghost" data-action="edit" data-id="${Number(u.id)}">Edit</button>
-          <button class="ghost" data-action="password" data-id="${Number(u.id)}">Reset password</button>
-          <button class="ghost" data-action="unlock" data-id="${Number(u.id)}">Unlock</button>
-          <button class="ghost" data-action="toggle" data-id="${Number(u.id)}" data-disabled="${u.disabled ? '1' : ''}">${u.disabled ? 'Enable' : 'Disable'}</button>
-          <button class="ghost" data-action="delete" data-id="${Number(u.id)}">Delete</button>
+          <button class="ghost" data-action="edit" data-id="${Number(u.id)}">${escHtml(t('common.edit'))}</button>
+          <button class="ghost" data-action="password" data-id="${Number(u.id)}">${escHtml(t('users.resetPassword'))}</button>
+          <button class="ghost" data-action="unlock" data-id="${Number(u.id)}">${escHtml(t('users.unlock'))}</button>
+          <button class="ghost" data-action="toggle" data-id="${Number(u.id)}" data-disabled="${u.disabled ? '1' : ''}">${u.disabled ? escHtml(t('users.enable')) : escHtml(t('users.disable'))}</button>
+          <button class="ghost" data-action="delete" data-id="${Number(u.id)}">${escHtml(t('common.delete'))}</button>
         </td>
       `;
       tr.querySelectorAll('button').forEach(b => b.addEventListener('click', () => userAction(u, b.dataset.action)));
@@ -3348,16 +3366,16 @@
       const card = document.createElement('div');
       card.className = 'role-card';
       const perms = (r.permissions || []).map(p =>
-        `<span class="perm-chip">${p === '*' ? 'all permissions' : escHtml(p)}</span>`).join('');
+        `<span class="perm-chip">${p === '*' ? escHtml(t('users.allPermissions')) : escHtml(p)}</span>`).join('');
       card.innerHTML = `
         <div class="role-head">
           <div>
             <span class="role-name">${escHtml(r.name)}</span>
-            ${r.is_builtin ? '<span class="badge">built-in</span>' : ''}
+            ${r.is_builtin ? `<span class="badge">${escHtml(t('users.builtin'))}</span>` : ''}
           </div>
           <div>
-            ${r.name === 'admin' ? '' : `<button class="ghost" data-action="edit-role" data-id="${Number(r.id)}">Edit perms</button>`}
-            ${r.is_builtin ? '' : `<button class="ghost" data-action="del-role" data-id="${Number(r.id)}">Delete</button>`}
+            ${r.name === 'admin' ? '' : `<button class="ghost" data-action="edit-role" data-id="${Number(r.id)}">${escHtml(t('users.editPerms'))}</button>`}
+            ${r.is_builtin ? '' : `<button class="ghost" data-action="del-role" data-id="${Number(r.id)}">${escHtml(t('common.delete'))}</button>`}
           </div>
         </div>
         <div class="perms">${perms}</div>
@@ -3384,7 +3402,7 @@
         }).then(refreshUsers);
         return;
       case 'delete':
-        if (await showConfirm(`Delete user ${u.username}?`, { ok: 'Delete' })) {
+        if (await showConfirm(t('users.deleteConfirm', { u: u.username }), { ok: t('common.delete') })) {
           api('/api/users/' + u.id, { method: 'DELETE' }).then(refreshUsers);
         }
         return;
@@ -3395,7 +3413,7 @@
     switch (action) {
       case 'edit-role': roleModal(r); return;
       case 'del-role':
-        if (await showConfirm(`Delete role ${r.name}?`, { ok: 'Delete' })) {
+        if (await showConfirm(t('users.deleteRoleConfirm', { r: r.name }), { ok: t('common.delete') })) {
           api('/api/roles/' + r.id, { method: 'DELETE' }).then(refreshUsers);
         }
         return;
@@ -3434,8 +3452,11 @@
       const root = $('confirm-root');
       $('confirm-msg').textContent = msg;
       const okBtn = $('confirm-ok');
-      okBtn.textContent = opts.ok || 'Confirm';
+      okBtn.textContent = opts.ok || t('common.confirm');
       okBtn.className = opts.safe ? 'primary' : 'danger';
+      // Re-apply i18n on the (static) Cancel button so it follows the active language.
+      const cancelBtn = $('confirm-cancel');
+      if (cancelBtn) cancelBtn.textContent = t('common.cancel');
       root.classList.remove('hidden');
       const finish = (result) => { root.classList.add('hidden'); resolve(result); };
       $('confirm-cancel').onclick = () => finish(false);
@@ -3449,18 +3470,18 @@
       `<label><input type="checkbox" value="${escHtml(r.name)}" ${(!isNew && u.roles?.includes(r.name)) || (isNew && r.name === 'user') ? 'checked' : ''}/> ${escHtml(r.name)}</label>`
     ).join('');
     showModal(`
-      <h3>${isNew ? 'New user' : 'Edit user: ' + escHtml(u.username)}</h3>
+      <h3>${isNew ? escHtml(t('users.modalCreateUser')) : escHtml(t('users.modalEditUserNamed', { u: u.username }))}</h3>
       <form>
-        ${isNew ? `<label>Username</label><input name="username" required />
-          <label>Password (min 8)</label><input type="password" name="password" minlength="8" required />` : ''}
-        <label>Callsign</label>
+        ${isNew ? `<label>${escHtml(t('users.colUsername'))}</label><input name="username" required />
+          <label>${escHtml(t('users.passwordMin'))}</label><input type="password" name="password" minlength="8" required />` : ''}
+        <label>${escHtml(t('users.colCallsign'))}</label>
         <input name="callsign" value="${isNew ? '' : escHtml(u.callsign)}" required />
-        <label>Roles</label>
+        <label>${escHtml(t('users.colRoles'))}</label>
         <div class="perm-grid">${roleOptions}</div>
         <div class="modal-err error"></div>
         <div class="modal-actions">
-          <button type="button" class="ghost cancel-btn">Cancel</button>
-          <button type="submit" class="primary">Save</button>
+          <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
+          <button type="submit" class="primary">${escHtml(t('common.save'))}</button>
         </div>
       </form>
     `, async (form) => {
@@ -3478,7 +3499,7 @@
       }
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || 'failed');
+        throw new Error(j.error || t('common.saveFailed'));
       }
       refreshUsers();
     });
@@ -3486,14 +3507,14 @@
 
   function passwordModal(u) {
     showModal(`
-      <h3>Reset password for ${escHtml(u.username)}</h3>
+      <h3>${escHtml(t('users.resetPwdTitle', { u: u.username }))}</h3>
       <form>
-        <label>New password (min 8)</label>
+        <label>${escHtml(t('users.resetPwdField'))}</label>
         <input type="password" name="password" minlength="8" required />
         <div class="modal-err error"></div>
         <div class="modal-actions">
-          <button type="button" class="ghost cancel-btn">Cancel</button>
-          <button type="submit" class="primary">Set password</button>
+          <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
+          <button type="submit" class="primary">${escHtml(t('users.resetPassword'))}</button>
         </div>
       </form>
     `, async (form) => {
@@ -3503,7 +3524,7 @@
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || 'failed');
+        throw new Error(j.error || t('common.saveFailed'));
       }
     });
   }
@@ -3516,16 +3537,16 @@
       return `<label><input type="checkbox" value="${escHtml(p)}" ${checked ? 'checked' : ''} ${isAdmin ? 'disabled' : ''}/> ${escHtml(p)}</label>`;
     }).join('');
     showModal(`
-      <h3>${isNew ? 'New role' : 'Edit role: ' + escHtml(r.name)}</h3>
+      <h3>${isNew ? escHtml(t('users.modalCreateRole')) : escHtml(t('users.modalEditRoleNamed', { r: r.name }))}</h3>
       <form>
-        ${isNew ? '<label>Name</label><input name="name" required />' : ''}
-        ${isAdmin ? '<p class="muted small">The admin role has all permissions and cannot be modified.</p>' : ''}
-        <label>Permissions</label>
+        ${isNew ? `<label>${escHtml(t('users.roleNameLabel'))}</label><input name="name" required />` : ''}
+        ${isAdmin ? `<p class="muted small">${escHtml(t('users.adminImmutable'))}</p>` : ''}
+        <label>${escHtml(t('users.permissionsLabel'))}</label>
         <div class="perm-grid">${checks}</div>
         <div class="modal-err error"></div>
         <div class="modal-actions">
-          <button type="button" class="ghost cancel-btn">Cancel</button>
-          <button type="submit" class="primary" ${isAdmin ? 'disabled' : ''}>Save</button>
+          <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
+          <button type="submit" class="primary" ${isAdmin ? 'disabled' : ''}>${escHtml(t('common.save'))}</button>
         </div>
       </form>
     `, async (form) => {
@@ -3541,7 +3562,7 @@
       }
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || 'failed');
+        throw new Error(j.error || t('common.saveFailed'));
       }
       refreshUsers();
     });
@@ -3623,7 +3644,7 @@
           break;
         case 'rig_select_denied':
           if (msg.payload && msg.payload.reason) {
-            alert('Cannot select rig: ' + msg.payload.reason);
+            alert(t('ops.cannotSelectRig', { reason: msg.payload.reason }));
           }
           break;
         case 'chat':
@@ -3651,6 +3672,9 @@
     }
     me = j;
     csrfToken = j.csrf_token || null;
+    if (me.language && window.I18N && me.language !== window.I18N.lang()) {
+      window.I18N.setLang(me.language);
+    }
     $('current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
     return true;
   }
@@ -3691,7 +3715,7 @@
   $('passkey-login-btn').addEventListener('click', async () => {
     $('passkey-login-error').textContent = '';
     if (!passkeyAvailable()) {
-      $('passkey-login-error').textContent = 'Passkeys require a secure connection (HTTPS or localhost).';
+      $('passkey-login-error').textContent = t('login.passkeysNeedSecure');
       return;
     }
     try {
@@ -3701,7 +3725,7 @@
       });
       if (!beginRes.ok) {
         const j = await beginRes.json().catch(() => ({}));
-        throw new Error(j.error || 'Failed to start passkey login');
+        throw new Error(j.error || t('login.passkeyLoginFailed'));
       }
       const pk = await beginRes.json();
       pk.publicKey.challenge = fromB64url(pk.publicKey.challenge);
@@ -3732,12 +3756,12 @@
       });
       if (!finishRes.ok) {
         const j = await finishRes.json().catch(() => ({}));
-        throw new Error(j.error || 'Passkey login failed');
+        throw new Error(j.error || t('login.passkeyLoginFailed'));
       }
       await bootstrap();
     } catch (err) {
       if (err.name !== 'NotAllowedError') {
-        $('passkey-login-error').textContent = err.message || 'Passkey login failed';
+        $('passkey-login-error').textContent = err.message || t('login.passkeyLoginFailed');
       }
     }
   });
@@ -3749,15 +3773,15 @@
     if (!res.ok) return;
     const list = await res.json();
     if (!list || list.length === 0) {
-      el.innerHTML = '<p class="muted small">No passkeys registered yet.</p>';
+      el.innerHTML = '<p class="muted small">' + escHtml(t('settings.passkeyNoneYet')) + '</p>';
       return;
     }
     el.innerHTML = list.map(pk => {
-      const date = pk.created_at ? new Date(pk.created_at).toLocaleDateString() : '';
+      const date = pk.created_at ? new Date(pk.created_at).toLocaleDateString(localeForFmt()) : '';
       return `<div class="passkey-item">
         <span class="passkey-name">&#128273; ${escHtml(pk.name || 'Passkey')}</span>
         <span class="muted small">${date}</span>
-        <button class="ghost small" data-delete-passkey="${escHtml(pk.id)}">Remove</button>
+        <button class="ghost small" data-delete-passkey="${escHtml(pk.id)}">${escHtml(t('common.remove'))}</button>
       </div>`;
     }).join('');
     el.querySelectorAll('[data-delete-passkey]').forEach(btn => {
@@ -3772,7 +3796,7 @@
   $('register-passkey-btn').addEventListener('click', async () => {
     $('passkey-error').textContent = '';
     if (!passkeyAvailable()) {
-      $('passkey-error').textContent = 'Passkeys require a secure connection (HTTPS or localhost).';
+      $('passkey-error').textContent = t('login.passkeysNeedSecure');
       return;
     }
     const name = encodeURIComponent($('passkey-name').value.trim() || 'Passkey');
@@ -3780,7 +3804,7 @@
       const beginRes = await api('/api/passkey/register/begin', { method: 'POST' });
       if (!beginRes.ok) {
         const j = await beginRes.json().catch(() => ({}));
-        throw new Error(j.error || 'Failed to start passkey registration');
+        throw new Error(j.error || t('settings.passkeyRegFail'));
       }
       const pk = await beginRes.json();
       pk.publicKey.challenge = fromB64url(pk.publicKey.challenge);
@@ -3809,13 +3833,13 @@
       });
       if (!finishRes.ok) {
         const j = await finishRes.json().catch(() => ({}));
-        throw new Error(j.error || 'Passkey registration failed');
+        throw new Error(j.error || t('settings.passkeyRegFail'));
       }
       $('passkey-name').value = '';
       await loadPasskeys();
     } catch (err) {
       if (err.name !== 'NotAllowedError') {
-        $('passkey-error').textContent = err.message || 'Registration failed';
+        $('passkey-error').textContent = err.message || t('settings.passkeyRegFail');
       }
     }
   });
@@ -3841,7 +3865,7 @@
         timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
         hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
       }).formatToParts(d);
-      const get = t => parts.find(p => p.type === t)?.value || '00';
+      const get = name => parts.find(p => p.type === name)?.value || '00';
       return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
     } catch {
       return d.toISOString().substring(0, 19).replace('T', ' ');
@@ -3854,7 +3878,7 @@
       timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
     }).formatToParts(utcDate);
-    const get = t => parts.find(p => p.type === t)?.value || '00';
+    const get = name => parts.find(p => p.type === name)?.value || '00';
     const apparent = new Date(`${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}Z`);
     return utcDate.getTime() - apparent.getTime();
   }
@@ -3876,7 +3900,7 @@
   function updateAuditTZHeader() {
     const tz = getAuditTZ();
     const h = $('audit-ts-header');
-    if (h) h.textContent = tz === 'UTC' ? 'Time UTC' : `Time (${tz})`;
+    if (h) h.textContent = tz === 'UTC' ? t('audit.colTime') : t('audit.colTimeTZ', { tz });
   }
 
   function initAuditTZSelect() {
@@ -3966,11 +3990,11 @@
       tbody.appendChild(tr);
     }
     const shown = auditEntries.length;
-    $('audit-status').textContent = `Showing ${shown} of ${auditTotal} entries`;
+    $('audit-status').textContent = t('audit.showing', { shown, total: auditTotal });
     const moreBtn = $('audit-load-more');
     if (shown < auditTotal) {
       moreBtn.classList.remove('hidden');
-      moreBtn.textContent = `Load more (${auditTotal - shown} remaining)`;
+      moreBtn.textContent = t('audit.loadMoreCount', { n: auditTotal - shown });
     } else {
       moreBtn.classList.add('hidden');
     }
@@ -4025,28 +4049,28 @@
 
   function featureRequestSubmitModal() {
     showModal(`
-      <h3>Feature Request</h3>
+      <h3>${escHtml(t('topbar.featureRequest'))}</h3>
       <form>
-        <label>From</label>
+        <label>${escHtml(t('featureRequests.colFrom'))}</label>
         <input name="from" value="${escHtml(me?.username || '')}" readonly style="opacity:0.6;cursor:not-allowed" />
-        <label>Request</label>
+        <label>${escHtml(t('featureRequests.colRequest'))}</label>
         <textarea name="text" rows="5" required style="width:100%;resize:vertical;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:inherit;font:inherit"></textarea>
         <div class="modal-err error"></div>
         <div class="modal-actions">
-          <button type="button" class="ghost cancel-btn">Cancel</button>
-          <button type="submit" class="primary">Send</button>
+          <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
+          <button type="submit" class="primary">${escHtml(t('chat.send'))}</button>
         </div>
       </form>
     `, async (form) => {
       const text = form.text.value.trim();
-      if (!text) throw new Error('Please enter your request.');
+      if (!text) throw new Error(t('featureRequests.pleaseEnter'));
       const res = await api('/api/feature-requests', {
         method: 'POST',
         body: JSON.stringify({ text }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || 'Failed to submit');
+        throw new Error(j.error || t('featureRequests.submitFail'));
       }
     });
   }
@@ -4065,22 +4089,23 @@
     $('fr-select-all').checked = false;
     for (const fr of featureRequests) {
       const tr = document.createElement('tr');
-      const date = fr.created_at ? new Date(fr.created_at).toLocaleString() : '';
+      const date = fr.created_at ? new Date(fr.created_at).toLocaleString(localeForFmt()) : '';
       const statusClass = { pending: 'open', accepted: 'admin', declined: 'disabled', implemented: 'finished' }[fr.status] || '';
+      const statusLabel = t('featureRequests.status_' + fr.status) || fr.status;
       tr.innerHTML = `
         <td><input type="checkbox" class="fr-check" data-id="${Number(fr.id)}" /></td>
         <td>${escHtml(fr.from)}</td>
         <td class="muted small">${escHtml(date)}</td>
-        <td><span class="badge ${statusClass}">${escHtml(fr.status)}</span></td>
+        <td><span class="badge ${statusClass}">${escHtml(statusLabel)}</span></td>
         <td style="white-space:pre-wrap;max-width:480px">${escHtml(fr.text)}</td>
         <td class="actions" style="white-space:nowrap">
           <select class="fr-status-sel ghost" data-id="${Number(fr.id)}" style="font-size:12px;padding:2px 6px;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:4px;color:inherit">
-            <option value="pending" ${fr.status==='pending'?'selected':''}>Pending</option>
-            <option value="accepted" ${fr.status==='accepted'?'selected':''}>Accepted</option>
-            <option value="declined" ${fr.status==='declined'?'selected':''}>Declined</option>
-            <option value="implemented" ${fr.status==='implemented'?'selected':''}>Implemented</option>
+            <option value="pending" ${fr.status==='pending'?'selected':''}>${escHtml(t('featureRequests.status_pending'))}</option>
+            <option value="accepted" ${fr.status==='accepted'?'selected':''}>${escHtml(t('featureRequests.status_accepted'))}</option>
+            <option value="declined" ${fr.status==='declined'?'selected':''}>${escHtml(t('featureRequests.status_declined'))}</option>
+            <option value="implemented" ${fr.status==='implemented'?'selected':''}>${escHtml(t('featureRequests.status_implemented'))}</option>
           </select>
-          <button class="ghost fr-del-btn" data-id="${Number(fr.id)}">Delete</button>
+          <button class="ghost fr-del-btn" data-id="${Number(fr.id)}">${escHtml(t('common.delete'))}</button>
         </td>
       `;
       tbody.appendChild(tr);
@@ -4097,13 +4122,14 @@
     });
     tbody.querySelectorAll('.fr-del-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
-        if (!await showConfirm('Delete this feature request?', { ok: 'Delete' })) return;
+        if (!await showConfirm(t('featureRequests.deleteConfirm'), { ok: t('common.delete') })) return;
         const id = Number(btn.dataset.id);
         const res = await api('/api/feature-requests/' + id, { method: 'DELETE' });
         if (res.ok) refreshFeatureRequests();
       });
     });
-    $('fr-count').textContent = featureRequests.length + ' request' + (featureRequests.length !== 1 ? 's' : '');
+    const n = featureRequests.length;
+    $('fr-count').textContent = n === 1 ? t('featureRequests.count', { n }) : t('featureRequests.countPlural', { n });
   }
 
   $('fr-select-all').addEventListener('change', (e) => {
@@ -4113,8 +4139,8 @@
   $('fr-export-btn').addEventListener('click', () => {
     const selected = Array.from(document.querySelectorAll('.fr-check:checked')).map(cb => Number(cb.dataset.id));
     const items = featureRequests.filter(fr => selected.includes(Number(fr.id)));
-    if (!items.length) { alert('Select at least one request to export.'); return; }
-    const body = 'The following changes are requested for this application: \n\n' +
+    if (!items.length) { alert(t('featureRequests.selectExport')); return; }
+    const body = t('featureRequests.exportHeader') + '\n\n' +
       items.map(fr => fr.text).join('\n----------\n');
     const blob = new Blob([body], { type: 'text/plain' });
     const a = document.createElement('a');
@@ -4126,8 +4152,8 @@
 
   $('fr-delete-selected-btn').addEventListener('click', async () => {
     const selected = Array.from(document.querySelectorAll('.fr-check:checked')).map(cb => Number(cb.dataset.id));
-    if (!selected.length) { alert('Select at least one request to delete.'); return; }
-    if (!await showConfirm(`Delete ${selected.length} selected request(s)?`, { ok: 'Delete' })) return;
+    if (!selected.length) { alert(t('featureRequests.selectDelete')); return; }
+    if (!await showConfirm(t('featureRequests.deleteManyConfirm', { n: selected.length }), { ok: t('common.delete') })) return;
     await Promise.all(selected.map(id => api('/api/feature-requests/' + id, { method: 'DELETE' })));
     refreshFeatureRequests();
   });
@@ -4144,16 +4170,16 @@
     if (!iso) return '—';
     const d = new Date(iso);
     const diff = Date.now() - d.getTime();
-    if (diff < 0) return d.toLocaleDateString();
+    if (diff < 0) return d.toLocaleDateString(localeForFmt());
     const s = Math.floor(diff / 1000);
-    if (s < 60) return 'just now';
+    if (s < 60) return t('relTime.justNow');
     const m = Math.floor(s / 60);
-    if (m < 60) return m + 'm ago';
+    if (m < 60) return t('relTime.mAgo', { n: m });
     const h = Math.floor(m / 60);
-    if (h < 24) return h + 'h ago';
+    if (h < 24) return t('relTime.hAgo', { n: h });
     const dy = Math.floor(h / 24);
-    if (dy < 30) return dy + 'd ago';
-    return d.toLocaleDateString();
+    if (dy < 30) return t('relTime.dAgo', { n: dy });
+    return d.toLocaleDateString(localeForFmt());
   }
 
   // ----- Panel resizers -----
@@ -4234,6 +4260,40 @@
   }
   initPanelResizers();
 
+  // Mount language switchers and react to language changes.
+  ['lang-switcher-login', 'lang-switcher-setup', 'lang-switcher-contest', 'lang-switcher-topbar']
+    .forEach(id => { const el = $(id); if (el && window.I18N) window.I18N.mountSwitcher(el); });
+  if (window.I18N) {
+    window.I18N.onChange(() => {
+      // Re-render anything that builds text in JS.
+      try { renderQsos(); } catch {}
+      try { renderOperators(); } catch {}
+      try { renderRigList(); } catch {}
+      try { renderRigSelect(); } catch {}
+      try { updateRigStatusPill(); } catch {}
+      try { renderClusterSpots(); } catch {}
+      try { renderContestPicker(); } catch {}
+      try { renderContestsTable(); } catch {}
+      try { renderUsers(window.__usersCache || []); } catch {}
+      try { renderRoles(); } catch {}
+      try { renderAuditLog(); } catch {}
+      try { renderFeatureRequests(); } catch {}
+      try { updateChatSoundToggleBtn(); } catch {}
+      try { updateAuditTZHeader(); } catch {}
+      try { renderStatistics(); } catch {}
+      try { renderDownloads(window.__downloadsCache || []); } catch {}
+      try { renderGlobalOperators(); } catch {}
+      try { updateContestDisplay(); } catch {}
+    });
+  }
+  // Expose CSRF token to i18n.js so language changes can be persisted.
+  try {
+    Object.defineProperty(window, '__noctalumCSRF', {
+      get() { return csrfToken; },
+      configurable: true,
+    });
+  } catch {}
+
   // Initial route.
   (async () => {
     const res = await fetch('/api/me', { credentials: 'same-origin' });
@@ -4242,6 +4302,9 @@
       if (j.setup_required) { show('setup-screen'); return; }
       me = j;
       csrfToken = j.csrf_token || null;
+      if (me.language && window.I18N && me.language !== window.I18N.lang()) {
+        window.I18N.setLang(me.language);
+      }
       $('current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
       applyPermissionsToUI();
       await loadSettings();
