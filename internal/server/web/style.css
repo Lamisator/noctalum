@@ -810,16 +810,17 @@ code {
 .contest-picker-item.finished {
   opacity: 0.7;
 }
-.contest-picker-call {
+.contest-picker-name {
   color: var(--accent);
   font-size: 18px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
 }
-.contest-picker-name {
+.contest-picker-call {
   font-size: 13px;
-  color: var(--text);
+  color: var(--text-muted);
   margin-top: 2px;
+  letter-spacing: 0.06em;
 }
 .contest-picker-status {
   font-size: 11px;
@@ -912,7 +913,7 @@ button.contest-edit-pill:hover {
 }
 .clt-head {
   display: grid;
-  grid-template-columns: 110px 1fr 76px 92px 100px 36px;
+  grid-template-columns: 1fr 110px 76px 92px 100px 36px;
   align-items: center;
   padding: 7px 12px;
   background: var(--bg-elev-2);
@@ -936,7 +937,7 @@ button.contest-edit-pill:hover {
 #contest-list-body { max-height: 380px; overflow-y: auto; }
 .cl-row {
   display: grid;
-  grid-template-columns: 110px 1fr 76px 92px 100px 36px;
+  grid-template-columns: 1fr 110px 76px 92px 100px 36px;
   align-items: center;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
@@ -949,7 +950,8 @@ button.contest-edit-pill:hover {
 .cl-row.finished { opacity: 0.65; }
 .cl-row:hover .contest-edit-pill { opacity: 1; }
 .cl-col { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.cl-call { color: var(--accent); font-weight: 700; font-size: 14px; letter-spacing: 0.06em; }
+.cl-name { color: var(--accent); font-weight: 600; font-size: 14px; }
+.cl-call { color: var(--text-muted); font-size: 13px; letter-spacing: 0.06em; }
 .cl-date, .cl-activity { color: var(--text-muted); font-size: 12px; }
 .cl-actions { display: flex; justify-content: flex-end; align-items: center; }
 .cl-priv-badge {

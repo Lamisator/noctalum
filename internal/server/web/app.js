@@ -812,8 +812,8 @@
       : '';
     item.innerHTML = `
       <div>
-        <div class="contest-picker-call">${escHtml(fmtCall(c.station_call))}</div>
         <div class="contest-picker-name">${escHtml(c.name)}</div>
+        <div class="contest-picker-call">${escHtml(fmtCall(c.station_call))}</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span class="contest-picker-status ${c.status}">${c.status}</span>
@@ -952,8 +952,8 @@
     const editBtn = hasPerm('contests.manage')
       ? `<button class="contest-edit-pill" title="Edit contest" tabindex="-1">&#128295;</button>` : '';
     row.innerHTML = `
-      <div class="cl-col cl-call">${escHtml(fmtCall(c.station_call))}</div>
       <div class="cl-col cl-name">${escHtml(c.name)}${privateBadge}</div>
+      <div class="cl-col cl-call">${escHtml(fmtCall(c.station_call))}</div>
       <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${c.status}</span></div>
       <div class="cl-col cl-date">${createdDate}</div>
       <div class="cl-col cl-activity">${actDate}</div>
@@ -1261,6 +1261,7 @@
   }
   function onChatMessage(payload) {
     appendChatMessage(payload);
+    if (payload?.history) return;
     const tab = document.querySelector('.ops-tab[data-ops-tab="chat"]');
     if (tab && !tab.classList.contains('active')) {
       tab.classList.add('chat-notify');
@@ -2703,7 +2704,20 @@
     }
     // Hide tiles that are not in the layout (shouldn't happen, but defensive)
     for (const [key, tile] of present) {
-      if (!layout.items.some(it => it.key === key)) tile.classList.add('hidden');
+      if (!layout.items.some(it => it.key === key)) {
+        tile.classList.add('hidden');
+        const f = tile.querySelector('input, select, textarea');
+        if (f) f.tabIndex = -1;
+      }
+    }
+    // Assign tabindex in visual reading order (top-to-bottom, left-to-right)
+    const sorted = [...layout.items].sort((a, b) => a.y !== b.y ? a.y - b.y : a.x - b.x);
+    let tabIdx = 1;
+    for (const it of sorted) {
+      const tile = present.get(it.key);
+      if (!tile) continue;
+      const f = tile.querySelector('input, select, textarea');
+      if (f) f.tabIndex = tabIdx++;
     }
   }
 
