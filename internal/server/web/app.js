@@ -3093,17 +3093,49 @@
       const rect = root.getBoundingClientRect();
       const colW = rect.width / LAYOUT_COLS;
       const rowH = 50;
-      tile.classList.add('dragging');
-      tile.setPointerCapture?.(e.pointerId);
       const layout = buildEffectiveLayout(_layoutState.json, _layoutState.cfList || []);
       const it = layout.items.find(i => i.key === key);
       const startX = e.clientX, startY = e.clientY;
       const origX = it.x, origY = it.y, origW = it.w;
       const mode = resize ? 'resize' : 'move';
       const edge = resize ? resize.dataset.resize : null;
+
+      let dragStarted = resize != null; // resize handles start immediately
+      let longPressTimer = null;
+
+      const beginDrag = () => {
+        if (dragStarted) return;
+        dragStarted = true;
+        tile.classList.add('dragging');
+      };
+
+      if (dragStarted) {
+        tile.classList.add('dragging');
+      } else {
+        // Long-press (500 ms) opens the context menu instead of dragging.
+        longPressTimer = setTimeout(() => {
+          longPressTimer = null;
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          tile.releasePointerCapture?.(e.pointerId);
+          if (!QSO_MANDATORY_KEYS.has(key)) {
+            _showLayoutContextMenu(startX, startY, key);
+          }
+        }, 500);
+      }
+
+      tile.setPointerCapture?.(e.pointerId);
+
       const onMove = (ev) => {
         const dx = ev.clientX - startX;
         const dy = ev.clientY - startY;
+        // Cancel long-press if pointer moves more than a few pixels.
+        if (longPressTimer && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+          beginDrag();
+        }
+        if (!dragStarted) return;
         if (mode === 'move') {
           const nx = Math.round(origX + dx / colW);
           const ny = Math.round(origY + dy / rowH);
@@ -3115,6 +3147,8 @@
         renderLayoutEditor();
       };
       const onUp = () => {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
         tile.classList.remove('dragging');
         document.removeEventListener('pointermove', onMove);
         document.removeEventListener('pointerup', onUp);
