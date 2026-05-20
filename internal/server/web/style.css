@@ -861,6 +861,27 @@ button.contest-edit-pill:hover {
   color: var(--accent) !important;
   background: var(--accent-dim) !important;
 }
+.contest-access-indicator {
+  font-size: 13px;
+  opacity: 0.7;
+  line-height: 1;
+}
+.access-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+.access-user-row:last-child { border-bottom: none; }
+.access-user-row button {
+  flex-shrink: 0;
+  width: auto;
+  margin: 0;
+  padding: 2px 10px;
+  font-size: 12px;
+}
 
 /* ==== Contest picker toolbar ==== */
 .contest-toolbar {
@@ -949,6 +970,7 @@ button.contest-edit-pill:hover {
 .cl-row:hover { background: var(--accent-dim); }
 .cl-row.finished { opacity: 0.65; }
 .cl-row:hover .contest-edit-pill { opacity: 1; }
+.cl-row:hover .contest-access-pill { opacity: 1; }
 .cl-col { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .cl-name { color: var(--accent); font-weight: 600; font-size: 14px; }
 .cl-call { color: var(--text-muted); font-size: 13px; letter-spacing: 0.06em; }

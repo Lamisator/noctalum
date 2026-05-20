@@ -807,9 +807,13 @@
   function makePickerItem(c) {
     const item = document.createElement('div');
     item.className = 'contest-picker-item' + (c.status === 'finished' ? ' finished' : '');
+    const canManageAccess = hasPerm('contest.admin') || (c.owner_user_id && c.owner_user_id === me?.user_id);
     const editBtn = hasPerm('contests.manage')
       ? `<button class="contest-edit-pill" title="Edit contest" tabindex="-1">&#128295;</button>`
       : '';
+    const accessBtn = canManageAccess
+      ? `<button class="contest-edit-pill contest-access-pill" title="Manage access" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
+      : (c.access_restricted ? `<span class="contest-access-indicator" title="Access restricted">&#128274;</span>` : '');
     item.innerHTML = `
       <div>
         <div class="contest-picker-name">${escHtml(c.name)}</div>
@@ -817,13 +821,20 @@
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span class="contest-picker-status ${c.status}">${c.status}</span>
+        ${accessBtn}
         ${editBtn}
       </div>
     `;
     if (hasPerm('contests.manage')) {
-      item.querySelector('.contest-edit-pill').addEventListener('click', async (e) => {
+      item.querySelector('.contest-edit-pill:not(.contest-access-pill)')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         contestEditModal(c);
+      });
+    }
+    if (canManageAccess) {
+      item.querySelector('.contest-access-pill')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        contestAccessModal(c);
       });
     }
     item.addEventListener('click', () => selectContest(c));
@@ -949,20 +960,30 @@
     const createdDate = c.created_at ? new Date(c.created_at).toLocaleDateString() : '—';
     const actDate = fmtRelTime(c.last_activity_at);
     const privateBadge = c.private ? '<span class="cl-priv-badge">Private</span>' : '';
+    const canManageAccess = hasPerm('contest.admin') || (c.owner_user_id && c.owner_user_id === me?.user_id);
     const editBtn = hasPerm('contests.manage')
       ? `<button class="contest-edit-pill" title="Edit contest" tabindex="-1">&#128295;</button>` : '';
+    const accessBtn = canManageAccess
+      ? `<button class="contest-edit-pill contest-access-pill" title="Manage access" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
+      : (c.access_restricted ? `<span class="contest-access-indicator" title="Access restricted">&#128274;</span>` : '');
     row.innerHTML = `
       <div class="cl-col cl-name">${escHtml(c.name)}${privateBadge}</div>
       <div class="cl-col cl-call">${escHtml(fmtCall(c.station_call))}</div>
       <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${c.status}</span></div>
       <div class="cl-col cl-date">${createdDate}</div>
       <div class="cl-col cl-activity">${actDate}</div>
-      <div class="cl-col cl-actions">${editBtn}</div>
+      <div class="cl-col cl-actions">${accessBtn}${editBtn}</div>
     `;
     if (hasPerm('contests.manage')) {
-      row.querySelector('.contest-edit-pill').addEventListener('click', async (e) => {
+      row.querySelector('.contest-edit-pill:not(.contest-access-pill)')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         contestEditModal(c);
+      });
+    }
+    if (canManageAccess) {
+      row.querySelector('.contest-access-pill')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        contestAccessModal(c);
       });
     }
     row.addEventListener('click', () => selectContest(c));
@@ -2538,6 +2559,98 @@
       updatePreview();
       ta.addEventListener('input', updatePreview);
     }
+  }
+
+  // ----- Contest access modal -----
+  async function contestAccessModal(c) {
+    const res = await api('/api/contests/' + c.id + '/access');
+    if (!res.ok) { alert('Failed to load access list'); return; }
+    const users = await res.json();
+
+    const restrictedChecked = c.access_restricted ? 'checked' : '';
+    const userRows = users.length ? users.map(u => `
+      <div class="access-user-row" data-uid="${Number(u.user_id)}">
+        <span>${escHtml(u.username)}${u.callsign ? ` <span class="muted small">${escHtml(fmtCall(u.callsign))}</span>` : ''}</span>
+        <button type="button" class="ghost access-revoke-btn" data-uid="${Number(u.user_id)}">Remove</button>
+      </div>
+    `).join('') : '<p class="muted small">No users granted access.</p>';
+
+    const root = $('modal-root');
+    const card = $('modal-card');
+    card.classList.remove('modal-wide');
+    card.innerHTML = `
+      <h3>Access &#8212; ${escHtml(c.name)}</h3>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer">
+        <input type="checkbox" id="access-restricted-toggle" ${restrictedChecked} />
+        Restrict access to authorized users only
+      </label>
+      <div id="access-user-list">${userRows}</div>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:flex-end">
+        <label style="flex:1;margin:0">Add user (username)
+          <input id="access-add-input" type="text" placeholder="username" autocomplete="off" style="margin-top:4px" />
+        </label>
+        <button type="button" id="access-add-btn" class="primary" style="width:auto;margin:0">Add</button>
+      </div>
+      <div id="access-modal-err" class="error" style="margin-top:6px"></div>
+      <div class="modal-actions">
+        <button type="button" class="ghost cancel-btn">Close</button>
+      </div>
+    `;
+    root.classList.remove('hidden');
+    card.querySelector('.cancel-btn').addEventListener('click', () => root.classList.add('hidden'));
+
+    const toggle = document.getElementById('access-restricted-toggle');
+    toggle?.addEventListener('change', async () => {
+      const errEl = document.getElementById('access-modal-err');
+      errEl.textContent = '';
+      const r = await api('/api/contests/' + c.id + '/access', {
+        method: 'PUT',
+        body: JSON.stringify({ restricted: toggle.checked }),
+      });
+      if (!r.ok) {
+        toggle.checked = !toggle.checked;
+        errEl.textContent = 'Failed to update restriction setting';
+        return;
+      }
+      c.access_restricted = toggle.checked;
+      renderContestPicker();
+    });
+
+    document.querySelectorAll('.access-revoke-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const uid = btn.dataset.uid;
+        const errEl = document.getElementById('access-modal-err');
+        errEl.textContent = '';
+        const r = await api('/api/contests/' + c.id + '/access/' + uid, { method: 'DELETE' });
+        if (r.ok) {
+          btn.closest('.access-user-row').remove();
+        } else {
+          errEl.textContent = 'Failed to remove user';
+        }
+      });
+    });
+
+    document.getElementById('access-add-btn')?.addEventListener('click', async () => {
+      const username = (document.getElementById('access-add-input')?.value || '').trim();
+      if (!username) return;
+      const errEl = document.getElementById('access-modal-err');
+      errEl.textContent = '';
+      const r = await api('/api/contests/' + c.id + '/access', {
+        method: 'POST',
+        body: JSON.stringify({ username }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        errEl.textContent = j.error || 'Failed to add user';
+        return;
+      }
+      root.classList.add('hidden');
+      contestAccessModal(c);
+    });
+
+    document.getElementById('access-add-input')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('access-add-btn')?.click(); }
+    });
   }
 
   // ----- Custom fields editor -----

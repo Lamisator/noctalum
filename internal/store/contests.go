@@ -22,10 +22,18 @@ type Contest struct {
 	Objective    string    `json:"objective"`  // markdown text
 	Private      bool      `json:"private"`    // owner-only contest
 	OwnerUserID  int64     `json:"owner_user_id"`
-	CustomFields   string     `json:"custom_fields"`    // JSON-encoded array of {name,label,type,required,order}
-	QSOLayout      string     `json:"qso_layout"`       // JSON-encoded {cols, items:[{key,x,y,w}]} for the New QSO mask
-	CreatedAt      time.Time  `json:"created_at"`
-	LastActivityAt *time.Time `json:"last_activity_at"` // time of the most recent QSO; nil if no QSOs logged
+	CustomFields     string     `json:"custom_fields"`      // JSON-encoded array of {name,label,type,required,order}
+	QSOLayout        string     `json:"qso_layout"`         // JSON-encoded {cols, items:[{key,x,y,w}]} for the New QSO mask
+	AccessRestricted bool       `json:"access_restricted"`  // when true, only access-listed users / owners / admins can see & enter
+	CreatedAt        time.Time  `json:"created_at"`
+	LastActivityAt   *time.Time `json:"last_activity_at"` // time of the most recent QSO; nil if no QSOs logged
+}
+
+// ContestAccessUser carries the user information returned for contest access list entries.
+type ContestAccessUser struct {
+	UserID   int64  `json:"user_id"`
+	Username string `json:"username"`
+	Callsign string `json:"callsign"`
 }
 
 func bandsToString(bands []string) string { return strings.Join(bands, ",") }
@@ -75,6 +83,9 @@ func (s *Store) migrateContests() error {
 	}
 	if err := s.addColumnIfMissing("contests", "qso_layout", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return fmt.Errorf("migrate contests qso_layout: %w", err)
+	}
+	if err := s.addColumnIfMissing("contests", "access_restricted", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("migrate contests access_restricted: %w", err)
 	}
 	if err := s.addColumnIfMissing("qsos", "extras", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return fmt.Errorf("migrate qsos extras: %w", err)
@@ -145,7 +156,7 @@ func (s *Store) CreateContest(name, stationCall, qth string, bands []string, obj
 func (s *Store) ListContests() ([]Contest, error) {
 	rows, err := s.db.Query(
 		`SELECT c.id, c.name, c.station_call, c.qth, c.bands, c.objective, c.status, c.station_id,
-		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.created_at,
+		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.access_restricted, c.created_at,
 		        MAX(q.time_utc) AS last_activity_at
 		 FROM contests c
 		 LEFT JOIN qsos q ON q.contest_id = c.id
@@ -159,12 +170,13 @@ func (s *Store) ListContests() ([]Contest, error) {
 	for rows.Next() {
 		var c Contest
 		var t, bandsStr string
-		var priv int
+		var priv, ar int
 		var lastAct sql.NullString
-		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &t, &lastAct); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &ar, &t, &lastAct); err != nil {
 			return nil, err
 		}
 		c.Private = priv != 0
+		c.AccessRestricted = ar != 0
 		c.Bands = bandsFromString(bandsStr)
 		c.CreatedAt, _ = time.Parse(time.RFC3339, t)
 		if lastAct.Valid && lastAct.String != "" {
@@ -179,17 +191,18 @@ func (s *Store) ListContests() ([]Contest, error) {
 // GetContest returns a single contest by ID.
 func (s *Store) GetContest(id int64) (*Contest, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, created_at FROM contests WHERE id = ?`, id)
+		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, access_restricted, created_at FROM contests WHERE id = ?`, id)
 	var c Contest
 	var t, bandsStr string
-	var priv int
-	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &t); err != nil {
+	var priv, ar int
+	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &ar, &t); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrContestNotFound
 		}
 		return nil, err
 	}
 	c.Private = priv != 0
+	c.AccessRestricted = ar != 0
 	c.Bands = bandsFromString(bandsStr)
 	c.CreatedAt, _ = time.Parse(time.RFC3339, t)
 	return &c, nil
@@ -250,4 +263,47 @@ func (s *Store) GetContestAccessList(contestID int64) ([]int64, error) {
 		out = append(out, uid)
 	}
 	return out, rows.Err()
+}
+
+// GetContestAccessUsers returns users (with username and callsign) granted access to a contest.
+func (s *Store) GetContestAccessUsers(contestID int64) ([]ContestAccessUser, error) {
+	rows, err := s.db.Query(
+		`SELECT u.id, u.username, u.callsign
+		 FROM contest_access ca
+		 JOIN users u ON u.id = ca.user_id
+		 WHERE ca.contest_id = ?
+		 ORDER BY u.username`, contestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ContestAccessUser
+	for rows.Next() {
+		var u ContestAccessUser
+		if err := rows.Scan(&u.UserID, &u.Username, &u.Callsign); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// SetContestAccessRestricted enables or disables access restriction for a contest.
+func (s *Store) SetContestAccessRestricted(contestID int64, restricted bool) error {
+	v := 0
+	if restricted {
+		v = 1
+	}
+	_, err := s.db.Exec(`UPDATE contests SET access_restricted = ? WHERE id = ?`, v, contestID)
+	return err
+}
+
+// GrantContestAccessByUsername resolves a username to a user ID and grants access.
+// Returns the resolved user ID on success.
+func (s *Store) GrantContestAccessByUsername(contestID int64, username string) (int64, error) {
+	u, err := s.GetUserByUsername(username)
+	if err != nil {
+		return 0, err
+	}
+	return u.ID, s.GrantContestAccess(contestID, u.ID)
 }

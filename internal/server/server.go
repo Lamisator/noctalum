@@ -583,6 +583,7 @@ func sessionInfo(sess *Session) map[string]any {
 	return map[string]any{
 		"username":           sess.Username,
 		"callsign":           sess.Callsign,
+		"user_id":            sess.UserID,
 		"permissions":        sess.Permissions,
 		"selected_rig":       sess.SelectedRig(),
 		"csrf_token":         sess.CSRFToken,
@@ -1686,9 +1687,18 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
+		canSeeAll := HasPermission(sess.Permissions, PermContestsManage) || HasPermission(sess.Permissions, PermContestAdmin)
 		filtered := make([]store.Contest, 0, len(contests))
 		for _, c := range contests {
-			if c.Private && c.OwnerUserID != sess.UserID {
+			if c.AccessRestricted && !canSeeAll {
+				isOwner := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
+				if !isOwner {
+					ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
+					if err != nil || !ok {
+						continue
+					}
+				}
+			} else if c.Private && c.OwnerUserID != sess.UserID && !canSeeAll {
 				ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
 				if err != nil || !ok {
 					continue
@@ -1788,7 +1798,16 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		if c.Private && c.OwnerUserID != sess.UserID {
+		canSeeAllSel := HasPermission(sess.Permissions, PermContestsManage) || HasPermission(sess.Permissions, PermContestAdmin)
+		isOwnerSel := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
+		if c.AccessRestricted && !canSeeAllSel && !isOwnerSel {
+			ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
+			if err != nil || !ok {
+				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "access restricted")
+				writeError(w, http.StatusForbidden, "you are not authorized to access this contest")
+				return
+			}
+		} else if c.Private && c.OwnerUserID != sess.UserID && !canSeeAllSel {
 			ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
 			if err != nil || !ok {
 				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "private contest, no access")
@@ -1838,32 +1857,73 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if sub == "access" && r.Method == http.MethodGet {
-			list, err := s.store.GetContestAccessList(id)
+			list, err := s.store.GetContestAccessUsers(id)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			if list == nil {
-				list = []int64{}
+				list = []store.ContestAccessUser{}
 			}
 			writeJSON(w, http.StatusOK, list)
 			return
 		}
 
-		if sub == "access" && r.Method == http.MethodPost {
+		if sub == "access" && r.Method == http.MethodPut {
 			var in struct {
-				UserID int64 `json:"user_id"`
+				Restricted bool `json:"restricted"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.UserID == 0 {
-				writeError(w, http.StatusBadRequest, "user_id required")
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid JSON")
 				return
 			}
-			if err := s.store.GrantContestAccess(id, in.UserID); err != nil {
+			if err := s.store.SetContestAccessRestricted(id, in.Restricted); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
+			s.audit(r, store.AuditInfo, AuditContestUpdate, sess.Username, c.Name,
+				fmt.Sprintf("access_restricted: %v", in.Restricted))
+			s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
+				"id":               id,
+				"access_restricted": in.Restricted,
+			}})
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		if sub == "access" && r.Method == http.MethodPost {
+			var in struct {
+				UserID   int64  `json:"user_id"`
+				Username string `json:"username"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid JSON")
+				return
+			}
+			var targetUserID int64
+			if in.Username != "" {
+				uid, err := s.store.GrantContestAccessByUsername(id, in.Username)
+				if errors.Is(err, store.ErrNotFound) {
+					writeError(w, http.StatusNotFound, "user not found")
+					return
+				}
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				targetUserID = uid
+			} else if in.UserID != 0 {
+				if err := s.store.GrantContestAccess(id, in.UserID); err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				targetUserID = in.UserID
+			} else {
+				writeError(w, http.StatusBadRequest, "user_id or username required")
+				return
+			}
 			s.audit(r, store.AuditInfo, AuditContestGrantAccess, sess.Username, c.Name,
-				"user_id: "+strconv.FormatInt(in.UserID, 10))
+				"user_id: "+strconv.FormatInt(targetUserID, 10))
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
