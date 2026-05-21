@@ -1122,7 +1122,7 @@
     btn.className = 'lang-switcher-btn';
     btn.setAttribute('aria-haspopup', 'listbox');
     btn.setAttribute('title', t('lang.switcher'));
-    btn.innerHTML = `<span class="lang-flag">${cur.flag}</span>`;
+    btn.innerHTML = `<span class="lang-flag">${cur.flag}</span><span class="lang-abbr">${cur.code.toUpperCase()}</span>`;
     host.appendChild(btn);
 
     const menu = document.createElement('div');
@@ -1133,7 +1133,7 @@
       opt.type = 'button';
       opt.className = 'lang-switcher-opt' + (l.code === currentLang ? ' active' : '');
       opt.setAttribute('role', 'option');
-      opt.innerHTML = `<span class="lang-flag">${l.flag}</span><span class="lang-name">${l.label}</span>`;
+      opt.innerHTML = `<span class="lang-flag">${l.flag}</span><span class="lang-name">${l.label}</span><span class="lang-check">✓</span>`;
       opt.addEventListener('click', (e) => {
         e.stopPropagation();
         menu.classList.add('hidden');

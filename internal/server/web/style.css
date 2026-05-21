@@ -1916,9 +1916,12 @@ button.small { padding: 4px 8px; font-size: 12px; }
   font-size: 13px;
 }
 .lang-switcher-opt:hover { background: var(--accent-dim); color: var(--accent); }
-.lang-switcher-opt.active { background: var(--accent-dim); color: var(--accent); }
+.lang-switcher-opt.active { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
 .lang-switcher-opt .lang-flag { font-size: 18px; line-height: 1; }
 .lang-switcher-opt .lang-name { flex: 1; }
+.lang-switcher-opt .lang-check { font-size: 12px; opacity: 0; }
+.lang-switcher-opt.active .lang-check { opacity: 1; color: var(--accent); }
+.lang-switcher-btn .lang-abbr { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); }
 
 /* Position language switcher on login/setup/contest cards (top-right) */
 .login-card .lang-switcher-host {
