@@ -2146,3 +2146,18 @@ button.small { padding: 4px 8px; font-size: 12px; }
 }
 .contest-join-req-btn:hover { background: var(--accent-dim); }
 .contest-join-req-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* Contest settings button in topbar */
+.contest-settings-btn {
+  font-size: 16px;
+  padding: 5px 8px;
+  min-height: unset;
+  height: 32px;
+  width: auto;
+  margin: 0;
+  border-radius: 8px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.contest-settings-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }

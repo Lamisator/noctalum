@@ -674,6 +674,10 @@
 
   // ----- contest selection screen -----
   $('station-pill').addEventListener('click', () => showContestScreen());
+  $('contest-settings-btn').addEventListener('click', () => {
+    const c = getCurrentContestForEdit();
+    if (c) contestEditModal(c);
+  });
 
   $('create-contest-btn').addEventListener('click', () => contestCreateModal());
   $('create-private-contest-btn').addEventListener('click', () => contestCreateModal(true));
@@ -900,6 +904,8 @@
       me.contest_station_id = j.contest_station_id || '';
       me.contest_qso_layout = j.contest_qso_layout || '';
       me.contest_fields = j.contest_fields || '';
+      me.contest_private = j.contest_private || false;
+      me.contest_owner_user_id = j.contest_owner_user_id || 0;
     }
     await enterApp();
   }
@@ -1096,6 +1102,31 @@
     $('q-call').focus();
   }
 
+  function getCurrentContestForEdit() {
+    if (!me?.contest_id) return null;
+    const fromList = (allContests || []).find(c => c.id === me.contest_id);
+    if (fromList) return fromList;
+    const bands = me.contest_bands ? me.contest_bands.split(',').filter(Boolean) : [];
+    const isOwner = me.contest_owner_user_id && me.contest_owner_user_id === me.user_id;
+    return {
+      id: me.contest_id,
+      name: me.contest_name || '',
+      station_call: me.contest_call || '',
+      station_id: me.contest_station_id || '',
+      qth: me.contest_qth || '',
+      status: me.contest_status || 'open',
+      bands,
+      objective: me.contest_objective || '',
+      custom_fields: me.contest_fields || '',
+      qso_layout: me.contest_qso_layout || '',
+      private: me.contest_private || false,
+      owner_user_id: me.contest_owner_user_id || 0,
+      access_restricted: false,
+      my_role: isOwner ? 'owner' : '',
+      my_status: isOwner ? 'active' : '',
+    };
+  }
+
   function updateContestDisplay() {
     const call = me?.contest_call || '—';
     const name = me?.contest_name || '';
@@ -1114,6 +1145,14 @@
     }
     $('station-contest-name').textContent = name;
     $('ops-station-call').textContent = fmtCall(call);
+    // Show settings button for managers and contest owners
+    const settingsBtn = $('contest-settings-btn');
+    if (settingsBtn) {
+      const canEdit = hasPerm('contests.manage') ||
+        (hasPerm('contests.manage_private') && me?.contest_private) ||
+        (me?.contest_owner_user_id && me.contest_owner_user_id === me?.user_id);
+      settingsBtn.classList.toggle('hidden', !me?.contest_id || !canEdit);
+    }
   }
 
   function applyContestReadonly() {
