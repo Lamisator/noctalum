@@ -1719,7 +1719,13 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		sess := sessionFor(s, r)
 		canSeeAll := HasPermission(sess.Permissions, PermContestsManage) || HasPermission(sess.Permissions, PermContestAdmin)
 		canManagePrivate := HasPermission(sess.Permissions, PermContestsManagePrivate)
-		filtered := make([]store.Contest, 0, len(contests))
+		participations, _ := s.store.GetUserParticipations(sess.UserID)
+		type contestWithParticipation struct {
+			store.Contest
+			MyRole   string `json:"my_role"`
+			MyStatus string `json:"my_status"`
+		}
+		filtered := make([]contestWithParticipation, 0, len(contests))
 		for _, c := range contests {
 			if c.AccessRestricted && !canSeeAll {
 				isOwner := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
@@ -1735,7 +1741,8 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 			}
-			filtered = append(filtered, c)
+			p := participations[c.ID]
+			filtered = append(filtered, contestWithParticipation{Contest: c, MyRole: p.Role, MyStatus: p.Status})
 		}
 		writeJSON(w, http.StatusOK, filtered)
 	case http.MethodPost:
@@ -1792,6 +1799,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		_ = s.store.AddContestParticipant(c.ID, sess.UserID, "owner", "active")
 		s.audit(r, store.AuditInfo, AuditContestCreate, sess.Username, in.Name,
 			"call: "+in.StationCall)
 		writeJSON(w, http.StatusCreated, c)
@@ -1865,6 +1873,132 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"contest_fields":     c.CustomFields,
 			"contest_qso_layout": c.QSOLayout,
 		})
+		return
+	}
+
+	// Participants sub-route: /api/contests/{id}/participants[/{userID}]
+	if sub == "participants" || strings.HasPrefix(sub, "participants/") {
+		c, err := s.store.GetContest(id)
+		if errors.Is(err, store.ErrContestNotFound) {
+			writeError(w, http.StatusNotFound, "contest not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		sess := sessionFor(s, r)
+		isManager := HasPermission(sess.Permissions, PermContestsManage)
+		ownerParticipant, _ := s.store.GetContestParticipant(c.ID, sess.UserID)
+		isOwner := ownerParticipant != nil && ownerParticipant.Role == "owner" && ownerParticipant.Status == "active"
+
+		// GET /api/contests/{id}/participants — list participants
+		if sub == "participants" && r.Method == http.MethodGet {
+			if !isManager && !isOwner {
+				writeError(w, http.StatusForbidden, "only contest owners or managers can list participants")
+				return
+			}
+			list, err := s.store.GetContestParticipants(id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if list == nil {
+				list = []store.ContestParticipant{}
+			}
+			writeJSON(w, http.StatusOK, list)
+			return
+		}
+
+		// POST /api/contests/{id}/participants — request to join
+		if sub == "participants" && r.Method == http.MethodPost {
+			if err := s.store.RequestContestParticipant(c.ID, sess.UserID); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.audit(r, store.AuditInfo, "contest.participant_request", sess.Username, c.Name, "")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// PUT /api/contests/{id}/participants/{userID} — update role/status
+		if strings.HasPrefix(sub, "participants/") && r.Method == http.MethodPut {
+			targetIDStr := strings.TrimPrefix(sub, "participants/")
+			targetID, err := strconv.ParseInt(targetIDStr, 10, 64)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid user id")
+				return
+			}
+			if !isManager && !isOwner {
+				writeError(w, http.StatusForbidden, "only contest owners or managers can update participants")
+				return
+			}
+			var in struct {
+				Role   string `json:"role"`
+				Status string `json:"status"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid JSON")
+				return
+			}
+			if in.Role != "owner" && in.Role != "user" {
+				writeError(w, http.StatusBadRequest, "role must be 'owner' or 'user'")
+				return
+			}
+			if in.Status != "active" && in.Status != "pending" {
+				writeError(w, http.StatusBadRequest, "status must be 'active' or 'pending'")
+				return
+			}
+			// An owner (non-manager) can only demote themselves, not other owners.
+			if !isManager && in.Role == "user" && targetID != sess.UserID {
+				target, _ := s.store.GetContestParticipant(c.ID, targetID)
+				if target != nil && target.Role == "owner" {
+					writeError(w, http.StatusForbidden, "you can only demote yourself, not other owners")
+					return
+				}
+			}
+			if err := s.store.UpdateContestParticipant(c.ID, targetID, in.Role, in.Status); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.audit(r, store.AuditInfo, "contest.participant_update", sess.Username, c.Name,
+				fmt.Sprintf("user_id: %d role: %s status: %s", targetID, in.Role, in.Status))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// DELETE /api/contests/{id}/participants/{userID} — remove participant
+		if strings.HasPrefix(sub, "participants/") && r.Method == http.MethodDelete {
+			targetIDStr := strings.TrimPrefix(sub, "participants/")
+			targetID, err := strconv.ParseInt(targetIDStr, 10, 64)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid user id")
+				return
+			}
+			// Users can remove themselves; owners/managers can remove others (non-owners).
+			isSelf := targetID == sess.UserID
+			if !isSelf && !isManager && !isOwner {
+				writeError(w, http.StatusForbidden, "only contest owners or managers can remove participants")
+				return
+			}
+			if !isSelf && !isManager {
+				target, _ := s.store.GetContestParticipant(c.ID, targetID)
+				if target != nil && target.Role == "owner" {
+					writeError(w, http.StatusForbidden, "cannot remove another owner")
+					return
+				}
+			}
+			if err := s.store.RemoveContestParticipant(c.ID, targetID); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.audit(r, store.AuditInfo, "contest.participant_remove", sess.Username, c.Name,
+				fmt.Sprintf("user_id: %d", targetID))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
