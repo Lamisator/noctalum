@@ -2711,71 +2711,99 @@
     const r = await api('/api/contests/' + contestID + '/participants');
     if (!r.ok) { list.innerHTML = `<span class="error small">${escHtml(t('contestScreen.participantLoadFail'))}</span>`; return; }
     const participants = await r.json();
-    if (!participants || participants.length === 0) {
-      list.innerHTML = `<span class="muted small">${escHtml(t('contestScreen.noParticipants'))}</span>`;
-      return;
-    }
-    list.innerHTML = participants.map(p => {
-      const rolePill = `<span class="participant-role-pill ${escHtml(p.role)}">${escHtml(p.role === 'owner' ? t('contestScreen.roleOwner') : t('contestScreen.roleUser'))}</span>`;
-      const statusPill = `<span class="participant-status-pill ${escHtml(p.status)}">${escHtml(p.status === 'active' ? t('contestScreen.participantActive') : t('contestScreen.participantPending'))}</span>`;
-      const isSelf = p.user_id === me?.user_id;
-      let actions = '';
-      if (p.status === 'pending') {
-        actions += `<button class="ghost small ptc-approve" data-uid="${p.user_id}" title="${escHtml(t('contestScreen.approveRequest'))}">${escHtml(t('contestScreen.approveRequest'))}</button>`;
+
+    const rows = (participants && participants.length)
+      ? participants.map(p => {
+          const rolePill = `<span class="participant-role-pill ${escHtml(p.role)}">${escHtml(p.role === 'owner' ? t('contestScreen.roleOwner') : t('contestScreen.roleUser'))}</span>`;
+          const statusPill = `<span class="participant-status-pill ${escHtml(p.status)}">${escHtml(p.status === 'active' ? t('contestScreen.participantActive') : t('contestScreen.participantPending'))}</span>`;
+          const isSelf = p.user_id === me?.user_id;
+          let actions = '';
+          if (p.status === 'pending') {
+            actions += `<button class="ghost small ptc-approve" data-uid="${p.user_id}">${escHtml(t('contestScreen.approveRequest'))}</button>`;
+          }
+          if (p.status === 'active' && p.role === 'user') {
+            actions += `<button class="ghost small ptc-promote" data-uid="${p.user_id}">&uarr;</button>`;
+          }
+          if (p.status === 'active' && p.role === 'owner' && isSelf) {
+            actions += `<button class="ghost small ptc-demote" data-uid="${p.user_id}">&darr;</button>`;
+          }
+          if (canManage || (isSelf && p.role !== 'owner')) {
+            actions += `<button class="ghost small ptc-remove" data-uid="${p.user_id}">&times;</button>`;
+          }
+          return `<div class="participant-row" data-uid="${p.user_id}">
+            <span class="participant-name">${escHtml(p.username)}${p.callsign ? ` <span class="muted small">${escHtml(fmtCall(p.callsign))}</span>` : ''}</span>
+            <span class="participant-pills">${rolePill}${statusPill}</span>
+            <span class="participant-actions">${actions}</span>
+          </div>`;
+        }).join('')
+      : `<p class="muted small" style="margin:4px 0">${escHtml(t('contestScreen.noParticipants'))}</p>`;
+
+    list.innerHTML = `
+      <div id="ptc-rows">${rows}</div>
+      <div class="ptc-add-row">
+        <input id="ptc-add-input" type="text" placeholder="${escHtml(t('contestScreen.addParticipantPlaceholder'))}" autocomplete="off" />
+        <button type="button" id="ptc-add-btn" class="primary small">${escHtml(t('common.add'))}</button>
+        <span id="ptc-add-err" class="error small"></span>
+      </div>
+    `;
+
+    const doAdd = async () => {
+      const inp = document.getElementById('ptc-add-input');
+      const errEl = document.getElementById('ptc-add-err');
+      const username = inp?.value.trim();
+      if (!username) return;
+      errEl.textContent = '';
+      const res = await api('/api/contests/' + contestID + '/participants', {
+        method: 'POST', body: JSON.stringify({ username }),
+      });
+      if (res.ok) {
+        inp.value = '';
+        loadModalParticipants(contestID, canManage);
+      } else {
+        const j = await res.json().catch(() => ({}));
+        errEl.textContent = j.error || t('contestScreen.participantAddFail');
       }
-      if (p.status === 'active' && p.role === 'user' && (canManage)) {
-        actions += `<button class="ghost small ptc-promote" data-uid="${p.user_id}" title="${escHtml(t('contestScreen.promoteToOwner'))}">&uarr; ${escHtml(t('contestScreen.promoteToOwner'))}</button>`;
-      }
-      if (p.status === 'active' && p.role === 'owner' && isSelf) {
-        actions += `<button class="ghost small ptc-demote" data-uid="${p.user_id}" title="${escHtml(t('contestScreen.demoteToUser'))}">&darr; ${escHtml(t('contestScreen.demoteToUser'))}</button>`;
-      }
-      if (canManage || (isSelf && p.role !== 'owner')) {
-        actions += `<button class="ghost small ptc-remove" data-uid="${p.user_id}" title="${escHtml(t('contestScreen.removeParticipant'))}">&times;</button>`;
-      }
-      return `<div class="participant-row" data-uid="${p.user_id}">
-        <span class="participant-name">${escHtml(p.username)}${p.callsign ? ` <span class="muted small">${escHtml(fmtCall(p.callsign))}</span>` : ''}</span>
-        <span class="participant-pills">${rolePill}${statusPill}</span>
-        <span class="participant-actions">${actions}</span>
-      </div>`;
-    }).join('');
+    };
+    document.getElementById('ptc-add-btn')?.addEventListener('click', doAdd);
+    document.getElementById('ptc-add-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
 
     list.querySelectorAll('.ptc-approve').forEach(btn => {
       btn.addEventListener('click', async () => {
         const uid = Number(btn.dataset.uid);
-        const p = participants.find(x => x.user_id === uid);
+        const p = (participants || []).find(x => x.user_id === uid);
         if (!p) return;
-        const r = await api('/api/contests/' + contestID + '/participants/' + uid, {
+        const res = await api('/api/contests/' + contestID + '/participants/' + uid, {
           method: 'PUT', body: JSON.stringify({ role: p.role, status: 'active' }),
         });
-        if (r.ok) loadModalParticipants(contestID, canManage);
+        if (res.ok) loadModalParticipants(contestID, canManage);
         else alert(t('contestScreen.participantUpdateFail'));
       });
     });
     list.querySelectorAll('.ptc-promote').forEach(btn => {
       btn.addEventListener('click', async () => {
         const uid = Number(btn.dataset.uid);
-        const r = await api('/api/contests/' + contestID + '/participants/' + uid, {
+        const res = await api('/api/contests/' + contestID + '/participants/' + uid, {
           method: 'PUT', body: JSON.stringify({ role: 'owner', status: 'active' }),
         });
-        if (r.ok) loadModalParticipants(contestID, canManage);
+        if (res.ok) loadModalParticipants(contestID, canManage);
         else alert(t('contestScreen.participantUpdateFail'));
       });
     });
     list.querySelectorAll('.ptc-demote').forEach(btn => {
       btn.addEventListener('click', async () => {
         const uid = Number(btn.dataset.uid);
-        const r = await api('/api/contests/' + contestID + '/participants/' + uid, {
+        const res = await api('/api/contests/' + contestID + '/participants/' + uid, {
           method: 'PUT', body: JSON.stringify({ role: 'user', status: 'active' }),
         });
-        if (r.ok) loadModalParticipants(contestID, canManage);
+        if (res.ok) loadModalParticipants(contestID, canManage);
         else alert(t('contestScreen.participantUpdateFail'));
       });
     });
     list.querySelectorAll('.ptc-remove').forEach(btn => {
       btn.addEventListener('click', async () => {
         const uid = Number(btn.dataset.uid);
-        const r = await api('/api/contests/' + contestID + '/participants/' + uid, { method: 'DELETE' });
-        if (r.ok) loadModalParticipants(contestID, canManage);
+        const res = await api('/api/contests/' + contestID + '/participants/' + uid, { method: 'DELETE' });
+        if (res.ok) loadModalParticipants(contestID, canManage);
         else alert(t('contestScreen.participantUpdateFail'));
       });
     });
@@ -3630,6 +3658,7 @@
     const root = $('modal-root');
     const card = $('modal-card');
     card.innerHTML = html;
+    card.scrollTop = 0;
     card.classList.toggle('modal-wide', !!(opts && opts.wide));
     root.classList.remove('hidden');
     const form = card.querySelector('form');

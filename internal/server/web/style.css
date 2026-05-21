@@ -804,6 +804,12 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
 }
 .modal-card .modal-actions {
   display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;
+  position: sticky;
+  bottom: -20px;
+  background: var(--bg-elev);
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border);
+  z-index: 1;
 }
 .modal-card .perm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
 .modal-card .perm-grid label {
