@@ -1871,7 +1871,7 @@ button.small { padding: 4px 8px; font-size: 12px; }
   display: inline-flex;
   align-items: center;
 }
-.lang-switcher-btn {
+.lang-switcher .lang-switcher-btn {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1884,9 +1884,12 @@ button.small { padding: 4px 8px; font-size: 12px; }
   align-items: center;
   gap: 4px;
   min-height: 30px;
+  margin-top: 0;
+  width: auto;
+  font-weight: normal;
 }
-.lang-switcher-btn:hover { background: var(--bg-elev-2); border-color: var(--accent); }
-.lang-switcher-btn .lang-flag { font-size: 20px; line-height: 1; }
+.lang-switcher .lang-switcher-btn:hover { background: var(--bg-elev-2); border-color: var(--accent); }
+.lang-switcher .lang-switcher-btn .lang-flag { font-size: 20px; line-height: 1; }
 .lang-switcher-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -1902,7 +1905,7 @@ button.small { padding: 4px 8px; font-size: 12px; }
   flex-direction: column;
   gap: 2px;
 }
-.lang-switcher-opt {
+.lang-switcher .lang-switcher-opt {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1914,14 +1917,17 @@ button.small { padding: 4px 8px; font-size: 12px; }
   border-radius: 4px;
   color: var(--text);
   font-size: 13px;
+  margin-top: 0;
+  width: 100%;
+  font-weight: normal;
 }
-.lang-switcher-opt:hover { background: var(--accent-dim); color: var(--accent); }
-.lang-switcher-opt.active { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
-.lang-switcher-opt .lang-flag { font-size: 18px; line-height: 1; }
-.lang-switcher-opt .lang-name { flex: 1; }
-.lang-switcher-opt .lang-check { font-size: 12px; opacity: 0; }
-.lang-switcher-opt.active .lang-check { opacity: 1; color: var(--accent); }
-.lang-switcher-btn .lang-abbr { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); }
+.lang-switcher .lang-switcher-opt:hover { background: var(--accent-dim); color: var(--accent); }
+.lang-switcher .lang-switcher-opt.active { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+.lang-switcher .lang-switcher-opt .lang-flag { font-size: 18px; line-height: 1; }
+.lang-switcher .lang-switcher-opt .lang-name { flex: 1; }
+.lang-switcher .lang-switcher-opt .lang-check { font-size: 12px; opacity: 0; }
+.lang-switcher .lang-switcher-opt.active .lang-check { opacity: 1; color: var(--accent); }
+.lang-switcher .lang-switcher-btn .lang-abbr { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); }
 
 /* Position language switcher on login/setup/contest cards (top-right) */
 .login-card .lang-switcher-host {
