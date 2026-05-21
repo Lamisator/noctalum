@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.5 — Delete contest button
+
+- Contest owners and admins can now delete a contest directly from the contest edit modal
+- Requires confirmation before deletion; returns to contest picker
+
 ## v0.4 — Browse finished contest UX
 
 - Finished contests now show a "View log →" badge in the contest picker (card and list views)

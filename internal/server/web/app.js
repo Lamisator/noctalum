@@ -2677,6 +2677,7 @@
         </div>
         <div class="modal-err error"></div>
         <div class="modal-actions">
+          ${hasPerm('contest.admin') || isOwner ? `<button type="button" id="modal-delete-contest-btn" class="danger" style="margin-right:auto">${escHtml(t('contestScreen.deleteContest'))}</button>` : ''}
           <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
           <button type="submit" class="primary">${escHtml(t('common.save'))}</button>
         </div>
@@ -2725,6 +2726,25 @@
     }
     // Load participants if visible
     if (canSeeParticipants) loadModalParticipants(c.id, canManageContest);
+    // Delete contest button
+    const deleteBtn = document.getElementById('modal-delete-contest-btn');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', async () => {
+        if (!await showConfirm(t('contestScreen.deleteContestConfirm', { name: c.name }), { ok: t('common.delete') })) return;
+        const r = await api('/api/contests/' + c.id, { method: 'DELETE' });
+        if (r.ok) {
+          $('modal-root').classList.add('hidden');
+          await refreshContests();
+          if (me && me.contest_id === c.id) {
+            me.contest_id = null;
+            await showContestScreen();
+          }
+        } else {
+          const j = await r.json().catch(() => ({}));
+          alert(j.error || t('contestScreen.deleteFail'));
+        }
+      });
+    }
   }
 
   async function loadModalParticipants(contestID, canManage) {
@@ -4480,6 +4500,11 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.5',
+      en: 'Contest owners and admins can now delete a contest from the edit modal. Requires confirmation.',
+      de: 'Contest-Besitzer und Admins können einen Contest jetzt direkt aus dem Bearbeitungs-Modal löschen. Bestätigung erforderlich.',
+    },
     {
       version: '0.4',
       en: 'Finished contests now show a "View log →" badge in the contest picker. Read-only banner improved.',
