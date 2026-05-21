@@ -1300,8 +1300,26 @@ button.small { padding: 4px 8px; font-size: 12px; }
   .ops-panel { width: 100% !important; height: auto; }
   .entry-panel { height: auto !important; }
   .topbar { flex-wrap: wrap; }
+  .topbar-left { flex-shrink: 1; min-width: 0; flex-wrap: wrap; gap: 6px; }
   .station-area { order: -1; width: 100%; justify-content: center; margin: 0; flex: 0 0 auto; }
   .topbar-right { flex-wrap: wrap; margin-left: 0; }
+  /* Prevent flex rows from overflowing card bounds */
+  .rig-bar { flex-wrap: wrap; gap: 8px; }
+  .rig-bar select { max-width: 100%; min-width: 0; box-sizing: border-box; }
+  .entry-actions { flex-wrap: wrap; gap: 8px; }
+  .history-header { flex-wrap: wrap; gap: 8px; }
+  .history-header input { width: 100%; max-width: 100%; box-sizing: border-box; }
+  .ops-tabs { flex-wrap: wrap; }
+}
+
+@media (max-width: 480px) {
+  .op-badge { display: none; }
+  .topbar .brand { font-size: 15px; }
+  .tabs { gap: 1px; }
+  .tab { padding: 5px 7px; font-size: 12px; }
+  /* Narrow the grid to prevent tiny unusable inputs */
+  .qso-grid { grid-template-columns: repeat(6, 1fr); }
+  .qso-grid > label:not([style*="grid-column"]) { grid-column: span 3; }
 }
 
 /* ==== Audit Log ==== */
