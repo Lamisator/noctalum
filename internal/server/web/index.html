@@ -54,6 +54,33 @@
 <!-- Contest selection screen -->
 <div id="contest-screen" class="screen login-screen hidden">
   <div class="contest-screen-layout">
+    <nav class="contest-nav-pill" id="contest-nav-pill">
+      <button id="my-fr-nav-btn" class="nav-pill-btn">
+        <span class="nav-pill-icon">&#9670;</span>
+        <span data-i18n="contestScreen.myFeatureRequests">My Requests</span>
+      </button>
+      <div class="nav-divider"></div>
+      <button id="contests-admin-btn" class="nav-pill-btn perm-required" data-perm="contests.manage">
+        <span class="nav-pill-icon">&#9873;</span>
+        <span data-i18n="contestScreen.contests">Contests</span>
+      </button>
+      <button id="users-admin-btn" class="nav-pill-btn perm-required" data-perm="users.manage">
+        <span class="nav-pill-icon">&#9785;</span>
+        <span data-i18n="contestScreen.users">Users</span>
+      </button>
+      <button id="audit-admin-btn" class="nav-pill-btn perm-required" data-perm="audit.log">
+        <span class="nav-pill-icon">&#9776;</span>
+        <span data-i18n="contestScreen.auditLog">Audit Log</span>
+      </button>
+      <button id="featurerequests-admin-btn" class="nav-pill-btn perm-required" data-perm="feature_requests.read">
+        <span class="nav-pill-icon">&#9733;</span>
+        <span data-i18n="contestScreen.featureRequests">Feature Requests</span>
+      </button>
+      <button id="global-settings-btn" class="nav-pill-btn perm-required" data-perm="settings.write">
+        <span class="nav-pill-icon">&#9881;</span>
+        <span data-i18n="contestScreen.globalSettings">Global Settings</span>
+      </button>
+    </nav>
     <div class="login-card wide">
       <div class="contest-header-row">
         <h1 data-i18n="contestScreen.title">Select Contest</h1>
@@ -112,14 +139,7 @@
         </div>
       </div>
       <div id="contest-pick-error" class="error" style="margin-top:10px"></div>
-      <div class="contest-admin-actions">
-        <button id="contests-admin-btn" class="ghost perm-required" data-perm="contests.manage" data-i18n="contestScreen.contests">Contests</button>
-        <button id="users-admin-btn" class="ghost perm-required" data-perm="users.manage" data-i18n="contestScreen.users">Users</button>
-        <button id="audit-admin-btn" class="ghost perm-required" data-perm="audit.log" data-i18n="contestScreen.auditLog">Audit Log</button>
-        <button id="featurerequests-admin-btn" class="ghost perm-required" data-perm="feature_requests.read" data-i18n="contestScreen.featureRequests">Feature Requests</button>
-      </div>
-      <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
-        <button id="global-settings-btn" class="ghost perm-required" data-perm="settings.write" style="font-size:12px" data-i18n="contestScreen.globalSettings">&#9881; Global Settings</button>
+      <div style="margin-top:16px;display:flex;justify-content:flex-end;align-items:center">
         <div style="display:flex;gap:8px;align-items:center">
           <button id="chat-sound-toggle-btn" class="ghost" style="font-size:12px" data-i18n-title="contestScreen.chatSoundToggleTitle" title="Toggle chat sound notifications"></button>
           <button id="contest-logout-btn" class="ghost" style="font-size:12px" data-i18n="common.signOut">Sign out</button>
@@ -752,6 +772,7 @@
             <th data-i18n="featureRequests.colDate">Date</th>
             <th data-i18n="featureRequests.colStatus">Status</th>
             <th data-i18n="featureRequests.colRequest">Request</th>
+            <th data-i18n="featureRequests.colAdminComment">Admin comment</th>
             <th></th>
           </tr>
         </thead>
@@ -759,6 +780,33 @@
       </table>
       <div class="history-footer muted">
         <span id="fr-count">0 requests</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- My Feature Requests screen -->
+<div id="my-featurerequests-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="featureRequests.myTitle">My Feature Requests</h1>
+    <button id="my-fr-submit-btn" class="primary" style="margin-left:auto;width:auto;font-size:13px" data-i18n="topbar.featureRequest">Feature Request</button>
+  </div>
+  <div class="admin-screen-body">
+    <div class="card">
+      <table id="my-fr-table">
+        <thead>
+          <tr>
+            <th data-i18n="featureRequests.colDate">Date</th>
+            <th data-i18n="featureRequests.colStatus">Status</th>
+            <th data-i18n="featureRequests.colRequest">Request</th>
+            <th data-i18n="featureRequests.colAdminComment">Admin comment</th>
+          </tr>
+        </thead>
+        <tbody id="my-fr-tbody"></tbody>
+      </table>
+      <div class="history-footer muted">
+        <span id="my-fr-count"></span>
       </div>
     </div>
   </div>
