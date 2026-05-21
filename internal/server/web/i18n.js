@@ -189,6 +189,8 @@
         rigLabel: 'RIG',
         rigNoneSelected: 'no rig selected',
         contestReadonly: 'Contest is finished — log is read-only.',
+        collapsePanel: 'Collapse panel',
+        expandPanel: 'Expand panel',
       },
       qso: {
         antennaRotation: 'Antenna rotation',
@@ -680,6 +682,8 @@
         rigLabel: 'TRX',
         rigNoneSelected: 'kein TRX ausgewählt',
         contestReadonly: 'Contest ist beendet — Log ist schreibgeschützt.',
+        collapsePanel: 'Panel einklappen',
+        expandPanel: 'Panel ausklappen',
       },
       qso: {
         antennaRotation: 'Antennenrichtung',

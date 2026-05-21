@@ -4286,6 +4286,41 @@
     makeVResizer('resizer-left',  () => outer.querySelector('.left-panel'),  1,  'panel-left-w');
     makeVResizer('resizer-right', () => outer.querySelector('.ops-panel'),   -1, 'panel-right-w');
 
+    function initPanelCollapse(btnId, panelSel, cssVar, storageKey, iconCollapse, iconExpand) {
+      const btn = document.getElementById(btnId);
+      const panel = outer.querySelector(panelSel);
+      if (!btn || !panel) return;
+      let collapsed = localStorage.getItem(storageKey + '-collapsed') === '1';
+
+      function apply(animate) {
+        if (collapsed) {
+          panel.classList.add('panel-collapsed');
+          btn.textContent = iconExpand;
+          btn.title = t('topbar.expandPanel');
+        } else {
+          panel.classList.remove('panel-collapsed');
+          btn.textContent = iconCollapse;
+          btn.title = t('topbar.collapsePanel');
+          const saved = localStorage.getItem(storageKey);
+          if (saved) outer.style.setProperty(cssVar, saved + 'px');
+        }
+        if (animate && leafletMap) requestAnimationFrame(() => leafletMap.invalidateSize());
+      }
+
+      btn.addEventListener('pointerdown', e => e.stopPropagation());
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        collapsed = !collapsed;
+        localStorage.setItem(storageKey + '-collapsed', collapsed ? '1' : '0');
+        apply(true);
+      });
+
+      apply(false);
+    }
+
+    initPanelCollapse('collapse-left-btn',  '.left-panel', '--left-w',  'panel-left-w',  '‹', '›');
+    initPanelCollapse('collapse-right-btn', '.ops-panel',  '--right-w', 'panel-right-w', '›', '‹');
+
     const resizerMid = document.getElementById('resizer-mid');
     if (resizerMid && centerCol) {
       resizerMid.addEventListener('pointerdown', e => {
@@ -4348,6 +4383,15 @@
       try { renderDownloads(window.__downloadsCache || []); } catch {}
       try { renderGlobalOperators(); } catch {}
       try { updateContestDisplay(); } catch {}
+      try {
+        const lo = document.getElementById('layout-outer');
+        if (lo) {
+          const lb = document.getElementById('collapse-left-btn');
+          const rb = document.getElementById('collapse-right-btn');
+          if (lb) lb.title = t('topbar.' + (lo.querySelector('.left-panel')?.classList.contains('panel-collapsed') ? 'expandPanel' : 'collapsePanel'));
+          if (rb) rb.title = t('topbar.' + (lo.querySelector('.ops-panel')?.classList.contains('panel-collapsed') ? 'expandPanel' : 'collapsePanel'));
+        }
+      } catch {}
     });
   }
   // Expose CSRF token to i18n.js so language changes can be persisted.

@@ -278,6 +278,41 @@ a { color: var(--accent); text-decoration: none; }
   height: 2px;
 }
 
+/* Collapse/expand toggle on vertical resizers */
+.panel-collapse-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 18px;
+  height: 40px;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.panel-collapse-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--bg-elev-2); }
+.panel-resizer.dragging .panel-collapse-btn { opacity: 0; pointer-events: none; }
+
+/* Collapsed panel state */
+.left-panel.panel-collapsed,
+.ops-panel.panel-collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  overflow: hidden;
+  padding: 0;
+  border-width: 0;
+}
+
 .left-panel  { width: var(--left-w, 210px); min-width: 80px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; overflow-y: auto; }
 .center-col  { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .entry-panel { height: var(--entry-h, auto); min-height: fit-content; flex-shrink: 0; overflow-y: auto; }
