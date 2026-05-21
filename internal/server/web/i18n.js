@@ -295,6 +295,9 @@
         inUseBy: 'in use by {who}',
         alsoIn: 'also in: {list}',
         cannotSelectRig: 'Cannot select rig: {reason}',
+        bandBusy: '{ops} is on this band',
+        bandConflict: 'Band conflict: another op is on {band}',
+        bandBusyConfirm: '{ops} is already on {band} — log anyway?',
       },
       cluster: {
         allBands: 'All bands',
@@ -816,6 +819,9 @@
         inUseBy: 'benutzt von {who}',
         alsoIn: 'auch in: {list}',
         cannotSelectRig: 'TRX-Auswahl nicht möglich: {reason}',
+        bandBusy: '{ops} ist auf diesem Band',
+        bandConflict: 'Bandkonflikt: ein anderer Operator ist auf {band}',
+        bandBusyConfirm: '{ops} ist bereits auf {band} — trotzdem loggen?',
       },
       cluster: {
         allBands: 'Alle Bänder',

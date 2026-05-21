@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.8 — Multi-op band-busy warning
+
+- Band pills highlight in orange when another operator in the same contest is already on that band
+- A soft-lock confirmation dialog warns before logging a QSO on a busy band
+- Operator list highlights conflicting operators sharing your selected band
+
 ## v0.7 — UTC time entry fix
 
 - Manual QSO time entry field now uses a time-only (HH:MM:SS) input, pre-filled with current UTC time

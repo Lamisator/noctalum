@@ -407,6 +407,7 @@
   let currentTargetLocator = null; // Maidenhead locator of the station being looked up
   let callsignFilter = null; // callsign to narrow QSO history while entering a contact
   let editingQsoId = null; // ID of the QSO being edited, or null for new entry
+  let currentBandOps = {}; // band → [callsign, ...] of other ops on that band (updated by renderBandPills)
 
   function hasPerm(p) {
     if (!me) return false;
@@ -1838,6 +1839,20 @@
     const rig = rigs.find(x => x.name === me?.selected_rig);
     const rigBand = rig?.band || null;
 
+    // Build map of band → operator callsigns (excluding self)
+    const bandOps = {};
+    for (const op of operators) {
+      if (me && op.callsign === me.callsign) continue;
+      const rigForOp = rigs.find(r => Array.isArray(r.in_use_by) && r.in_use_by.includes(op.callsign));
+      const opBand = op.band || (rigForOp ? rigForOp.band : '');
+      if (opBand) {
+        if (!bandOps[opBand]) bandOps[opBand] = [];
+        bandOps[opBand].push(op.callsign);
+      }
+    }
+
+    currentBandOps = bandOps;
+
     bar.innerHTML = '';
     for (const band of bands) {
       const pill = document.createElement('span');
@@ -1847,6 +1862,8 @@
       const isRigBand = band === (rigBand || currentBand);
       const workedOnBand = worked.filter(q => q.band === band);
       const dupOnBand = workedOnBand.some(q => q.mode === currentMode);
+      const busyOps = bandOps[band] || [];
+      const isBusy = busyOps.length > 0;
 
       if (!call) {
         pill.classList.add('bp-inactive');
@@ -1858,6 +1875,10 @@
         pill.classList.add('bp-new');
       }
       if (isRigBand) pill.classList.add('bp-current');
+      if (isBusy) {
+        pill.classList.add('bp-busy');
+        pill.title = t('ops.bandBusy', { ops: busyOps.map(fmtCall).join(', ') });
+      }
 
       pill.addEventListener('click', () => {
         $('q-band').value = band;
@@ -2040,6 +2061,13 @@
       return;
     }
 
+    // Soft-lock: warn if another op is already on the selected band
+    const selectedBand = body.band;
+    const busyOpsOnBand = currentBandOps[selectedBand] || [];
+    if (busyOpsOnBand.length > 0) {
+      if (!await showConfirm(t('ops.bandBusyConfirm', { band: selectedBand, ops: busyOpsOnBand.map(fmtCall).join(', ') }), { ok: t('qso.confirmLogAnyway') })) return;
+    }
+
     let res = await api('/api/qsos', { method: 'POST', body: JSON.stringify(body) });
     if (res.status === 409) {
       if (!await showConfirm(t('qso.confirmDuplicate'), { ok: t('qso.confirmLogAnyway') })) return;
@@ -2170,6 +2198,8 @@
     const list = $('ops-list');
     list.innerHTML = '';
     const canRelease = hasPerm('rig.release');
+    const myRig = rigs.find(x => x.name === me?.selected_rig);
+    const myBand = $('q-band').value || myRig?.band || '';
     for (const op of operators) {
       const li = document.createElement('li');
       const rigForOp = rigs.find(r => Array.isArray(r.in_use_by) && r.in_use_by.includes(op.callsign));
@@ -2184,6 +2214,11 @@
       span.textContent = label;
       li.appendChild(span);
       if (me && op.callsign === me.callsign) li.classList.add('me');
+      // Highlight operators sharing my current band (excluding self)
+      if (band && myBand && band === myBand && !(me && op.callsign === me.callsign)) {
+        li.classList.add('op-band-conflict');
+        li.title = t('ops.bandConflict', { band });
+      }
       // Allow admins with rig.release to forcibly release another op's rig.
       if (canRelease && rigName && me && op.callsign !== me.callsign) {
         const btn = document.createElement('button');
@@ -4630,6 +4665,11 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.8',
+      en: 'Multi-op band-busy warning: band pills highlight in orange when another operator is already on that band. A confirmation dialog warns before logging a QSO on a busy band.',
+      de: 'Mehroperator-Bandwarnung: Band-Pills werden orange hervorgehoben, wenn ein anderer Operator bereits auf diesem Band ist. Ein Bestätigungsdialog warnt vor dem Loggen eines QSOs auf einem belegten Band.',
+    },
     {
       version: '0.7',
       en: 'Manual QSO time entry now uses a time-only (HH:MM:SS) UTC input, fixing the bug where local time was logged as UTC.',
