@@ -827,19 +827,21 @@
   function makePickerItem(c) {
     const item = document.createElement('div');
     item.className = 'contest-picker-item' + (c.status === 'finished' ? ' finished' : '');
-    const canManageAccess = hasPerm('contest.admin') || (c.owner_user_id && c.owner_user_id === me?.user_id);
-    const canEditThis = hasPerm('contests.manage') || (hasPerm('contests.manage_private') && c.private);
+    const isContestOwner = c.my_role === 'owner';
+    const canManageAccess = hasPerm('contest.admin') || isContestOwner;
+    const canEditThis = hasPerm('contests.manage') || (hasPerm('contests.manage_private') && c.private) || isContestOwner;
     const isFullManager = hasPerm('contests.manage');
     const editBtn = canEditThis
       ? `<button class="contest-edit-pill" title="Edit contest" tabindex="-1">&#128295;</button>`
       : '';
     const accessBtn = canManageAccess
-      ? `<button class="contest-edit-pill contest-access-pill" title="Manage access" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
-      : (c.access_restricted ? `<span class="contest-access-indicator" title="Access restricted">&#128274;</span>` : '');
+      ? `<button class="contest-edit-pill contest-access-pill" title="${escHtml(t('contestScreen.accessAuthorize'))}" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
+      : (c.access_restricted ? `<span class="contest-access-indicator" title="${escHtml(t('contestScreen.accessRestricted'))}">&#128274;</span>` : '');
     const statusLabel = c.status === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished');
-    const joinBtn = !isFullManager && !c.my_status
+    const needsJoinReq = (c.private || c.access_restricted) && !isContestOwner && !isFullManager;
+    const joinBtn = needsJoinReq && !c.my_status
       ? `<button class="contest-join-req-btn" tabindex="-1">${escHtml(t('contestScreen.requestToJoin'))}</button>`
-      : (!isFullManager && c.my_status === 'pending'
+      : (needsJoinReq && c.my_status === 'pending'
         ? `<span class="participant-status-pill pending">${escHtml(t('contestScreen.participantPending'))}</span>`
         : '');
     item.innerHTML = `
@@ -961,17 +963,20 @@
     const privateCol = $('private-contest-col');
     list.innerHTML = '';
     privateList.innerHTML = '';
-    privateCol.classList.toggle('hidden', !canPriv);
 
     const publicContests = contests.filter(c => !c.private);
     const privateContests = contests.filter(c => c.private);
+    // Show private column whenever there are private contests the backend authorized,
+    // or when the user has broad manage_private rights.
+    const showPrivateCol = canPriv || privateContests.length > 0;
+    privateCol.classList.toggle('hidden', !showPrivateCol);
 
     if (publicContests.length === 0) {
       list.innerHTML = `<p class="muted" style="text-align:center;padding:20px">${escHtml(t('contestScreen.noContests'))}</p>`;
     } else {
       for (const c of publicContests) list.appendChild(makePickerItem(c));
     }
-    if (canPriv) {
+    if (showPrivateCol) {
       if (privateContests.length === 0) {
         privateList.innerHTML = `<p class="muted" style="text-align:center;padding:12px 0">${escHtml(t('contestScreen.noPrivateContests'))}</p>`;
       } else {
@@ -990,11 +995,10 @@
       if (el.dataset.sort === contestSortField)
         el.classList.add(contestSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
     });
-    const visibleContests = canPriv ? contests : contests.filter(c => !c.private);
-    if (visibleContests.length === 0) {
+    if (contests.length === 0) {
       body.innerHTML = `<div class="cl-empty">${escHtml(t('contestScreen.noMatchFilter'))}</div>`;
     } else {
-      for (const c of visibleContests) body.appendChild(makeListItem(c));
+      for (const c of contests) body.appendChild(makeListItem(c));
     }
     $('contest-list-create-section').classList.toggle('hidden', !canManage);
     $('contest-list-create-private-section').classList.toggle('hidden', !canPriv);
@@ -1006,8 +1010,9 @@
     const createdDate = c.created_at ? new Date(c.created_at).toLocaleDateString(localeForFmt()) : '—';
     const actDate = fmtRelTime(c.last_activity_at);
     const privateBadge = c.private ? `<span class="cl-priv-badge">${escHtml(t('contestScreen.private'))}</span>` : '';
-    const canManageAccess = hasPerm('contest.admin') || (c.owner_user_id && c.owner_user_id === me?.user_id);
-    const canEditThis = hasPerm('contests.manage') || (hasPerm('contests.manage_private') && c.private);
+    const isContestOwner = c.my_role === 'owner';
+    const canManageAccess = hasPerm('contest.admin') || isContestOwner;
+    const canEditThis = hasPerm('contests.manage') || (hasPerm('contests.manage_private') && c.private) || isContestOwner;
     const isFullManager = hasPerm('contests.manage');
     const editBtn = canEditThis
       ? `<button class="contest-edit-pill" title="${escHtml(t('contestScreen.editTitle'))}" tabindex="-1">&#128295;</button>` : '';
@@ -1015,9 +1020,10 @@
       ? `<button class="contest-edit-pill contest-access-pill" title="${escHtml(t('contestScreen.accessAuthorize'))}" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
       : (c.access_restricted ? `<span class="contest-access-indicator" title="${escHtml(t('contestScreen.accessRestricted'))}">&#128274;</span>` : '');
     const statusLabel = c.status === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished');
-    const joinBtn = !isFullManager && !c.my_status
+    const needsJoinReq = (c.private || c.access_restricted) && !isContestOwner && !isFullManager;
+    const joinBtn = needsJoinReq && !c.my_status
       ? `<button class="contest-join-req-btn" tabindex="-1">${escHtml(t('contestScreen.requestToJoin'))}</button>`
-      : (!isFullManager && c.my_status === 'pending'
+      : (needsJoinReq && c.my_status === 'pending'
         ? `<span class="participant-status-pill pending">${escHtml(t('contestScreen.participantPending'))}</span>`
         : '');
     row.innerHTML = `

@@ -1731,15 +1731,21 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			if c.AccessRestricted && !canSeeAll {
 				isOwner := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
 				if !isOwner {
-					ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
-					if err != nil || !ok {
-						continue
+					hasAccess, _ := s.store.HasContestAccess(c.ID, sess.UserID)
+					if !hasAccess {
+						part, _ := s.store.GetContestParticipant(c.ID, sess.UserID)
+						if part == nil || part.Status != "active" {
+							continue
+						}
 					}
 				}
 			} else if c.Private && c.OwnerUserID != sess.UserID && !canSeeAll && !canManagePrivate {
-				ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
-				if err != nil || !ok {
-					continue
+				hasAccess, _ := s.store.HasContestAccess(c.ID, sess.UserID)
+				if !hasAccess {
+					part, _ := s.store.GetContestParticipant(c.ID, sess.UserID)
+					if part == nil || part.Status != "active" {
+						continue
+					}
 				}
 			}
 			p := participations[c.ID]
@@ -1845,16 +1851,22 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		canSeeAllSel := HasPermission(sess.Permissions, PermContestsManage) || HasPermission(sess.Permissions, PermContestAdmin)
 		canManagePrivateSel := HasPermission(sess.Permissions, PermContestsManagePrivate)
 		isOwnerSel := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
+		checkContestAccess := func() bool {
+			hasAccess, _ := s.store.HasContestAccess(c.ID, sess.UserID)
+			if hasAccess {
+				return true
+			}
+			part, _ := s.store.GetContestParticipant(c.ID, sess.UserID)
+			return part != nil && part.Status == "active"
+		}
 		if c.AccessRestricted && !canSeeAllSel && !isOwnerSel {
-			ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
-			if err != nil || !ok {
+			if !checkContestAccess() {
 				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "access restricted")
 				writeError(w, http.StatusForbidden, "you are not authorized to access this contest")
 				return
 			}
 		} else if c.Private && c.OwnerUserID != sess.UserID && !canSeeAllSel && !canManagePrivateSel {
-			ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
-			if err != nil || !ok {
+			if !checkContestAccess() {
 				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "private contest, no access")
 				writeError(w, http.StatusForbidden, "this contest is private")
 				return
@@ -1917,13 +1929,41 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// POST /api/contests/{id}/participants — request to join
+		// POST /api/contests/{id}/participants — request to join, or add by username (managers/owners)
 		if sub == "participants" && r.Method == http.MethodPost {
-			if err := s.store.RequestContestParticipant(c.ID, sess.UserID); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
+			var in struct {
+				Username string `json:"username"`
 			}
-			s.audit(r, store.AuditInfo, "contest.participant_request", sess.Username, c.Name, "")
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			if in.Username != "" {
+				// Owner/manager is directly adding a user as an active participant.
+				if !isManager && !isOwner {
+					writeError(w, http.StatusForbidden, "only contest owners or managers can add participants directly")
+					return
+				}
+				u, err := s.store.GetUserByUsername(in.Username)
+				if errors.Is(err, store.ErrNotFound) {
+					writeError(w, http.StatusNotFound, "user not found")
+					return
+				}
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				if err := s.store.AddContestParticipant(c.ID, u.ID, "user", "active"); err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				s.audit(r, store.AuditInfo, "contest.participant_add", sess.Username, c.Name,
+					fmt.Sprintf("added user: %s", in.Username))
+			} else {
+				// Self-request to join as pending.
+				if err := s.store.RequestContestParticipant(c.ID, sess.UserID); err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				s.audit(r, store.AuditInfo, "contest.participant_request", sess.Username, c.Name, "")
+			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -2122,13 +2162,32 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// PUT — update contest (contests.manage required; contests.manage_private allowed for private contests)
+	// PUT — update contest (contests.manage, contests.manage_private, or contest owner)
 	if r.Method == http.MethodPut {
 		sess := sessionFor(s, r)
 		canManagePut := HasPermission(sess.Permissions, PermContestsManage)
 		canManagePrivatePut := HasPermission(sess.Permissions, PermContestsManagePrivate)
-		if !canManagePut && !canManagePrivatePut {
+		// Look up existing contest to preserve private/owner fields (we don't allow changing them via PUT).
+		existing, err := s.store.GetContest(id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "contest not found")
+			return
+		}
+		isOwnerPut := existing.OwnerUserID != 0 && existing.OwnerUserID == sess.UserID
+		if !isOwnerPut {
+			ownerPart, _ := s.store.GetContestParticipant(id, sess.UserID)
+			if ownerPart != nil && ownerPart.Role == "owner" && ownerPart.Status == "active" {
+				isOwnerPut = true
+			}
+		}
+		if !canManagePut && !canManagePrivatePut && !isOwnerPut {
 			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "update contest id: "+idStr)
+			writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
+			return
+		}
+		// managers with manage_private can only edit private contests
+		if !canManagePut && !isOwnerPut && !existing.Private {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "update public contest id: "+idStr)
 			writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
 			return
 		}
@@ -2162,17 +2221,6 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		putQTH := strings.ToUpper(strings.TrimSpace(in.QTH))
 		if putQTH != "" && !ValidLocator(putQTH) {
 			writeError(w, http.StatusBadRequest, "invalid QTH locator")
-			return
-		}
-		// Look up existing contest to preserve private/owner fields (we don't allow changing them via PUT).
-		existing, err := s.store.GetContest(id)
-		if err != nil {
-			writeError(w, http.StatusNotFound, "contest not found")
-			return
-		}
-		if !canManagePut && !existing.Private {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "update public contest id: "+idStr)
-			writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
 			return
 		}
 		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout); err != nil {
