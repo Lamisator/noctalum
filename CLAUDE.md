@@ -11,7 +11,7 @@ Every code change MUST:
 2. Add a new entry at the **top** of `/workspace/CHANGELOG.md` with the new version, a brief English description of the change
 3. Add the same entry to the in-app changelog data in `/workspace/internal/server/web/app.js` (the `CHANGELOG` array — newest entry first), with both `en` and `de` text
 
-The version number starts at `0.1` and increments by `0.1` for each change.
+The version number starts at `0.1` and increments by `0.1` for each change. After `0.9` comes `0.10`, then `0.11`, etc. — it never rolls over to `1.0`.
 
 ## Localization
 
