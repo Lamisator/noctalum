@@ -4667,13 +4667,13 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
-      version: '1.1',
+      version: '0.11',
       date: '2026-05-21 16:05 UTC',
       en: 'Version number now displayed next to "Noctalum" in the title bar on all screens.',
       de: 'Versionsnummer wird jetzt neben "Noctalum" in der Titelleiste auf allen Seiten angezeigt.',
     },
     {
-      version: '1.0',
+      version: '0.10',
       date: '2026-05-21 16:00 UTC',
       en: 'Changelog now shows date and time (UTC) for each entry.',
       de: 'Das Changelog zeigt jetzt Datum und Uhrzeit (UTC) für jeden Eintrag.',
