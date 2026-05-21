@@ -1278,6 +1278,20 @@ button.contest-edit-pill:hover {
   padding: 18px 24px;
 }
 
+/* ==== Changelog ==== */
+.changelog-entry {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.changelog-entry:last-child { border-bottom: none; }
+.changelog-version {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.changelog-text { font-size: 14px; }
+
 /* ==== Contest readonly banner ==== */
 .contest-readonly-banner {
   background: rgba(255, 183, 77, 0.12);

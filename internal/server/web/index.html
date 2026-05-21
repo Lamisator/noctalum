@@ -67,6 +67,10 @@
         <span class="nav-pill-icon">&#9670;</span>
         <span data-i18n="contestScreen.myFeatureRequests">My Requests</span>
       </button>
+      <button id="changelog-nav-btn" class="nav-pill-btn">
+        <span class="nav-pill-icon">&#128221;</span>
+        <span data-i18n="contestScreen.changelog">Changelog</span>
+      </button>
       <div class="nav-divider"></div>
       <button id="users-admin-btn" class="nav-pill-btn perm-required" data-perm="users.manage">
         <span class="nav-pill-icon">&#9785;</span>
@@ -819,6 +823,16 @@
         <span id="my-fr-count"></span>
       </div>
     </div>
+  </div>
+</div>
+
+<div id="changelog-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="contestScreen.changelog">Changelog</h1>
+  </div>
+  <div class="admin-screen-body">
+    <div class="card" id="changelog-content"></div>
   </div>
 </div>
 
