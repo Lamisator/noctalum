@@ -509,9 +509,9 @@
   // ----- admin screens (accessed from contest selection) -----
   $('my-fr-nav-btn').addEventListener('click', () => showAdminScreen('my-featurerequests-screen', refreshMyFeatureRequests));
   $('contests-admin-btn')?.addEventListener('click', () => showAdminScreen('contests-admin-screen', refreshContests));
-  $('users-admin-btn').addEventListener('click', () => showAdminScreen('users-admin-screen', refreshUsers));
-  $('audit-admin-btn').addEventListener('click', () => showAdminScreen('audit-admin-screen', () => refreshAuditLog(true)));
-  $('featurerequests-admin-btn').addEventListener('click', () => showAdminScreen('featurerequests-admin-screen', refreshFeatureRequests));
+  $('users-admin-btn').addEventListener('click', () => { if (!hasPerm('users.manage')) return; showAdminScreen('users-admin-screen', refreshUsers); });
+  $('audit-admin-btn').addEventListener('click', () => { if (!hasPerm('audit.log')) return; showAdminScreen('audit-admin-screen', () => refreshAuditLog(true)); });
+  $('featurerequests-admin-btn').addEventListener('click', () => { if (!hasPerm('feature_requests.read')) return; showAdminScreen('featurerequests-admin-screen', refreshFeatureRequests); });
 
   document.querySelectorAll('.admin-back-btn').forEach(btn => {
     btn.addEventListener('click', () => showContestScreen());
@@ -2495,6 +2495,7 @@
   function renderContestsTable() {
     const tbody = $('contests-tbody');
     tbody.innerHTML = '';
+    if (!hasPerm('contests.manage') && !hasPerm('contests.manage_private')) return;
     const fullManager = hasPerm('contests.manage');
     for (const c of allContests) {
       const canEditRow = fullManager || (hasPerm('contests.manage_private') && c.private);
@@ -3569,6 +3570,7 @@
     window.__usersCache = users || [];
     const tbody = $('users-tbody');
     tbody.innerHTML = '';
+    if (!hasPerm('users.manage')) return;
     for (const u of users) {
       const tr = document.createElement('tr');
       const roles = (u.roles || []).map(r =>
@@ -3601,6 +3603,7 @@
   function renderRoles() {
     const root = $('roles-list');
     root.innerHTML = '';
+    if (!hasPerm('users.manage')) return;
     for (const r of allRoles) {
       const card = document.createElement('div');
       card.className = 'role-card';

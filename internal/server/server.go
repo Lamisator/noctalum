@@ -1718,7 +1718,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		canSeeAll := HasPermission(sess.Permissions, PermContestsManage) || HasPermission(sess.Permissions, PermContestAdmin)
+		canSeeAll := HasPermission(sess.Permissions, PermContestAdmin)
 		canManagePrivate := HasPermission(sess.Permissions, PermContestsManagePrivate)
 		participations, _ := s.store.GetUserParticipations(sess.UserID)
 		type contestWithParticipation struct {
@@ -1848,7 +1848,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		canSeeAllSel := HasPermission(sess.Permissions, PermContestsManage) || HasPermission(sess.Permissions, PermContestAdmin)
+		canSeeAllSel := HasPermission(sess.Permissions, PermContestAdmin)
 		canManagePrivateSel := HasPermission(sess.Permissions, PermContestsManagePrivate)
 		isOwnerSel := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
 		checkContestAccess := func() bool {
@@ -1906,7 +1906,10 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		isManager := HasPermission(sess.Permissions, PermContestsManage)
+		// contest.admin sees all; contests.manage only manages public contests
+		isAdmin := HasPermission(sess.Permissions, PermContestAdmin)
+		isManager := isAdmin || (HasPermission(sess.Permissions, PermContestsManage) && !c.Private) ||
+			(HasPermission(sess.Permissions, PermContestsManagePrivate) && c.Private)
 		ownerParticipant, _ := s.store.GetContestParticipant(c.ID, sess.UserID)
 		isOwner := (ownerParticipant != nil && ownerParticipant.Role == "owner" && ownerParticipant.Status == "active") ||
 			(c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID)
