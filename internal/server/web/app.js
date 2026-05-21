@@ -825,6 +825,7 @@
     item.className = 'contest-picker-item' + (c.status === 'finished' ? ' finished' : '');
     const canManageAccess = hasPerm('contest.admin') || (c.owner_user_id && c.owner_user_id === me?.user_id);
     const canEditThis = hasPerm('contests.manage') || (hasPerm('contests.manage_private') && c.private);
+    const isFullManager = hasPerm('contests.manage');
     const editBtn = canEditThis
       ? `<button class="contest-edit-pill" title="Edit contest" tabindex="-1">&#128295;</button>`
       : '';
@@ -832,6 +833,11 @@
       ? `<button class="contest-edit-pill contest-access-pill" title="Manage access" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
       : (c.access_restricted ? `<span class="contest-access-indicator" title="Access restricted">&#128274;</span>` : '');
     const statusLabel = c.status === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished');
+    const joinBtn = !isFullManager && !c.my_status
+      ? `<button class="contest-join-req-btn" tabindex="-1">${escHtml(t('contestScreen.requestToJoin'))}</button>`
+      : (!isFullManager && c.my_status === 'pending'
+        ? `<span class="participant-status-pill pending">${escHtml(t('contestScreen.participantPending'))}</span>`
+        : '');
     item.innerHTML = `
       <div>
         <div class="contest-picker-name">${escHtml(c.name)}</div>
@@ -839,6 +845,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span>
+        ${joinBtn}
         ${accessBtn}
         ${editBtn}
       </div>
@@ -855,6 +862,20 @@
         contestAccessModal(c);
       });
     }
+    item.querySelector('.contest-join-req-btn')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      const r = await api('/api/contests/' + c.id + '/participants', { method: 'POST' });
+      if (r.ok) {
+        c.my_status = 'pending';
+        btn.outerHTML = `<span class="participant-status-pill pending">${escHtml(t('contestScreen.participantPending'))}</span>`;
+        refreshContests();
+      } else {
+        btn.disabled = false;
+        alert(t('contestScreen.participantRequestFail'));
+      }
+    });
     item.addEventListener('click', () => selectContest(c));
     return item;
   }
@@ -981,19 +1002,25 @@
     const privateBadge = c.private ? `<span class="cl-priv-badge">${escHtml(t('contestScreen.private'))}</span>` : '';
     const canManageAccess = hasPerm('contest.admin') || (c.owner_user_id && c.owner_user_id === me?.user_id);
     const canEditThis = hasPerm('contests.manage') || (hasPerm('contests.manage_private') && c.private);
+    const isFullManager = hasPerm('contests.manage');
     const editBtn = canEditThis
       ? `<button class="contest-edit-pill" title="${escHtml(t('contestScreen.editTitle'))}" tabindex="-1">&#128295;</button>` : '';
     const accessBtn = canManageAccess
       ? `<button class="contest-edit-pill contest-access-pill" title="${escHtml(t('contestScreen.accessAuthorize'))}" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
       : (c.access_restricted ? `<span class="contest-access-indicator" title="${escHtml(t('contestScreen.accessRestricted'))}">&#128274;</span>` : '');
     const statusLabel = c.status === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished');
+    const joinBtn = !isFullManager && !c.my_status
+      ? `<button class="contest-join-req-btn" tabindex="-1">${escHtml(t('contestScreen.requestToJoin'))}</button>`
+      : (!isFullManager && c.my_status === 'pending'
+        ? `<span class="participant-status-pill pending">${escHtml(t('contestScreen.participantPending'))}</span>`
+        : '');
     row.innerHTML = `
       <div class="cl-col cl-name">${escHtml(c.name)}${privateBadge}</div>
       <div class="cl-col cl-call">${escHtml(fmtCall(c.station_call))}</div>
       <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span></div>
       <div class="cl-col cl-date">${createdDate}</div>
       <div class="cl-col cl-activity">${actDate}</div>
-      <div class="cl-col cl-actions">${accessBtn}${editBtn}</div>
+      <div class="cl-col cl-actions">${joinBtn}${accessBtn}${editBtn}</div>
     `;
     if (canEditThis) {
       row.querySelector('.contest-edit-pill:not(.contest-access-pill)')?.addEventListener('click', async (e) => {
@@ -1007,6 +1034,20 @@
         contestAccessModal(c);
       });
     }
+    row.querySelector('.contest-join-req-btn')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      const r = await api('/api/contests/' + c.id + '/participants', { method: 'POST' });
+      if (r.ok) {
+        c.my_status = 'pending';
+        btn.outerHTML = `<span class="participant-status-pill pending">${escHtml(t('contestScreen.participantPending'))}</span>`;
+        refreshContests();
+      } else {
+        btn.disabled = false;
+        alert(t('contestScreen.participantRequestFail'));
+      }
+    });
     row.addEventListener('click', () => selectContest(c));
     return row;
   }
@@ -2536,6 +2577,15 @@
   function contestEditModal(c) {
     const existingFields = parseCustomFields(c.custom_fields);
     let pendingStatus = c.status;
+    const canManageContest = hasPerm('contests.manage') || (hasPerm('contests.manage_private') && c.private);
+    const isOwner = c.my_role === 'owner';
+    const canSeeParticipants = canManageContest || isOwner;
+    const participantsSection = canSeeParticipants
+      ? `<div class="participants-section">
+           <div class="participants-section-header">${escHtml(t('contestScreen.participants'))}</div>
+           <div id="modal-participants-list" class="participants-list"><span class="muted small">${escHtml(t('common.loading'))}</span></div>
+         </div>`
+      : '';
     showModal(`
       <h3>${escHtml(t('contestScreen.editTitle'))}</h3>
       <div style="margin-bottom:14px">
@@ -2545,6 +2595,7 @@
           <span class="status-toggle-arrow">&#8644;</span>
         </button>
       </div>
+      ${participantsSection}
       <form>
         <label>${escHtml(t('contestScreen.contestName'))}</label>
         <input name="name" value="${escHtml(c.name)}" required />
@@ -2611,6 +2662,84 @@
       updatePreview();
       ta.addEventListener('input', updatePreview);
     }
+    // Load participants if visible
+    if (canSeeParticipants) loadModalParticipants(c.id, canManageContest);
+  }
+
+  async function loadModalParticipants(contestID, canManage) {
+    const list = document.getElementById('modal-participants-list');
+    if (!list) return;
+    const r = await api('/api/contests/' + contestID + '/participants');
+    if (!r.ok) { list.innerHTML = `<span class="error small">${escHtml(t('contestScreen.participantLoadFail'))}</span>`; return; }
+    const participants = await r.json();
+    if (!participants || participants.length === 0) {
+      list.innerHTML = `<span class="muted small">${escHtml(t('contestScreen.noParticipants'))}</span>`;
+      return;
+    }
+    list.innerHTML = participants.map(p => {
+      const rolePill = `<span class="participant-role-pill ${escHtml(p.role)}">${escHtml(p.role === 'owner' ? t('contestScreen.roleOwner') : t('contestScreen.roleUser'))}</span>`;
+      const statusPill = `<span class="participant-status-pill ${escHtml(p.status)}">${escHtml(p.status === 'active' ? t('contestScreen.participantActive') : t('contestScreen.participantPending'))}</span>`;
+      const isSelf = p.user_id === me?.user_id;
+      let actions = '';
+      if (p.status === 'pending') {
+        actions += `<button class="ghost small ptc-approve" data-uid="${p.user_id}" title="${escHtml(t('contestScreen.approveRequest'))}">${escHtml(t('contestScreen.approveRequest'))}</button>`;
+      }
+      if (p.status === 'active' && p.role === 'user' && (canManage)) {
+        actions += `<button class="ghost small ptc-promote" data-uid="${p.user_id}" title="${escHtml(t('contestScreen.promoteToOwner'))}">&uarr; ${escHtml(t('contestScreen.promoteToOwner'))}</button>`;
+      }
+      if (p.status === 'active' && p.role === 'owner' && isSelf) {
+        actions += `<button class="ghost small ptc-demote" data-uid="${p.user_id}" title="${escHtml(t('contestScreen.demoteToUser'))}">&darr; ${escHtml(t('contestScreen.demoteToUser'))}</button>`;
+      }
+      if (canManage || (isSelf && p.role !== 'owner')) {
+        actions += `<button class="ghost small ptc-remove" data-uid="${p.user_id}" title="${escHtml(t('contestScreen.removeParticipant'))}">&times;</button>`;
+      }
+      return `<div class="participant-row" data-uid="${p.user_id}">
+        <span class="participant-name">${escHtml(p.username)}${p.callsign ? ` <span class="muted small">${escHtml(fmtCall(p.callsign))}</span>` : ''}</span>
+        <span class="participant-pills">${rolePill}${statusPill}</span>
+        <span class="participant-actions">${actions}</span>
+      </div>`;
+    }).join('');
+
+    list.querySelectorAll('.ptc-approve').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const uid = Number(btn.dataset.uid);
+        const p = participants.find(x => x.user_id === uid);
+        if (!p) return;
+        const r = await api('/api/contests/' + contestID + '/participants/' + uid, {
+          method: 'PUT', body: JSON.stringify({ role: p.role, status: 'active' }),
+        });
+        if (r.ok) loadModalParticipants(contestID, canManage);
+        else alert(t('contestScreen.participantUpdateFail'));
+      });
+    });
+    list.querySelectorAll('.ptc-promote').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const uid = Number(btn.dataset.uid);
+        const r = await api('/api/contests/' + contestID + '/participants/' + uid, {
+          method: 'PUT', body: JSON.stringify({ role: 'owner', status: 'active' }),
+        });
+        if (r.ok) loadModalParticipants(contestID, canManage);
+        else alert(t('contestScreen.participantUpdateFail'));
+      });
+    });
+    list.querySelectorAll('.ptc-demote').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const uid = Number(btn.dataset.uid);
+        const r = await api('/api/contests/' + contestID + '/participants/' + uid, {
+          method: 'PUT', body: JSON.stringify({ role: 'user', status: 'active' }),
+        });
+        if (r.ok) loadModalParticipants(contestID, canManage);
+        else alert(t('contestScreen.participantUpdateFail'));
+      });
+    });
+    list.querySelectorAll('.ptc-remove').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const uid = Number(btn.dataset.uid);
+        const r = await api('/api/contests/' + contestID + '/participants/' + uid, { method: 'DELETE' });
+        if (r.ok) loadModalParticipants(contestID, canManage);
+        else alert(t('contestScreen.participantUpdateFail'));
+      });
+    });
   }
 
   // ----- Contest access modal -----

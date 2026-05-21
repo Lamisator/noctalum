@@ -2053,3 +2053,96 @@ button.small { padding: 4px 8px; font-size: 12px; }
 .topbar-left .lang-switcher-host {
   margin-left: 8px;
 }
+
+/* ----- contest participants ----- */
+.participants-section {
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.participants-section-header {
+  background: var(--bg-elev-2);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.participants-list {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.participant-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.participant-name {
+  flex: 1;
+  font-size: 13px;
+}
+.participant-pills {
+  display: flex;
+  gap: 4px;
+}
+.participant-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.participant-actions button {
+  font-size: 11px;
+  padding: 2px 7px;
+  margin: 0;
+  min-height: unset;
+  height: auto;
+  width: auto;
+}
+.participant-role-pill,
+.participant-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid;
+}
+.participant-role-pill.owner {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.participant-role-pill.user {
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+.participant-status-pill.active {
+  color: var(--success);
+  border-color: var(--success);
+}
+.participant-status-pill.pending {
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+.contest-join-req-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+  width: auto;
+  min-height: unset;
+  height: auto;
+  margin: 0;
+  font-weight: 600;
+}
+.contest-join-req-btn:hover { background: var(--accent-dim); }
+.contest-join-req-btn:disabled { opacity: 0.5; cursor: default; }
