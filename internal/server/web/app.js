@@ -847,9 +847,6 @@
       : (needsJoinReq && c.my_status === 'pending'
         ? `<span class="participant-status-pill pending">${escHtml(t('contestScreen.participantPending'))}</span>`
         : '');
-    const viewLogBadge = c.status === 'finished'
-      ? `<span class="contest-view-log-badge">${escHtml(t('contestScreen.viewLog'))}</span>`
-      : '';
     item.innerHTML = `
       <div>
         <div class="contest-picker-name">${escHtml(c.name)}</div>
@@ -857,7 +854,6 @@
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span>
-        ${viewLogBadge}
         ${joinBtn}
         ${accessBtn}
         ${editBtn}
@@ -1034,13 +1030,10 @@
       : (needsJoinReq && c.my_status === 'pending'
         ? `<span class="participant-status-pill pending">${escHtml(t('contestScreen.participantPending'))}</span>`
         : '');
-    const viewLogBadge = c.status === 'finished'
-      ? `<span class="contest-view-log-badge">${escHtml(t('contestScreen.viewLog'))}</span>`
-      : '';
     row.innerHTML = `
       <div class="cl-col cl-name">${escHtml(c.name)}${privateBadge}</div>
       <div class="cl-col cl-call">${escHtml(fmtCall(c.station_call))}</div>
-      <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span>${viewLogBadge}</div>
+      <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span></div>
       <div class="cl-col cl-date">${createdDate}</div>
       <div class="cl-col cl-activity">${actDate}</div>
       <div class="cl-col cl-actions">${joinBtn}${accessBtn}${editBtn}</div>
@@ -4667,6 +4660,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.12',
+      date: '2026-05-21 16:20 UTC',
+      en: 'Reverted: "View log →" badge on finished contests in the contest picker has been removed.',
+      de: 'Rückgängig gemacht: Das "Log ansehen →"-Badge bei beendeten Contests in der Contestauswahl wurde entfernt.',
+    },
+    {
       version: '0.11',
       date: '2026-05-21 16:05 UTC',
       en: 'Version number now displayed next to "Noctalum" in the title bar on all screens.',
@@ -4707,12 +4706,6 @@
       date: '2026-05-21 15:41 UTC',
       en: 'Contest owners and admins can now delete a contest from the edit modal. Requires confirmation.',
       de: 'Contest-Besitzer und Admins können einen Contest jetzt direkt aus dem Bearbeitungs-Modal löschen. Bestätigung erforderlich.',
-    },
-    {
-      version: '0.4',
-      date: '2026-05-21 15:40 UTC',
-      en: 'Finished contests now show a "View log →" badge in the contest picker. Read-only banner improved.',
-      de: 'Beendete Contests zeigen jetzt ein "Log ansehen →"-Badge in der Contestauswahl. Schreibschutz-Hinweis verbessert.',
     },
     {
       version: '0.3',

@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.12 — 2026-05-21 16:20 UTC — Revert "View log" badge on finished contests
+
+- Removed the "View log →" badge from finished contests in the contest picker
+- Reverted read-only banner text to the original wording
+
 ## v0.11 — 2026-05-21 16:05 UTC — Version in title bar
 
 - Current version number shown next to "Noctalum" in the title bar on all screens, in light orange
