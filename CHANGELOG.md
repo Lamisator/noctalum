@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.9 — DOK callsign caching
+
+- When a callsign is re-entered in the QSO form, the DOK field auto-fills from the last logged QSO with that callsign
+- DOK mappings are persisted in a `callsign_cache` table and updated on every QSO save (new and edits)
+
 ## v0.8 — Multi-op band-busy warning
 
 - Band pills highlight in orange when another operator in the same contest is already on that band

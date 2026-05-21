@@ -1899,6 +1899,7 @@
       const j = await res.json();
       if (j.name && !$('q-name').value) $('q-name').value = j.name;
       if (j.locator && !$('q-loc').value) $('q-loc').value = j.locator.toUpperCase();
+      if (j.cached_dok && !$('q-dok').value) $('q-dok').value = j.cached_dok;
       const loc = j.locator ? j.locator.toUpperCase() : ($('q-loc').value.trim().toUpperCase() || null);
       updateLeftPanel(callsign, !!j.has_picture, loc);
       if (j.found) {
@@ -4665,6 +4666,11 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.9',
+      en: 'DOK callsign caching: when a callsign is re-entered, the DOK field is auto-filled from the last logged QSO with that callsign.',
+      de: 'DOK-Rufzeichenzwischenspeicher: Wird ein Rufzeichen erneut eingegeben, wird das DOK-Feld automatisch aus dem letzten geloggten QSO mit diesem Rufzeichen befüllt.',
+    },
     {
       version: '0.8',
       en: 'Multi-op band-busy warning: band pills highlight in orange when another operator is already on that band. A confirmation dialog warns before logging a QSO on a busy band.',

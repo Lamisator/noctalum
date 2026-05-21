@@ -871,6 +871,9 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ID = id
+	if in.DOK != "" {
+		_ = s.store.UpsertCallsignDOK(in.Callsign, in.DOK)
+	}
 	s.audit(r, store.AuditInfo, AuditQSOCreate, sess.Username, in.Callsign,
 		"contest: "+contestName+", band: "+in.Band+", mode: "+in.Mode)
 	s.hub.BroadcastToContest(contestID, Event{Type: "qso", Payload: in})
@@ -973,6 +976,9 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.UpdateQSO(&in); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if in.DOK != "" {
+			_ = s.store.UpsertCallsignDOK(in.Callsign, in.DOK)
 		}
 		s.audit(r, store.AuditInfo, AuditQSOUpdate, sess.Username, in.Callsign,
 			"id: "+strconv.FormatInt(id, 10)+", band: "+in.Band+", mode: "+in.Mode)
@@ -1110,14 +1116,15 @@ func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "callsign required")
 		return
 	}
+	cachedDOK := s.store.GetCachedDOK(callsign)
 	if s.qrz == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"name": "", "locator": "", "has_picture": false, "configured": false})
+		writeJSON(w, http.StatusOK, map[string]any{"name": "", "locator": "", "has_picture": false, "configured": false, "cached_dok": cachedDOK})
 		return
 	}
 	result, err := s.qrz.Lookup(callsign)
 	if err != nil {
 		log.Printf("qrz lookup %s: %v", callsign, err)
-		writeJSON(w, http.StatusOK, map[string]any{"name": "", "locator": "", "has_picture": false, "error": err.Error()})
+		writeJSON(w, http.StatusOK, map[string]any{"name": "", "locator": "", "has_picture": false, "error": err.Error(), "cached_dok": cachedDOK})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -1125,6 +1132,7 @@ func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request) {
 		"locator":     result.Locator,
 		"has_picture": result.HasPic,
 		"found":       true,
+		"cached_dok":  cachedDOK,
 	})
 }
 

@@ -159,6 +159,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateDummyRigs(); err != nil {
 		return err
 	}
+	if err := s.migrateCallsignCache(); err != nil {
+		return err
+	}
 	for _, col := range [][2]string{
 		{"nr_sent", "INTEGER NOT NULL DEFAULT 0"},
 		{"nr_received", "INTEGER NOT NULL DEFAULT 0"},
@@ -662,4 +665,32 @@ func (s *Store) InsertDummyRig(name string, defaultFreqHz int64) error {
 func (s *Store) DeleteDummyRig(name string) error {
 	_, err := s.db.Exec(`DELETE FROM dummy_rigs WHERE name = ?`, name)
 	return err
+}
+
+// ----- callsign DOK cache -----
+
+func (s *Store) migrateCallsignCache() error {
+	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS callsign_cache (
+		callsign TEXT PRIMARY KEY,
+		dok TEXT NOT NULL DEFAULT '',
+		updated_at TEXT NOT NULL
+	)`)
+	return err
+}
+
+// UpsertCallsignDOK stores or updates the DOK for a callsign.
+func (s *Store) UpsertCallsignDOK(callsign, dok string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO callsign_cache(callsign, dok, updated_at) VALUES(?, ?, ?)
+		 ON CONFLICT(callsign) DO UPDATE SET dok=excluded.dok, updated_at=excluded.updated_at`,
+		strings.ToUpper(callsign), strings.ToUpper(dok), time.Now().UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+// GetCachedDOK returns the cached DOK for a callsign, or "" if not found.
+func (s *Store) GetCachedDOK(callsign string) string {
+	var dok string
+	_ = s.db.QueryRow(`SELECT dok FROM callsign_cache WHERE callsign = ?`, strings.ToUpper(callsign)).Scan(&dok)
+	return dok
 }
