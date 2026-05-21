@@ -4667,6 +4667,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '1.1',
+      date: '2026-05-21 16:05 UTC',
+      en: 'Version number now displayed next to "Noctalum" in the title bar on all screens.',
+      de: 'Versionsnummer wird jetzt neben "Noctalum" in der Titelleiste auf allen Seiten angezeigt.',
+    },
+    {
       version: '1.0',
       date: '2026-05-21 16:00 UTC',
       en: 'Changelog now shows date and time (UTC) for each entry.',
@@ -4742,6 +4748,13 @@
       </div>
     `).join('');
   }
+
+  // Populate version badge in both topbars.
+  const _ver = 'v' + (CHANGELOG[0] ? CHANGELOG[0].version : '');
+  ['app-version-contest', 'app-version-main'].forEach(id => {
+    const el = $(id);
+    if (el) el.textContent = _ver;
+  });
 
   function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');

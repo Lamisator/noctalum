@@ -1,5 +1,9 @@
 # Noctalum Changelog
 
+## v1.1 — 2026-05-21 16:05 UTC — Version in title bar
+
+- Current version number shown next to "Noctalum" in the title bar on all screens, in light orange
+
 ## v1.0 — 2026-05-21 16:00 UTC — Changelog dates
 
 - Each changelog entry now shows its date and time (UTC)
