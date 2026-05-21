@@ -503,6 +503,7 @@
   }
 
   // ----- admin screens (accessed from contest selection) -----
+  $('my-fr-nav-btn').addEventListener('click', () => showAdminScreen('my-featurerequests-screen', refreshMyFeatureRequests));
   $('contests-admin-btn').addEventListener('click', () => showAdminScreen('contests-admin-screen', refreshContests));
   $('users-admin-btn').addEventListener('click', () => showAdminScreen('users-admin-screen', refreshUsers));
   $('audit-admin-btn').addEventListener('click', () => showAdminScreen('audit-admin-screen', () => refreshAuditLog(true)));
@@ -4044,10 +4045,14 @@
 
   // ----- feature requests -----
   let featureRequests = [];
+  let myFeatureRequests = [];
 
   $('feature-request-btn').addEventListener('click', () => featureRequestSubmitModal());
+  $('my-fr-submit-btn').addEventListener('click', () => {
+    featureRequestSubmitModal(() => refreshMyFeatureRequests());
+  });
 
-  function featureRequestSubmitModal() {
+  function featureRequestSubmitModal(afterSubmit) {
     showModal(`
       <h3>${escHtml(t('topbar.featureRequest'))}</h3>
       <form>
@@ -4072,6 +4077,7 @@
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error || t('featureRequests.submitFail'));
       }
+      if (typeof afterSubmit === 'function') afterSubmit();
     });
   }
 
@@ -4097,7 +4103,11 @@
         <td>${escHtml(fr.from)}</td>
         <td class="muted small">${escHtml(date)}</td>
         <td><span class="badge ${statusClass}">${escHtml(statusLabel)}</span></td>
-        <td style="white-space:pre-wrap;max-width:480px">${escHtml(fr.text)}</td>
+        <td style="white-space:pre-wrap;max-width:360px">${escHtml(fr.text)}</td>
+        <td style="min-width:160px">
+          <textarea class="fr-comment-input" data-id="${Number(fr.id)}" rows="2" style="width:100%;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:inherit;font:inherit;font-size:12px;resize:vertical">${escHtml(fr.admin_comment || '')}</textarea>
+          <button class="ghost fr-comment-save-btn" data-id="${Number(fr.id)}" style="font-size:11px;padding:2px 8px;margin-top:3px">${escHtml(t('featureRequests.saveComment'))}</button>
+        </td>
         <td class="actions" style="white-space:nowrap">
           <select class="fr-status-sel ghost" data-id="${Number(fr.id)}" style="font-size:12px;padding:2px 6px;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:4px;color:inherit">
             <option value="pending" ${fr.status==='pending'?'selected':''}>${escHtml(t('featureRequests.status_pending'))}</option>
@@ -4120,6 +4130,21 @@
         if (res.ok) refreshFeatureRequests();
       });
     });
+    tbody.querySelectorAll('.fr-comment-save-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = Number(btn.dataset.id);
+        const textarea = tbody.querySelector(`.fr-comment-input[data-id="${id}"]`);
+        const comment = textarea ? textarea.value : '';
+        const res = await api('/api/feature-requests/' + id, {
+          method: 'PUT',
+          body: JSON.stringify({ admin_comment: comment }),
+        });
+        if (res.ok) {
+          btn.textContent = t('featureRequests.commentSaved');
+          setTimeout(() => { btn.textContent = t('featureRequests.saveComment'); }, 1500);
+        }
+      });
+    });
     tbody.querySelectorAll('.fr-del-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         if (!await showConfirm(t('featureRequests.deleteConfirm'), { ok: t('common.delete') })) return;
@@ -4130,6 +4155,40 @@
     });
     const n = featureRequests.length;
     $('fr-count').textContent = n === 1 ? t('featureRequests.count', { n }) : t('featureRequests.countPlural', { n });
+  }
+
+  async function refreshMyFeatureRequests() {
+    const res = await api('/api/feature-requests/mine');
+    if (!res.ok) return;
+    myFeatureRequests = await res.json();
+    renderMyFeatureRequests();
+  }
+
+  function renderMyFeatureRequests() {
+    const tbody = $('my-fr-tbody');
+    tbody.innerHTML = '';
+    if (!myFeatureRequests.length) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td colspan="4" class="muted" style="text-align:center;padding:20px">${escHtml(t('featureRequests.noMyRequests'))}</td>`;
+      tbody.appendChild(tr);
+      $('my-fr-count').textContent = '';
+      return;
+    }
+    for (const fr of myFeatureRequests) {
+      const tr = document.createElement('tr');
+      const date = fr.created_at ? new Date(fr.created_at).toLocaleString(localeForFmt()) : '';
+      const statusClass = { pending: 'open', accepted: 'admin', declined: 'disabled', implemented: 'finished' }[fr.status] || '';
+      const statusLabel = t('featureRequests.status_' + fr.status) || fr.status;
+      tr.innerHTML = `
+        <td class="muted small">${escHtml(date)}</td>
+        <td><span class="badge ${statusClass}">${escHtml(statusLabel)}</span></td>
+        <td style="white-space:pre-wrap;max-width:480px">${escHtml(fr.text)}</td>
+        <td style="max-width:300px;white-space:pre-wrap;color:var(--accent)">${fr.admin_comment ? escHtml(fr.admin_comment) : '<span class="muted">—</span>'}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+    const n = myFeatureRequests.length;
+    $('my-fr-count').textContent = n === 1 ? t('featureRequests.count', { n }) : t('featureRequests.countPlural', { n });
   }
 
   $('fr-select-all').addEventListener('change', (e) => {
