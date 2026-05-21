@@ -197,6 +197,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/export/edi", s.requirePerm(PermQSOExport, s.handleExportEDI))
 	mux.HandleFunc("/api/audit", s.requirePerm(PermAuditLog, s.handleAuditLog))
 	mux.HandleFunc("/api/feature-requests", s.requireAuth(s.handleFeatureRequests))
+	mux.HandleFunc("/api/feature-requests/mine", s.requireAuth(s.handleMyFeatureRequests))
 	mux.HandleFunc("/api/feature-requests/", s.requireAuth(s.handleFeatureRequestByID))
 	mux.HandleFunc("/api/cluster/spots", s.requireAuth(s.handleClusterSpots))
 	mux.HandleFunc("/api/cluster/log", s.requireAuth(s.handleClusterLog))
@@ -2234,6 +2235,23 @@ func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleMyFeatureRequests(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	sess := sessionFor(s, r)
+	list, err := s.store.ListFeatureRequestsByUser(sess.Username)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []store.FeatureRequest{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
 func (s *Server) handleFeatureRequestByID(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFor(s, r)
 	if !HasPermission(sess.Permissions, PermFeatureRequestsRead) {
@@ -2250,22 +2268,32 @@ func (s *Server) handleFeatureRequestByID(w http.ResponseWriter, r *http.Request
 	switch r.Method {
 	case http.MethodPut:
 		var in struct {
-			Status string `json:"status"`
+			Status       *string `json:"status"`
+			AdminComment *string `json:"admin_comment"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
-		valid := map[string]bool{"pending": true, "accepted": true, "declined": true, "implemented": true}
-		if !valid[in.Status] {
-			writeError(w, http.StatusBadRequest, "invalid status")
-			return
+		if in.Status != nil {
+			valid := map[string]bool{"pending": true, "accepted": true, "declined": true, "implemented": true}
+			if !valid[*in.Status] {
+				writeError(w, http.StatusBadRequest, "invalid status")
+				return
+			}
+			if err := s.store.UpdateFeatureRequestStatus(id, *in.Status); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.audit(r, store.AuditInfo, AuditFeatureRequestUpdate, sess.Username, idStr, "status: "+*in.Status)
 		}
-		if err := s.store.UpdateFeatureRequestStatus(id, in.Status); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
+		if in.AdminComment != nil {
+			if err := s.store.UpdateFeatureRequestComment(id, *in.AdminComment); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.audit(r, store.AuditInfo, AuditFeatureRequestUpdate, sess.Username, idStr, "admin_comment updated")
 		}
-		s.audit(r, store.AuditInfo, AuditFeatureRequestUpdate, sess.Username, idStr, "status: "+in.Status)
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:
 		if err := s.store.DeleteFeatureRequest(id); err != nil {

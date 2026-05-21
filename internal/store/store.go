@@ -329,11 +329,12 @@ func (s *Store) DeleteQSO(id int64) error {
 
 // FeatureRequest is a user-submitted change request.
 type FeatureRequest struct {
-	ID        int64     `json:"id"`
-	From      string    `json:"from"`
-	Text      string    `json:"text"`
-	Status    string    `json:"status"` // pending, accepted, declined, implemented
-	CreatedAt time.Time `json:"created_at"`
+	ID           int64     `json:"id"`
+	From         string    `json:"from"`
+	Text         string    `json:"text"`
+	Status       string    `json:"status"` // pending, accepted, declined, implemented
+	AdminComment string    `json:"admin_comment"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 func (s *Store) migrateFeatureRequests() error {
@@ -344,13 +345,16 @@ func (s *Store) migrateFeatureRequests() error {
 		status TEXT NOT NULL DEFAULT 'pending',
 		created_at TEXT NOT NULL
 	)`)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.addColumnIfMissing("feature_requests", "admin_comment", "TEXT NOT NULL DEFAULT ''")
 }
 
 func (s *Store) InsertFeatureRequest(from, text string) (*FeatureRequest, error) {
 	now := time.Now().UTC()
 	res, err := s.db.Exec(
-		`INSERT INTO feature_requests (from_user, text, status, created_at) VALUES (?, ?, 'pending', ?)`,
+		`INSERT INTO feature_requests (from_user, text, status, admin_comment, created_at) VALUES (?, ?, 'pending', '', ?)`,
 		from, text, now.Format(time.RFC3339),
 	)
 	if err != nil {
@@ -360,21 +364,50 @@ func (s *Store) InsertFeatureRequest(from, text string) (*FeatureRequest, error)
 	return &FeatureRequest{ID: id, From: from, Text: text, Status: "pending", CreatedAt: now}, nil
 }
 
+func (s *Store) scanFeatureRequest(rows interface {
+	Scan(...any) error
+}) (FeatureRequest, error) {
+	var fr FeatureRequest
+	var ts string
+	if err := rows.Scan(&fr.ID, &fr.From, &fr.Text, &fr.Status, &fr.AdminComment, &ts); err != nil {
+		return fr, err
+	}
+	fr.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+	return fr, nil
+}
+
 func (s *Store) ListFeatureRequests() ([]FeatureRequest, error) {
 	rows, err := s.db.Query(
-		`SELECT id, from_user, text, status, created_at FROM feature_requests ORDER BY id DESC`)
+		`SELECT id, from_user, text, status, admin_comment, created_at FROM feature_requests ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []FeatureRequest
 	for rows.Next() {
-		var fr FeatureRequest
-		var ts string
-		if err := rows.Scan(&fr.ID, &fr.From, &fr.Text, &fr.Status, &ts); err != nil {
+		fr, err := s.scanFeatureRequest(rows)
+		if err != nil {
 			return nil, err
 		}
-		fr.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+		out = append(out, fr)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ListFeatureRequestsByUser(username string) ([]FeatureRequest, error) {
+	rows, err := s.db.Query(
+		`SELECT id, from_user, text, status, admin_comment, created_at FROM feature_requests WHERE from_user=? ORDER BY id DESC`,
+		username)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FeatureRequest
+	for rows.Next() {
+		fr, err := s.scanFeatureRequest(rows)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, fr)
 	}
 	return out, rows.Err()
@@ -382,6 +415,11 @@ func (s *Store) ListFeatureRequests() ([]FeatureRequest, error) {
 
 func (s *Store) UpdateFeatureRequestStatus(id int64, status string) error {
 	_, err := s.db.Exec(`UPDATE feature_requests SET status=? WHERE id=?`, status, id)
+	return err
+}
+
+func (s *Store) UpdateFeatureRequestComment(id int64, comment string) error {
+	_, err := s.db.Exec(`UPDATE feature_requests SET admin_comment=? WHERE id=?`, comment, id)
 	return err
 }
 
