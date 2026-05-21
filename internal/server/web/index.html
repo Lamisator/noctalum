@@ -52,7 +52,15 @@
 </div>
 
 <!-- Contest selection screen -->
-<div id="contest-screen" class="screen login-screen hidden">
+<div id="contest-screen" class="screen contest-screen-outer hidden">
+  <header class="contest-topbar">
+    <div class="topbar-left">
+      <img src="/noctalum.png" alt="" class="topbar-logo" />
+      <div class="brand">Noctalum</div>
+      <span class="op-badge"><span data-i18n="topbar.loggedInAs">Logged in as</span> <strong id="contest-current-op"></strong></span>
+    </div>
+  </header>
+  <div class="contest-screen-body">
   <div class="contest-screen-layout">
     <nav class="contest-nav-pill" id="contest-nav-pill">
       <button id="my-fr-nav-btn" class="nav-pill-btn">
@@ -156,6 +164,7 @@
         <div id="downloads-list"><p class="muted" style="font-size:12px;margin:0" data-i18n="contestScreen.loading">Loading&#8230;</p></div>
       </div>
     </div>
+  </div>
   </div>
 </div>
 

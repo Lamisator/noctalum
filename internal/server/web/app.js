@@ -3682,6 +3682,7 @@
       window.I18N.setLang(me.language);
     }
     $('current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
+    $('contest-current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
     return true;
   }
 
@@ -4414,6 +4415,7 @@
         window.I18N.setLang(me.language);
       }
       $('current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
+      $('contest-current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
       applyPermissionsToUI();
       await loadSettings();
       applyDefaults();
