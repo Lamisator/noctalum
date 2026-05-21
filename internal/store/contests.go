@@ -93,9 +93,19 @@ func (s *Store) migrateContests() error {
 	if err := s.addColumnIfMissing("qsos", "contest_id", "INTEGER"); err != nil {
 		return fmt.Errorf("migrate qsos contest_id: %w", err)
 	}
-	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS contest_access (
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS contest_access (
 		contest_id INTEGER NOT NULL,
 		user_id    INTEGER NOT NULL,
+		PRIMARY KEY (contest_id, user_id)
+	)`); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS contest_participants (
+		contest_id INTEGER NOT NULL,
+		user_id    INTEGER NOT NULL,
+		role       TEXT    NOT NULL DEFAULT 'user',
+		status     TEXT    NOT NULL DEFAULT 'pending',
+		joined_at  TEXT    NOT NULL,
 		PRIMARY KEY (contest_id, user_id)
 	)`)
 	return err
@@ -219,9 +229,12 @@ func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, b
 	return err
 }
 
-// DeleteContest removes a contest and its access list from the database.
+// DeleteContest removes a contest, its access list, and participants from the database.
 func (s *Store) DeleteContest(id int64) error {
 	if _, err := s.db.Exec(`DELETE FROM contest_access WHERE contest_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`DELETE FROM contest_participants WHERE contest_id = ?`, id); err != nil {
 		return err
 	}
 	_, err := s.db.Exec(`DELETE FROM contests WHERE id = ?`, id)
@@ -306,4 +319,120 @@ func (s *Store) GrantContestAccessByUsername(contestID int64, username string) (
 		return 0, err
 	}
 	return u.ID, s.GrantContestAccess(contestID, u.ID)
+}
+
+// ----- contest participants -----
+
+// ContestParticipant represents a user's participation in a contest.
+type ContestParticipant struct {
+	ContestID int64     `json:"contest_id"`
+	UserID    int64     `json:"user_id"`
+	Username  string    `json:"username"`
+	Callsign  string    `json:"callsign"`
+	Role      string    `json:"role"`   // "owner" | "user"
+	Status    string    `json:"status"` // "active" | "pending"
+	JoinedAt  time.Time `json:"joined_at"`
+}
+
+// AddContestParticipant inserts a participant with the given role and status.
+func (s *Store) AddContestParticipant(contestID, userID int64, role, status string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO contest_participants (contest_id, user_id, role, status, joined_at) VALUES (?, ?, ?, ?, ?)`,
+		contestID, userID, role, status, now,
+	)
+	return err
+}
+
+// RequestContestParticipant inserts the user as a pending participant if not already present.
+func (s *Store) RequestContestParticipant(contestID, userID int64) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO contest_participants (contest_id, user_id, role, status, joined_at) VALUES (?, ?, 'user', 'pending', ?)`,
+		contestID, userID, now,
+	)
+	return err
+}
+
+// GetContestParticipants returns all participants for a contest, joined with user info.
+func (s *Store) GetContestParticipants(contestID int64) ([]ContestParticipant, error) {
+	rows, err := s.db.Query(
+		`SELECT cp.contest_id, cp.user_id, u.username, u.callsign, cp.role, cp.status, cp.joined_at
+		 FROM contest_participants cp
+		 JOIN users u ON u.id = cp.user_id
+		 WHERE cp.contest_id = ?
+		 ORDER BY cp.role DESC, u.username`, contestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ContestParticipant
+	for rows.Next() {
+		var p ContestParticipant
+		var jat string
+		if err := rows.Scan(&p.ContestID, &p.UserID, &p.Username, &p.Callsign, &p.Role, &p.Status, &jat); err != nil {
+			return nil, err
+		}
+		p.JoinedAt, _ = time.Parse(time.RFC3339, jat)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// GetContestParticipant returns a single participant record, or nil if not found.
+func (s *Store) GetContestParticipant(contestID, userID int64) (*ContestParticipant, error) {
+	row := s.db.QueryRow(
+		`SELECT cp.contest_id, cp.user_id, u.username, u.callsign, cp.role, cp.status, cp.joined_at
+		 FROM contest_participants cp
+		 JOIN users u ON u.id = cp.user_id
+		 WHERE cp.contest_id = ? AND cp.user_id = ?`, contestID, userID)
+	var p ContestParticipant
+	var jat string
+	if err := row.Scan(&p.ContestID, &p.UserID, &p.Username, &p.Callsign, &p.Role, &p.Status, &jat); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	p.JoinedAt, _ = time.Parse(time.RFC3339, jat)
+	return &p, nil
+}
+
+// UpdateContestParticipant changes role and/or status for an existing participant.
+func (s *Store) UpdateContestParticipant(contestID, userID int64, role, status string) error {
+	_, err := s.db.Exec(
+		`UPDATE contest_participants SET role = ?, status = ? WHERE contest_id = ? AND user_id = ?`,
+		role, status, contestID, userID,
+	)
+	return err
+}
+
+// RemoveContestParticipant deletes a participant from a contest.
+func (s *Store) RemoveContestParticipant(contestID, userID int64) error {
+	_, err := s.db.Exec(`DELETE FROM contest_participants WHERE contest_id = ? AND user_id = ?`, contestID, userID)
+	return err
+}
+
+// GetUserParticipations returns all contest participations for a user, keyed by contest ID.
+func (s *Store) GetUserParticipations(userID int64) (map[int64]ContestParticipant, error) {
+	rows, err := s.db.Query(
+		`SELECT cp.contest_id, cp.user_id, u.username, u.callsign, cp.role, cp.status, cp.joined_at
+		 FROM contest_participants cp
+		 JOIN users u ON u.id = cp.user_id
+		 WHERE cp.user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64]ContestParticipant)
+	for rows.Next() {
+		var p ContestParticipant
+		var jat string
+		if err := rows.Scan(&p.ContestID, &p.UserID, &p.Username, &p.Callsign, &p.Role, &p.Status, &jat); err != nil {
+			return nil, err
+		}
+		p.JoinedAt, _ = time.Parse(time.RFC3339, jat)
+		out[p.ContestID] = p
+	}
+	return out, rows.Err()
 }
