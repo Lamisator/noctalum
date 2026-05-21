@@ -845,6 +845,9 @@
       : (needsJoinReq && c.my_status === 'pending'
         ? `<span class="participant-status-pill pending">${escHtml(t('contestScreen.participantPending'))}</span>`
         : '');
+    const viewLogBadge = c.status === 'finished'
+      ? `<span class="contest-view-log-badge">${escHtml(t('contestScreen.viewLog'))}</span>`
+      : '';
     item.innerHTML = `
       <div>
         <div class="contest-picker-name">${escHtml(c.name)}</div>
@@ -852,6 +855,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span>
+        ${viewLogBadge}
         ${joinBtn}
         ${accessBtn}
         ${editBtn}
@@ -1028,10 +1032,13 @@
       : (needsJoinReq && c.my_status === 'pending'
         ? `<span class="participant-status-pill pending">${escHtml(t('contestScreen.participantPending'))}</span>`
         : '');
+    const viewLogBadge = c.status === 'finished'
+      ? `<span class="contest-view-log-badge">${escHtml(t('contestScreen.viewLog'))}</span>`
+      : '';
     row.innerHTML = `
       <div class="cl-col cl-name">${escHtml(c.name)}${privateBadge}</div>
       <div class="cl-col cl-call">${escHtml(fmtCall(c.station_call))}</div>
-      <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span></div>
+      <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span>${viewLogBadge}</div>
       <div class="cl-col cl-date">${createdDate}</div>
       <div class="cl-col cl-activity">${actDate}</div>
       <div class="cl-col cl-actions">${joinBtn}${accessBtn}${editBtn}</div>
@@ -4473,6 +4480,11 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.4',
+      en: 'Finished contests now show a "View log →" badge in the contest picker. Read-only banner improved.',
+      de: 'Beendete Contests zeigen jetzt ein "Log ansehen →"-Badge in der Contestauswahl. Schreibschutz-Hinweis verbessert.',
+    },
     {
       version: '0.3',
       en: 'Fix: chat tab (message list and input field) now displays correctly on iPad and other narrow viewports.',

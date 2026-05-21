@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.4 — Browse finished contest UX
+
+- Finished contests now show a "View log →" badge in the contest picker (card and list views)
+- Read-only banner text improved: clearly states you can browse the QSO history
+
 ## v0.3 — Chat visible on iPad
 
 - Fixed: chat tab (message list and input field) now displays correctly on iPad and other narrow viewports (~768px)
