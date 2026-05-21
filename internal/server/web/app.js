@@ -508,7 +508,7 @@
 
   // ----- admin screens (accessed from contest selection) -----
   $('my-fr-nav-btn').addEventListener('click', () => showAdminScreen('my-featurerequests-screen', refreshMyFeatureRequests));
-  $('contests-admin-btn').addEventListener('click', () => showAdminScreen('contests-admin-screen', refreshContests));
+  $('contests-admin-btn')?.addEventListener('click', () => showAdminScreen('contests-admin-screen', refreshContests));
   $('users-admin-btn').addEventListener('click', () => showAdminScreen('users-admin-screen', refreshUsers));
   $('audit-admin-btn').addEventListener('click', () => showAdminScreen('audit-admin-screen', () => refreshAuditLog(true)));
   $('featurerequests-admin-btn').addEventListener('click', () => showAdminScreen('featurerequests-admin-screen', refreshFeatureRequests));
