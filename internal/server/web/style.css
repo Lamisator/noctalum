@@ -1380,6 +1380,11 @@ button.small { padding: 4px 8px; font-size: 12px; }
   .history-header { flex-wrap: wrap; gap: 8px; }
   .history-header input { width: 100%; max-width: 100%; box-sizing: border-box; }
   .ops-tabs { flex-wrap: wrap; }
+  /* Chat pane needs explicit flex layout + min-height so list and input are visible */
+  #ops-tab-chat { display: none; flex-direction: column; min-height: 280px; }
+  #ops-tab-chat.active { display: flex; }
+  #ops-tab-chat .chat-list { flex: 1 1 auto; min-height: 180px; }
+  #ops-tab-chat .chat-input-row { flex: 0 0 auto; }
 }
 
 @media (max-width: 480px) {

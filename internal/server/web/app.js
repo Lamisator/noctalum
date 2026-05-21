@@ -4474,6 +4474,11 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.3',
+      en: 'Fix: chat tab (message list and input field) now displays correctly on iPad and other narrow viewports.',
+      de: 'Behoben: Chat-Tab (Nachrichtenliste und Eingabefeld) wird jetzt auf iPad und anderen schmalen Bildschirmen korrekt angezeigt.',
+    },
+    {
       version: '0.2',
       en: 'Serial number padding: contest serial numbers can now be padded to 3 digits (001, 042) — enabled by default. Toggle in contest settings.',
       de: 'Seriennummern-Auffüllung: Contest-Seriennummern können jetzt auf 3 Stellen aufgefüllt werden (001, 042) – standardmäßig aktiviert. Umschalter in den Contest-Einstellungen.',

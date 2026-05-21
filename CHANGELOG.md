@@ -1,5 +1,15 @@
 # Noctalum Changelog
 
+## v0.3 — Chat visible on iPad
+
+- Fixed: chat tab (message list and input field) now displays correctly on iPad and other narrow viewports (~768px)
+
+## v0.2 — Serial number padding
+
+- Contest serial numbers can now be padded to 3 digits (001, 042) — enabled by default
+- Toggle in contest create/edit settings
+- Changelog screen added to contest picker nav (visible to all users)
+
 ## v0.1 — Initial Release
 
 - Initial release of Noctalum ham radio contest logger
