@@ -413,6 +413,10 @@
     return me.permissions.includes('*') || me.permissions.includes(p);
   }
 
+  function isAdmin() {
+    return !!(me && me.permissions && me.permissions.includes('*'));
+  }
+
   function contestIsOpen() {
     return me && me.contest_status === 'open';
   }
@@ -959,10 +963,11 @@
       if (el.dataset.sort === contestSortField)
         el.classList.add(contestSortDir === 'asc' ? 'sort-asc' : 'sort-desc');
     });
-    if (contests.length === 0) {
+    const visibleContests = canPriv ? contests : contests.filter(c => !c.private);
+    if (visibleContests.length === 0) {
       body.innerHTML = `<div class="cl-empty">${escHtml(t('contestScreen.noMatchFilter'))}</div>`;
     } else {
-      for (const c of contests) body.appendChild(makeListItem(c));
+      for (const c of visibleContests) body.appendChild(makeListItem(c));
     }
     $('contest-list-create-section').classList.toggle('hidden', !canManage);
     $('contest-list-create-private-section').classList.toggle('hidden', !canPriv);
@@ -1526,6 +1531,7 @@
       else el.setAttribute('data-perm-denied', '1');
     });
     $('feature-request-btn').classList.toggle('hidden', !hasPerm('feature_requests.write'));
+    $('new-role-btn').classList.toggle('hidden', !isAdmin());
   }
 
   // ----- mode/band fillers -----
@@ -3381,9 +3387,9 @@
         <td class="actions">
           <button class="ghost" data-action="edit" data-id="${Number(u.id)}">${escHtml(t('common.edit'))}</button>
           <button class="ghost" data-action="password" data-id="${Number(u.id)}">${escHtml(t('users.resetPassword'))}</button>
-          <button class="ghost" data-action="unlock" data-id="${Number(u.id)}">${escHtml(t('users.unlock'))}</button>
-          <button class="ghost" data-action="toggle" data-id="${Number(u.id)}" data-disabled="${u.disabled ? '1' : ''}">${u.disabled ? escHtml(t('users.enable')) : escHtml(t('users.disable'))}</button>
-          <button class="ghost" data-action="delete" data-id="${Number(u.id)}">${escHtml(t('common.delete'))}</button>
+          ${isAdmin() ? `<button class="ghost" data-action="unlock" data-id="${Number(u.id)}">${escHtml(t('users.unlock'))}</button>` : ''}
+          ${isAdmin() ? `<button class="ghost" data-action="toggle" data-id="${Number(u.id)}" data-disabled="${u.disabled ? '1' : ''}">${u.disabled ? escHtml(t('users.enable')) : escHtml(t('users.disable'))}</button>` : ''}
+          ${isAdmin() ? `<button class="ghost" data-action="delete" data-id="${Number(u.id)}">${escHtml(t('common.delete'))}</button>` : ''}
         </td>
       `;
       tr.querySelectorAll('button').forEach(b => b.addEventListener('click', () => userAction(u, b.dataset.action)));
@@ -3405,8 +3411,8 @@
             ${r.is_builtin ? `<span class="badge">${escHtml(t('users.builtin'))}</span>` : ''}
           </div>
           <div>
-            ${r.name === 'admin' ? '' : `<button class="ghost" data-action="edit-role" data-id="${Number(r.id)}">${escHtml(t('users.editPerms'))}</button>`}
-            ${r.is_builtin ? '' : `<button class="ghost" data-action="del-role" data-id="${Number(r.id)}">${escHtml(t('common.delete'))}</button>`}
+            ${isAdmin() && r.name !== 'admin' ? `<button class="ghost" data-action="edit-role" data-id="${Number(r.id)}">${escHtml(t('users.editPerms'))}</button>` : ''}
+            ${isAdmin() && !r.is_builtin ? `<button class="ghost" data-action="del-role" data-id="${Number(r.id)}">${escHtml(t('common.delete'))}</button>` : ''}
           </div>
         </div>
         <div class="perms">${perms}</div>
@@ -3507,8 +3513,8 @@
           <label>${escHtml(t('users.passwordMin'))}</label><input type="password" name="password" minlength="8" required />` : ''}
         <label>${escHtml(t('users.colCallsign'))}</label>
         <input name="callsign" value="${isNew ? '' : escHtml(u.callsign)}" required />
-        <label>${escHtml(t('users.colRoles'))}</label>
-        <div class="perm-grid">${roleOptions}</div>
+        ${isAdmin() ? `<label>${escHtml(t('users.colRoles'))}</label>
+        <div class="perm-grid">${roleOptions}</div>` : ''}
         <div class="modal-err error"></div>
         <div class="modal-actions">
           <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
@@ -3516,7 +3522,9 @@
         </div>
       </form>
     `, async (form) => {
-      const roles = Array.from(form.querySelectorAll('input[type=checkbox]:checked')).map(i => i.value);
+      const roles = isAdmin()
+        ? Array.from(form.querySelectorAll('input[type=checkbox]:checked')).map(i => i.value)
+        : (isNew ? ['user'] : (u.roles || []));
       const callsign = form.callsign.value.trim().toUpperCase();
       let res;
       if (isNew) {
