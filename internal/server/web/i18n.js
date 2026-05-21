@@ -297,6 +297,7 @@
         bandBusy: '{ops} is on this band',
         bandConflict: 'Band conflict: another op is on {band}',
         bandBusyConfirm: '{ops} is already on {band} — log anyway?',
+        multipleOnBand: 'MULTIPLE STATIONS ON {band}',
       },
       cluster: {
         allBands: 'All bands',
@@ -820,6 +821,7 @@
         bandBusy: '{ops} ist auf diesem Band',
         bandConflict: 'Bandkonflikt: ein anderer Operator ist auf {band}',
         bandBusyConfirm: '{ops} ist bereits auf {band} — trotzdem loggen?',
+        multipleOnBand: 'MEHRERE STATIONEN AUF {band}',
       },
       cluster: {
         allBands: 'Alle Bänder',

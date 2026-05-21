@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.13 — 2026-05-21 16:30 UTC — Band-conflict warning revised
+
+- Replaced orange band-pill/operator-row highlights with a pulsing red stripe below the operator list
+- Stripe reads "MULTIPLE STATIONS ON [BAND]" and fades in and out slowly
+- One stripe per conflicted band; hidden when no conflicts exist
+
 ## v0.12 — 2026-05-21 16:20 UTC — Revert "View log" badge on finished contests
 
 - Removed the "View log →" badge from finished contests in the contest picker

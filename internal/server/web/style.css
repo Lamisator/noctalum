@@ -1527,10 +1527,30 @@ button.small { padding: 4px 8px; font-size: 12px; }
 .band-pill.bp-other    { background: rgba(255,183,77,0.18); border-color: #ffb74d; color: #ffe082; }
 .band-pill.bp-dup      { background: rgba(239,83,80,0.22); border-color: #ef5350; color: #ef9a9a; }
 .band-pill.bp-inactive { background: transparent; border-color: var(--border); color: var(--text-muted); }
-.band-pill.bp-busy     { outline: 2px solid #ffa726; outline-offset: 1px; }
-
-/* ==== Operator band conflict highlight ==== */
-.op-band-conflict { background: rgba(255,167,38,0.12) !important; border-color: #ffa726 !important; }
+/* ==== Band-conflict stripe ==== */
+@keyframes band-conflict-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+.band-conflict-banner {
+  margin: 8px 0 4px;
+  border-radius: 4px;
+  overflow: hidden;
+  animation: band-conflict-pulse 2.4s ease-in-out infinite;
+}
+.band-conflict-banner div {
+  background: rgba(239, 83, 80, 0.18);
+  border: 1px solid rgba(239, 83, 80, 0.55);
+  border-radius: 4px;
+  color: #ef9a9a;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: center;
+  padding: 5px 8px;
+  margin-bottom: 4px;
+}
+.band-conflict-banner div:last-child { margin-bottom: 0; }
 
 /* ==== Band selector in contest modal ==== */
 .band-select-grid {

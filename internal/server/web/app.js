@@ -1869,7 +1869,6 @@
       }
       if (isRigBand) pill.classList.add('bp-current');
       if (isBusy) {
-        pill.classList.add('bp-busy');
         pill.title = t('ops.bandBusy', { ops: busyOps.map(fmtCall).join(', ') });
       }
 
@@ -2192,8 +2191,18 @@
     const list = $('ops-list');
     list.innerHTML = '';
     const canRelease = hasPerm('rig.release');
-    const myRig = rigs.find(x => x.name === me?.selected_rig);
-    const myBand = $('q-band').value || myRig?.band || '';
+    // Build band → callsigns map across all operators.
+    const bandMap = {};
+    for (const op of operators) {
+      const rigForOp = rigs.find(r => Array.isArray(r.in_use_by) && r.in_use_by.includes(op.callsign));
+      const band = op.band || (rigForOp ? rigForOp.band : '');
+      if (band) {
+        if (!bandMap[band]) bandMap[band] = [];
+        bandMap[band].push(op.callsign);
+      }
+    }
+    const conflictBands = Object.keys(bandMap).filter(b => bandMap[b].length > 1);
+
     for (const op of operators) {
       const li = document.createElement('li');
       const rigForOp = rigs.find(r => Array.isArray(r.in_use_by) && r.in_use_by.includes(op.callsign));
@@ -2208,11 +2217,6 @@
       span.textContent = label;
       li.appendChild(span);
       if (me && op.callsign === me.callsign) li.classList.add('me');
-      // Highlight operators sharing my current band (excluding self)
-      if (band && myBand && band === myBand && !(me && op.callsign === me.callsign)) {
-        li.classList.add('op-band-conflict');
-        li.title = t('ops.bandConflict', { band });
-      }
       // Allow admins with rig.release to forcibly release another op's rig.
       if (canRelease && rigName && me && op.callsign !== me.callsign) {
         const btn = document.createElement('button');
@@ -2228,6 +2232,19 @@
         li.appendChild(btn);
       }
       list.appendChild(li);
+    }
+
+    // Band-conflict stripe.
+    const banner = $('band-conflict-banner');
+    if (banner) {
+      if (conflictBands.length > 0) {
+        banner.innerHTML = conflictBands
+          .map(b => `<div>${escHtml(t('ops.multipleOnBand', { band: b }))}</div>`)
+          .join('');
+        banner.classList.remove('hidden');
+      } else {
+        banner.classList.add('hidden');
+      }
     }
   }
 
@@ -4659,6 +4676,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.13',
+      date: '2026-05-21 16:30 UTC',
+      en: 'Band-conflict warning revised: a pulsing red stripe "MULTIPLE STATIONS ON [BAND]" now appears below the operator list in the Status tab instead of orange pill highlights.',
+      de: 'Bandkonflikt-Warnung überarbeitet: Ein pulsierender roter Streifen „MEHRERE STATIONEN AUF [BAND]" erscheint jetzt unterhalb der Operatorliste im Status-Tab anstelle der orangen Band-Markierungen.',
+    },
     {
       version: '0.12',
       date: '2026-05-21 16:20 UTC',
