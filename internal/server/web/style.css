@@ -61,9 +61,9 @@ a { color: var(--accent); text-decoration: none; }
   flex: 1;
   overflow-y: auto;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 20px;
+  padding: 40px 20px 20px;
 }
 
 /* ==== Login screen ==== */
