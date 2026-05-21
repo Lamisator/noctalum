@@ -625,10 +625,11 @@ func sessionInfo(sess *Session) map[string]any {
 		"contest_bands":      sess.ContestBands(),
 		"contest_objective":  sess.ContestObjective(),
 		"contest_station_id": sess.ContestStationID(),
-		"contest_private":      sess.ContestPrivate(),
+		"contest_private":       sess.ContestPrivate(),
 		"contest_owner_user_id": sess.ContestOwnerID(),
 		"contest_fields":        sess.ContestFields(),
 		"contest_qso_layout":    sess.ContestQSOLayout(),
+		"contest_nr_padded":     sess.ContestNrPadded(),
 	}
 }
 
@@ -1768,10 +1769,15 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			Private      bool     `json:"private"`
 			CustomFields string   `json:"custom_fields"`
 			QSOLayout    string   `json:"qso_layout"`
+			NrPadded     *bool    `json:"nr_padded"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
+		}
+		nrPaddedCreate := true
+		if in.NrPadded != nil {
+			nrPaddedCreate = *in.NrPadded
 		}
 		canManage := HasPermission(sess.Permissions, PermContestsManage)
 		canCreatePrivate := HasPermission(sess.Permissions, PermContestsCreatePrivate) || HasPermission(sess.Permissions, PermContestsManagePrivate)
@@ -1805,7 +1811,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		if in.Private {
 			ownerID = sess.UserID
 		}
-		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, in.Private, ownerID, in.CustomFields, in.QSOLayout)
+		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, in.Private, ownerID, in.CustomFields, in.QSOLayout, nrPaddedCreate)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1873,23 +1879,24 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		bandsStr := strings.Join(c.Bands, ",")
-		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective, c.StationID, c.Private, c.OwnerUserID, c.CustomFields, c.QSOLayout)
+		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective, c.StationID, c.Private, c.OwnerUserID, c.CustomFields, c.QSOLayout, c.NrPadded)
 		s.audit(r, store.AuditInfo, AuditContestSelect, sess.Username, c.Name, "call: "+c.StationCall)
 		// Refresh operator panels: previous contest now lacks this user, new contest gains them.
 		s.broadcastOperators()
 		writeJSON(w, http.StatusOK, map[string]any{
-			"contest_id":           c.ID,
-			"contest_status":       c.Status,
-			"contest_call":         c.StationCall,
-			"contest_name":         c.Name,
-			"contest_qth":          c.QTH,
-			"contest_bands":        c.Bands,
-			"contest_objective":    c.Objective,
-			"contest_station_id":   c.StationID,
-			"contest_private":      c.Private,
+			"contest_id":            c.ID,
+			"contest_status":        c.Status,
+			"contest_call":          c.StationCall,
+			"contest_name":          c.Name,
+			"contest_qth":           c.QTH,
+			"contest_bands":         c.Bands,
+			"contest_objective":     c.Objective,
+			"contest_station_id":    c.StationID,
+			"contest_private":       c.Private,
 			"contest_owner_user_id": c.OwnerUserID,
-			"contest_fields":       c.CustomFields,
-			"contest_qso_layout":   c.QSOLayout,
+			"contest_fields":        c.CustomFields,
+			"contest_qso_layout":    c.QSOLayout,
+			"contest_nr_padded":     c.NrPadded,
 		})
 		return
 	}
@@ -2204,10 +2211,15 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			Objective    string   `json:"objective"`
 			CustomFields string   `json:"custom_fields"`
 			QSOLayout    string   `json:"qso_layout"`
+			NrPadded     *bool    `json:"nr_padded"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
+		}
+		nrPaddedPut := existing.NrPadded
+		if in.NrPadded != nil {
+			nrPaddedPut = *in.NrPadded
 		}
 		if strings.TrimSpace(in.Name) == "" {
 			writeError(w, http.StatusBadRequest, "contest name required")
@@ -2226,7 +2238,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid QTH locator")
 			return
 		}
-		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout); err != nil {
+		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, nrPaddedPut); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -2235,7 +2247,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"status: "+in.Status+", call: "+strings.ToUpper(in.StationCall))
 		bandsStrUpd := strings.Join(in.Bands, ",")
 		// Propagate to any sessions that have this contest selected.
-		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH, bandsStrUpd, in.Objective, in.StationID, existing.Private, existing.OwnerUserID, in.CustomFields, in.QSOLayout)
+		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH, bandsStrUpd, in.Objective, in.StationID, existing.Private, existing.OwnerUserID, in.CustomFields, in.QSOLayout, nrPaddedPut)
 		s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
 			"id":             id,
 			"name":           in.Name,
@@ -2247,6 +2259,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"objective":      in.Objective,
 			"custom_fields":  in.CustomFields,
 			"qso_layout":     in.QSOLayout,
+			"nr_padded":      nrPaddedPut,
 		}})
 		w.WriteHeader(http.StatusNoContent)
 		return

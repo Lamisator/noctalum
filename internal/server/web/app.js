@@ -425,7 +425,7 @@
   function show(which) {
     ['setup-screen', 'login-screen', 'contest-screen', 'global-settings-screen',
      'contests-admin-screen', 'users-admin-screen', 'audit-admin-screen', 'featurerequests-admin-screen',
-     'my-featurerequests-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
+     'my-featurerequests-screen', 'changelog-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
     $(which).classList.remove('hidden');
     if (which === 'setup-screen') $('setup-username').focus();
     if (which === 'login-screen') $('login-username').focus();
@@ -508,6 +508,7 @@
 
   // ----- admin screens (accessed from contest selection) -----
   $('my-fr-nav-btn').addEventListener('click', () => showAdminScreen('my-featurerequests-screen', refreshMyFeatureRequests));
+  $('changelog-nav-btn').addEventListener('click', () => showAdminScreen('changelog-screen', renderChangelog));
   $('contests-admin-btn')?.addEventListener('click', () => showAdminScreen('contests-admin-screen', refreshContests));
   $('users-admin-btn').addEventListener('click', () => { if (!hasPerm('users.manage')) return; showAdminScreen('users-admin-screen', refreshUsers); });
   $('audit-admin-btn').addEventListener('click', () => { if (!hasPerm('audit.log')) return; showAdminScreen('audit-admin-screen', () => refreshAuditLog(true)); });
@@ -908,6 +909,7 @@
       me.contest_fields = j.contest_fields || '';
       me.contest_private = j.contest_private || false;
       me.contest_owner_user_id = j.contest_owner_user_id || 0;
+      me.contest_nr_padded = j.contest_nr_padded !== false;
     }
     await enterApp();
   }
@@ -1917,7 +1919,8 @@
   function updateNrPreview() {
     if (editingQsoId !== null) return; // editing: NR is fixed, already shown
     const maxNr = qsos.reduce((m, q) => Math.max(m, q.nr_sent || 0), 0);
-    const preview = String(maxNr + 1);
+    const next = maxNr + 1;
+    const preview = me && me.contest_nr_padded ? String(next).padStart(3, '0') : String(next);
     const field = $('q-nr-sent');
     field.placeholder = preview;
     if (!field.value) field.value = preview;
@@ -2257,8 +2260,9 @@
       const isEditing = q.id === editingQsoId;
       tr.className = isEditing ? 'editing-row' : '';
       tr.style.cursor = 'pointer';
+      const nrDisplay = q.nr_sent ? (me && me.contest_nr_padded ? String(q.nr_sent).padStart(3, '0') : String(q.nr_sent)) : '';
       tr.innerHTML = `
-        <td>${q.nr_sent ? escHtml(String(q.nr_sent)) : ''}</td>
+        <td>${escHtml(nrDisplay)}</td>
         <td>${escHtml(utc)}</td>
         <td><strong>${escHtml(fmtCall(q.callsign))}</strong></td>
         <td>${escHtml(q.band)}</td>
@@ -2568,6 +2572,7 @@
         <input name="qth" placeholder="${escHtml(t('contestScreen.qthPlaceholder'))}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
         ${buildBandSelectHTML([])}
         ${canPriv ? `<label style="margin-top:10px"><input type="checkbox" name="private"${forcePrivate ? ' checked' : ''} /> ${escHtml(t('contestScreen.privateContest'))} <span class="muted small">${escHtml(t('contestScreen.privateOnlyYou'))}</span></label>` : ''}
+        <label style="margin-top:10px"><input type="checkbox" name="nr_padded" checked /> ${escHtml(t('contestScreen.nrPadded'))}</label>
         <label style="margin-top:10px">${escHtml(t('contestScreen.customFields'))} <span class="muted small">${escHtml(t('contestScreen.customFieldsPerQSO'))}</span></label>
         ${buildCustomFieldsEditorHTML([])}
         <label style="margin-top:10px">${escHtml(t('contestScreen.layoutEditor'))} <span class="muted small">${escHtml(t('contestScreen.layoutHint'))}</span></label>
@@ -2596,6 +2601,7 @@
           private: forcePrivate || !!(form.private && form.private.checked),
           custom_fields: serializeCustomFieldsEditor(),
           qso_layout: serializeQSOLayout(),
+          nr_padded: form.nr_padded.checked,
         }),
       });
       if (!res.ok) {
@@ -2652,6 +2658,7 @@
         <label>${escHtml(t('contestScreen.qthLocator'))}</label>
         <input name="qth" value="${escHtml(c.qth || '')}" placeholder="${escHtml(t('contestScreen.qthPlaceholder'))}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
         ${buildBandSelectHTML(c.bands || [])}
+        <label style="margin-top:10px"><input type="checkbox" name="nr_padded" ${c.nr_padded !== false ? 'checked' : ''} /> ${escHtml(t('contestScreen.nrPadded'))}</label>
         <label style="margin-top:10px">${escHtml(t('contestScreen.customFields'))} <span class="muted small">${escHtml(t('contestScreen.customFieldsPerQSO2'))}</span></label>
         ${buildCustomFieldsEditorHTML(existingFields)}
         <label style="margin-top:10px">${escHtml(t('contestScreen.layoutEditor'))} <span class="muted small">${escHtml(t('contestScreen.layoutHint'))}</span></label>
@@ -2680,6 +2687,7 @@
           objective: form.objective.value,
           custom_fields: serializeCustomFieldsEditor(),
           qso_layout: serializeQSOLayout(),
+          nr_padded: form.nr_padded.checked,
         }),
       });
       if (!res.ok) {
@@ -3879,6 +3887,7 @@
             if ('station_id' in msg.payload) me.contest_station_id = msg.payload.station_id;
             if ('custom_fields' in msg.payload) me.contest_fields = msg.payload.custom_fields;
             if ('qso_layout' in msg.payload) me.contest_qso_layout = msg.payload.qso_layout;
+            if ('nr_padded' in msg.payload) me.contest_nr_padded = msg.payload.nr_padded !== false;
             updateContestDisplay();
             applyContestReadonly();
             updateMap();
@@ -4461,6 +4470,32 @@
     await Promise.all(selected.map(id => api('/api/feature-requests/' + id, { method: 'DELETE' })));
     refreshFeatureRequests();
   });
+
+  // ----- Changelog -----
+  const CHANGELOG = [
+    {
+      version: '0.2',
+      en: 'Serial number padding: contest serial numbers can now be padded to 3 digits (001, 042) — enabled by default. Toggle in contest settings.',
+      de: 'Seriennummern-Auffüllung: Contest-Seriennummern können jetzt auf 3 Stellen aufgefüllt werden (001, 042) – standardmäßig aktiviert. Umschalter in den Contest-Einstellungen.',
+    },
+    {
+      version: '0.1',
+      en: 'Initial release of Noctalum ham radio contest logger.',
+      de: 'Erste Veröffentlichung des Noctalum Ham-Radio-Contestloggers.',
+    },
+  ];
+
+  function renderChangelog() {
+    const el = $('changelog-content');
+    if (!el) return;
+    const lang = (window.I18N && window.I18N.lang && window.I18N.lang()) || 'en';
+    el.innerHTML = CHANGELOG.map(entry => `
+      <div class="changelog-entry">
+        <div class="changelog-version">v${escHtml(entry.version)}</div>
+        <div class="changelog-text">${escHtml(lang === 'de' ? entry.de : entry.en)}</div>
+      </div>
+    `).join('');
+  }
 
   function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
