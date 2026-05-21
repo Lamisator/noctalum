@@ -4667,47 +4667,62 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '1.0',
+      date: '2026-05-21 16:00 UTC',
+      en: 'Changelog now shows date and time (UTC) for each entry.',
+      de: 'Das Changelog zeigt jetzt Datum und Uhrzeit (UTC) für jeden Eintrag.',
+    },
+    {
       version: '0.9',
+      date: '2026-05-21 15:52 UTC',
       en: 'DOK callsign caching: when a callsign is re-entered, the DOK field is auto-filled from the last logged QSO with that callsign.',
       de: 'DOK-Rufzeichenzwischenspeicher: Wird ein Rufzeichen erneut eingegeben, wird das DOK-Feld automatisch aus dem letzten geloggten QSO mit diesem Rufzeichen befüllt.',
     },
     {
       version: '0.8',
+      date: '2026-05-21 15:50 UTC',
       en: 'Multi-op band-busy warning: band pills highlight in orange when another operator is already on that band. A confirmation dialog warns before logging a QSO on a busy band.',
       de: 'Mehroperator-Bandwarnung: Band-Pills werden orange hervorgehoben, wenn ein anderer Operator bereits auf diesem Band ist. Ein Bestätigungsdialog warnt vor dem Loggen eines QSOs auf einem belegten Band.',
     },
     {
       version: '0.7',
+      date: '2026-05-21 15:46 UTC',
       en: 'Manual QSO time entry now uses a time-only (HH:MM:SS) UTC input, fixing the bug where local time was logged as UTC.',
       de: 'Manuelle QSO-Zeiteingabe verwendet jetzt ein reines Zeitfeld (HH:MM:SS) in UTC, was den Fehler behebt, bei dem Ortszeit als UTC gespeichert wurde.',
     },
     {
       version: '0.6',
+      date: '2026-05-21 15:44 UTC',
       en: '"My Settings" button in the contest picker nav gives access to personal settings (band/mode defaults, QRZ, password, passkeys) without entering a contest.',
       de: '"Meine Einstellungen"-Button im Contest-Auswahl-Nav ermöglicht Zugang zu persönlichen Einstellungen (Band/Modus-Standards, QRZ, Passwort, Passkeys) ohne Contest-Auswahl.',
     },
     {
       version: '0.5',
+      date: '2026-05-21 15:41 UTC',
       en: 'Contest owners and admins can now delete a contest from the edit modal. Requires confirmation.',
       de: 'Contest-Besitzer und Admins können einen Contest jetzt direkt aus dem Bearbeitungs-Modal löschen. Bestätigung erforderlich.',
     },
     {
       version: '0.4',
+      date: '2026-05-21 15:40 UTC',
       en: 'Finished contests now show a "View log →" badge in the contest picker. Read-only banner improved.',
       de: 'Beendete Contests zeigen jetzt ein "Log ansehen →"-Badge in der Contestauswahl. Schreibschutz-Hinweis verbessert.',
     },
     {
       version: '0.3',
+      date: '2026-05-21 15:38 UTC',
       en: 'Fix: chat tab (message list and input field) now displays correctly on iPad and other narrow viewports.',
       de: 'Behoben: Chat-Tab (Nachrichtenliste und Eingabefeld) wird jetzt auf iPad und anderen schmalen Bildschirmen korrekt angezeigt.',
     },
     {
       version: '0.2',
+      date: '2026-05-21 15:37 UTC',
       en: 'Serial number padding: contest serial numbers can now be padded to 3 digits (001, 042) — enabled by default. Toggle in contest settings.',
       de: 'Seriennummern-Auffüllung: Contest-Seriennummern können jetzt auf 3 Stellen aufgefüllt werden (001, 042) – standardmäßig aktiviert. Umschalter in den Contest-Einstellungen.',
     },
     {
       version: '0.1',
+      date: '2026-05-20 08:07 UTC',
       en: 'Initial release of Noctalum ham radio contest logger.',
       de: 'Erste Veröffentlichung des Noctalum Ham-Radio-Contestloggers.',
     },
@@ -4719,7 +4734,10 @@
     const lang = (window.I18N && window.I18N.lang && window.I18N.lang()) || 'en';
     el.innerHTML = CHANGELOG.map(entry => `
       <div class="changelog-entry">
-        <div class="changelog-version">v${escHtml(entry.version)}</div>
+        <div class="changelog-version-row">
+          <span class="changelog-version">v${escHtml(entry.version)}</span>
+          ${entry.date ? `<span class="changelog-date">${escHtml(entry.date)}</span>` : ''}
+        </div>
         <div class="changelog-text">${escHtml(lang === 'de' ? entry.de : entry.en)}</div>
       </div>
     `).join('');

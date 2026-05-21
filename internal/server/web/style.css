@@ -1293,11 +1293,20 @@ button.contest-edit-pill:hover {
   border-bottom: 1px solid var(--border);
 }
 .changelog-entry:last-child { border-bottom: none; }
+.changelog-version-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
 .changelog-version {
   font-size: 13px;
   font-weight: 600;
   color: var(--accent);
-  margin-bottom: 4px;
+}
+.changelog-date {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 .changelog-text { font-size: 14px; }
 
