@@ -425,7 +425,7 @@
   function show(which) {
     ['setup-screen', 'login-screen', 'contest-screen', 'global-settings-screen',
      'contests-admin-screen', 'users-admin-screen', 'audit-admin-screen', 'featurerequests-admin-screen',
-     'my-featurerequests-screen', 'changelog-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
+     'my-featurerequests-screen', 'my-settings-screen', 'changelog-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
     $(which).classList.remove('hidden');
     if (which === 'setup-screen') $('setup-username').focus();
     if (which === 'login-screen') $('login-username').focus();
@@ -509,6 +509,7 @@
   // ----- admin screens (accessed from contest selection) -----
   $('my-fr-nav-btn').addEventListener('click', () => showAdminScreen('my-featurerequests-screen', refreshMyFeatureRequests));
   $('changelog-nav-btn').addEventListener('click', () => showAdminScreen('changelog-screen', renderChangelog));
+  $('my-settings-nav-btn').addEventListener('click', () => showAdminScreen('my-settings-screen', loadMySettings));
   $('contests-admin-btn')?.addEventListener('click', () => showAdminScreen('contests-admin-screen', refreshContests));
   $('users-admin-btn').addEventListener('click', () => { if (!hasPerm('users.manage')) return; showAdminScreen('users-admin-screen', refreshUsers); });
   $('audit-admin-btn').addEventListener('click', () => { if (!hasPerm('audit.log')) return; showAdminScreen('audit-admin-screen', () => refreshAuditLog(true)); });
@@ -2435,6 +2436,127 @@
     $('op-old').value = ''; $('op-new').value = '';
     $('op-error').textContent = t('settings.pwdChanged');
     $('op-error').style.color = 'var(--success)';
+  });
+
+  // ----- My Settings screen (accessible from contest picker) -----
+  async function loadMySettings() {
+    const res = await api('/api/settings');
+    if (!res.ok) return;
+    const s = await res.json();
+    fillSelect($('ms-mode'), MODES, s.default_mode || 'SSB');
+    fillSelect($('ms-band'), BANDS, s.default_band || '20m');
+    const cb = $('ms-chat-mute');
+    if (cb) cb.checked = isChatSoundMuted();
+    if ('qrz_username' in s) {
+      const u = $('ms-qrz-user');
+      if (u) u.value = s.qrz_username || '';
+      const st = $('ms-qrz-status');
+      if (st) st.textContent = s.qrz_configured ? t('settings.qrzConfigured') : t('settings.qrzNotConfigured');
+    }
+    applyPermissionsToUI();
+    loadMyPasskeys();
+  }
+  $('ms-settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('ms-settings-error').textContent = '';
+    const body = {
+      default_mode: $('ms-mode').value,
+      default_band: $('ms-band').value,
+      qrz_username: $('ms-qrz-user')?.value?.trim() || '',
+      qrz_password: $('ms-qrz-pass')?.value || '',
+    };
+    const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      $('ms-settings-error').textContent = j.error || t('common.saveFailed');
+      return;
+    }
+    if ($('ms-qrz-pass')) $('ms-qrz-pass').value = '';
+    const cb = $('ms-chat-mute');
+    if (cb) setChatSoundMuted(cb.checked);
+    await loadSettings();
+    applyDefaults();
+    $('ms-settings-error').textContent = t('common.saved');
+    $('ms-settings-error').style.color = 'var(--success)';
+    setTimeout(() => { $('ms-settings-error').textContent = ''; $('ms-settings-error').style.color = ''; }, 2000);
+  });
+  $('ms-qrz-test-btn').addEventListener('click', async () => {
+    const username = $('ms-qrz-user').value.trim();
+    const password = $('ms-qrz-pass').value;
+    if (!username) { $('ms-qrz-status').textContent = t('settings.qrzEnterUsername'); $('ms-qrz-status').style.color = 'var(--error)'; return; }
+    $('ms-qrz-test-btn').disabled = true;
+    $('ms-qrz-status').textContent = t('settings.qrzTesting');
+    $('ms-qrz-status').style.color = '';
+    const res = await api('/api/qrz/test', { method: 'POST', body: JSON.stringify({ username, password }) });
+    $('ms-qrz-test-btn').disabled = false;
+    const j = await res.json().catch(() => ({}));
+    if (j.ok) { $('ms-qrz-status').textContent = t('settings.qrzConnected', { name: j.name || t('settings.qrzNoName') }); $('ms-qrz-status').style.color = 'var(--success)'; }
+    else { $('ms-qrz-status').textContent = t('settings.qrzFailed', { err: j.error || t('common.unknownError') }); $('ms-qrz-status').style.color = 'var(--error)'; }
+  });
+  $('ms-pwd-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('ms-op-error').textContent = '';
+    const body = { Old: $('ms-op-old').value, New: $('ms-op-new').value };
+    const res = await api('/api/me/password', { method: 'POST', body: JSON.stringify(body) });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      $('ms-op-error').textContent = j.error || t('settings.pwdChangeFail');
+      $('ms-op-error').style.color = 'var(--error)';
+      return;
+    }
+    $('ms-op-old').value = ''; $('ms-op-new').value = '';
+    $('ms-op-error').textContent = t('settings.pwdChanged');
+    $('ms-op-error').style.color = 'var(--success)';
+  });
+  async function loadMyPasskeys() {
+    const el = $('ms-passkey-list');
+    if (!el) return;
+    const res = await api('/api/passkey/credentials');
+    if (!res.ok) return;
+    const list = await res.json();
+    if (!list || list.length === 0) {
+      el.innerHTML = '<p class="muted small">' + escHtml(t('settings.passkeyNoneYet')) + '</p>';
+      return;
+    }
+    el.innerHTML = list.map(pk => {
+      const date = pk.created_at ? new Date(pk.created_at).toLocaleDateString(localeForFmt()) : '';
+      return `<div class="passkey-item">
+        <span class="passkey-name">&#128273; ${escHtml(pk.name || 'Passkey')}</span>
+        <span class="muted small">${date}</span>
+        <button class="ghost small" data-delete-passkey="${escHtml(pk.id)}">${escHtml(t('common.remove'))}</button>
+      </div>`;
+    }).join('');
+    el.querySelectorAll('[data-delete-passkey]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const credID = btn.dataset.deletePasskey;
+        const r = await api('/api/passkey/credentials/' + encodeURIComponent(credID), { method: 'DELETE' });
+        if (r.ok || r.status === 204) loadMyPasskeys();
+      });
+    });
+  }
+  $('ms-register-passkey-btn').addEventListener('click', async () => {
+    $('ms-passkey-error').textContent = '';
+    if (!passkeyAvailable()) { $('ms-passkey-error').textContent = t('login.passkeysNeedSecure'); return; }
+    const name = encodeURIComponent($('ms-passkey-name').value.trim() || 'Passkey');
+    try {
+      const beginRes = await api('/api/passkey/register/begin', { method: 'POST' });
+      if (!beginRes.ok) { const j = await beginRes.json().catch(() => ({})); throw new Error(j.error || t('settings.passkeyRegFail')); }
+      const pk = await beginRes.json();
+      pk.publicKey.challenge = fromB64url(pk.publicKey.challenge);
+      pk.publicKey.user.id = fromB64url(pk.publicKey.user.id);
+      if (pk.publicKey.excludeCredentials) {
+        pk.publicKey.excludeCredentials = pk.publicKey.excludeCredentials.map(c => ({ ...c, id: fromB64url(c.id) }));
+      }
+      const cred = await navigator.credentials.create({ publicKey: pk.publicKey });
+      const payload = { id: cred.id, rawId: b64url(cred.rawId), type: cred.type,
+        response: { clientDataJSON: b64url(cred.response.clientDataJSON), attestationObject: b64url(cred.response.attestationObject) } };
+      const finishRes = await api('/api/passkey/register/finish?name=' + name, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!finishRes.ok) { const j = await finishRes.json().catch(() => ({})); throw new Error(j.error || t('settings.passkeyRegFail')); }
+      $('ms-passkey-name').value = '';
+      await loadMyPasskeys();
+    } catch (err) {
+      if (err.name !== 'NotAllowedError') $('ms-passkey-error').textContent = err.message || t('settings.passkeyRegFail');
+    }
   });
 
   // ----- dummy TRX management -----
@@ -4500,6 +4622,11 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.6',
+      en: '"My Settings" button in the contest picker nav gives access to personal settings (band/mode defaults, QRZ, password, passkeys) without entering a contest.',
+      de: '"Meine Einstellungen"-Button im Contest-Auswahl-Nav ermöglicht Zugang zu persönlichen Einstellungen (Band/Modus-Standards, QRZ, Passwort, Passkeys) ohne Contest-Auswahl.',
+    },
     {
       version: '0.5',
       en: 'Contest owners and admins can now delete a contest from the edit modal. Requires confirmation.',

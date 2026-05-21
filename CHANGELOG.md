@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.6 — My Settings accessible from contest picker
+
+- New "My Settings" button in the contest picker nav (accessible to all users without entering a contest)
+- Shows personal settings: default band/mode, QRZ credentials, password change, and passkeys
+
 ## v0.5 — Delete contest button
 
 - Contest owners and admins can now delete a contest directly from the contest edit modal

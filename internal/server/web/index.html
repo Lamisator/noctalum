@@ -84,8 +84,12 @@
         <span class="nav-pill-icon">&#9733;</span>
         <span data-i18n="contestScreen.featureRequests">Feature Requests</span>
       </button>
-      <button id="global-settings-btn" class="nav-pill-btn perm-required" data-perm="settings.write">
+      <button id="my-settings-nav-btn" class="nav-pill-btn">
         <span class="nav-pill-icon">&#9881;</span>
+        <span data-i18n="contestScreen.mySettings">My Settings</span>
+      </button>
+      <button id="global-settings-btn" class="nav-pill-btn perm-required" data-perm="settings.write">
+        <span class="nav-pill-icon">&#9965;</span>
         <span data-i18n="contestScreen.globalSettings">Global Settings</span>
       </button>
     </nav>
@@ -821,6 +825,75 @@
       </table>
       <div class="history-footer muted">
         <span id="my-fr-count"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="my-settings-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="contestScreen.mySettings">My Settings</h1>
+  </div>
+  <div class="admin-screen-body">
+    <div class="card settings-card">
+      <h2 data-i18n="settings.defaults">Defaults</h2>
+      <form id="ms-settings-form">
+        <label><span data-i18n="settings.defaultMode">Default mode</span>
+          <select id="ms-mode"></select>
+        </label>
+        <label><span data-i18n="settings.defaultBand">Default band</span>
+          <select id="ms-band"></select>
+        </label>
+        <label class="row" style="align-items:center;gap:8px;cursor:pointer;margin-top:8px">
+          <input id="ms-chat-mute" type="checkbox" />
+          <span data-i18n="settings.muteChat">Mute chat sounds on this device</span>
+        </label>
+        <div id="ms-qrz-section" class="perm-required" data-perm="settings.write">
+          <h2 data-i18n="settings.qrz" style="margin-top:16px">QRZ.com lookup</h2>
+          <p class="muted small" data-i18n="settings.qrzHint">When configured, callsign lookups fetch the operator's name, Maidenhead locator and profile picture from QRZ.com. Requires a QRZ.com XML data subscription.</p>
+          <label><span data-i18n="settings.qrzUser">QRZ.com username</span>
+            <input id="ms-qrz-user" type="text" autocomplete="off" autocapitalize="off" />
+          </label>
+          <label><span data-i18n="settings.qrzPass">QRZ.com password</span>
+            <input id="ms-qrz-pass" type="password" autocomplete="off" data-i18n-placeholder="settings.qrzKeep" placeholder="leave blank to keep existing" />
+          </label>
+          <div style="margin-top:10px">
+            <button type="button" id="ms-qrz-test-btn" class="ghost" data-i18n="settings.qrzTest">Test connection</button>
+          </div>
+          <div id="ms-qrz-status" class="muted small" style="margin-top:6px"></div>
+        </div>
+        <div class="entry-actions">
+          <span id="ms-settings-error" class="error"></span>
+          <button type="submit" class="primary perm-required" data-perm="settings.write" data-i18n="settings.saveSettings">Save settings</button>
+        </div>
+      </form>
+    </div>
+    <div class="card settings-card" style="margin-top:14px">
+      <h2 data-i18n="settings.changePwd">Change own password</h2>
+      <form id="ms-pwd-form">
+        <label><span data-i18n="settings.currentPassword">Current password</span>
+          <input id="ms-op-old" type="password" autocomplete="current-password" required />
+        </label>
+        <label><span data-i18n="settings.newPassword">New password (min 8 chars)</span>
+          <input id="ms-op-new" type="password" minlength="8" autocomplete="new-password" required />
+        </label>
+        <div class="entry-actions">
+          <span id="ms-op-error" class="error"></span>
+          <button type="submit" class="primary" data-i18n="settings.changePassword">Change password</button>
+        </div>
+      </form>
+    </div>
+    <div class="card settings-card" style="margin-top:14px">
+      <h2 data-i18n="settings.passkeys">Passkeys</h2>
+      <p class="muted small" data-i18n="settings.passkeysIntro">Passkeys let you sign in without a password using your device's biometrics or PIN.</p>
+      <div id="ms-passkey-list" class="passkey-list"></div>
+      <div class="entry-actions" style="margin-top:10px">
+        <span id="ms-passkey-error" class="error"></span>
+        <div class="row" style="gap:8px;align-items:center">
+          <input id="ms-passkey-name" type="text" data-i18n-placeholder="settings.passkeyNamePlaceholder" placeholder="Passkey name (e.g. MacBook)" style="max-width:220px" />
+          <button type="button" id="ms-register-passkey-btn" class="primary" data-i18n="settings.registerPasskey">&#128273; Register passkey</button>
+        </div>
       </div>
     </div>
   </div>
