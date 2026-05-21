@@ -425,7 +425,7 @@
   function show(which) {
     ['setup-screen', 'login-screen', 'contest-screen', 'global-settings-screen',
      'contests-admin-screen', 'users-admin-screen', 'audit-admin-screen', 'featurerequests-admin-screen',
-     'app'].forEach(id => $(id).classList.add('hidden'));
+     'my-featurerequests-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
     $(which).classList.remove('hidden');
     if (which === 'setup-screen') $('setup-username').focus();
     if (which === 'login-screen') $('login-username').focus();
