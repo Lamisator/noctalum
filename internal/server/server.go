@@ -1718,6 +1718,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		}
 		sess := sessionFor(s, r)
 		canSeeAll := HasPermission(sess.Permissions, PermContestsManage) || HasPermission(sess.Permissions, PermContestAdmin)
+		canManagePrivate := HasPermission(sess.Permissions, PermContestsManagePrivate)
 		filtered := make([]store.Contest, 0, len(contests))
 		for _, c := range contests {
 			if c.AccessRestricted && !canSeeAll {
@@ -1728,7 +1729,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 						continue
 					}
 				}
-			} else if c.Private && c.OwnerUserID != sess.UserID && !canSeeAll {
+			} else if c.Private && c.OwnerUserID != sess.UserID && !canSeeAll && !canManagePrivate {
 				ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
 				if err != nil || !ok {
 					continue
@@ -1755,7 +1756,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		canManage := HasPermission(sess.Permissions, PermContestsManage)
-		canCreatePrivate := HasPermission(sess.Permissions, PermContestsCreatePrivate)
+		canCreatePrivate := HasPermission(sess.Permissions, PermContestsCreatePrivate) || HasPermission(sess.Permissions, PermContestsManagePrivate)
 		if in.Private {
 			if !canManage && !canCreatePrivate {
 				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsCreatePrivate, "create private contest")
@@ -1829,6 +1830,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		}
 		sess := sessionFor(s, r)
 		canSeeAllSel := HasPermission(sess.Permissions, PermContestsManage) || HasPermission(sess.Permissions, PermContestAdmin)
+		canManagePrivateSel := HasPermission(sess.Permissions, PermContestsManagePrivate)
 		isOwnerSel := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
 		if c.AccessRestricted && !canSeeAllSel && !isOwnerSel {
 			ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
@@ -1837,7 +1839,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusForbidden, "you are not authorized to access this contest")
 				return
 			}
-		} else if c.Private && c.OwnerUserID != sess.UserID && !canSeeAllSel {
+		} else if c.Private && c.OwnerUserID != sess.UserID && !canSeeAllSel && !canManagePrivateSel {
 			ok, err := s.store.HasContestAccess(c.ID, sess.UserID)
 			if err != nil || !ok {
 				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "private contest, no access")
@@ -1979,10 +1981,12 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// PUT — update contest (contests.manage required)
+	// PUT — update contest (contests.manage required; contests.manage_private allowed for private contests)
 	if r.Method == http.MethodPut {
 		sess := sessionFor(s, r)
-		if !HasPermission(sess.Permissions, PermContestsManage) {
+		canManagePut := HasPermission(sess.Permissions, PermContestsManage)
+		canManagePrivatePut := HasPermission(sess.Permissions, PermContestsManagePrivate)
+		if !canManagePut && !canManagePrivatePut {
 			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "update contest id: "+idStr)
 			writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
 			return
@@ -2023,6 +2027,11 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		existing, err := s.store.GetContest(id)
 		if err != nil {
 			writeError(w, http.StatusNotFound, "contest not found")
+			return
+		}
+		if !canManagePut && !existing.Private {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "update public contest id: "+idStr)
+			writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
 			return
 		}
 		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout); err != nil {

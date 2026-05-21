@@ -68,7 +68,7 @@
         <span data-i18n="contestScreen.myFeatureRequests">My Requests</span>
       </button>
       <div class="nav-divider"></div>
-      <button id="contests-admin-btn" class="nav-pill-btn perm-required" data-perm="contests.manage">
+      <button id="contests-admin-btn" class="nav-pill-btn perm-required" data-perm="contests.manage contests.manage_private">
         <span class="nav-pill-icon">&#9873;</span>
         <span data-i18n="contestScreen.contests">Contests</span>
       </button>
@@ -641,7 +641,7 @@
     <div class="card">
       <div class="history-header">
         <h2 data-i18n="contestsAdmin.title">Contests</h2>
-        <button id="new-contest-btn" class="primary" data-i18n="contestsAdmin.newContest">New contest</button>
+        <button id="new-contest-btn" class="primary perm-required" data-perm="contests.manage" data-i18n="contestsAdmin.newContest">New contest</button>
       </div>
       <table id="contests-table">
         <thead>

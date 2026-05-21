@@ -820,7 +820,8 @@
     const item = document.createElement('div');
     item.className = 'contest-picker-item' + (c.status === 'finished' ? ' finished' : '');
     const canManageAccess = hasPerm('contest.admin') || (c.owner_user_id && c.owner_user_id === me?.user_id);
-    const editBtn = hasPerm('contests.manage')
+    const canEditThis = hasPerm('contests.manage') || (hasPerm('contests.manage_private') && c.private);
+    const editBtn = canEditThis
       ? `<button class="contest-edit-pill" title="Edit contest" tabindex="-1">&#128295;</button>`
       : '';
     const accessBtn = canManageAccess
@@ -838,7 +839,7 @@
         ${editBtn}
       </div>
     `;
-    if (hasPerm('contests.manage')) {
+    if (canEditThis) {
       item.querySelector('.contest-edit-pill:not(.contest-access-pill)')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         contestEditModal(c);
@@ -880,7 +881,7 @@
 
   function renderContestPicker() {
     const canManage = hasPerm('contests.manage');
-    const canPriv = hasPerm('contests.create_private');
+    const canPriv = hasPerm('contests.create_private') || hasPerm('contests.manage_private');
 
     // Sync toolbar visual state
     document.querySelectorAll('.cpill[data-cf]').forEach(el =>
@@ -974,7 +975,8 @@
     const actDate = fmtRelTime(c.last_activity_at);
     const privateBadge = c.private ? `<span class="cl-priv-badge">${escHtml(t('contestScreen.private'))}</span>` : '';
     const canManageAccess = hasPerm('contest.admin') || (c.owner_user_id && c.owner_user_id === me?.user_id);
-    const editBtn = hasPerm('contests.manage')
+    const canEditThis = hasPerm('contests.manage') || (hasPerm('contests.manage_private') && c.private);
+    const editBtn = canEditThis
       ? `<button class="contest-edit-pill" title="${escHtml(t('contestScreen.editTitle'))}" tabindex="-1">&#128295;</button>` : '';
     const accessBtn = canManageAccess
       ? `<button class="contest-edit-pill contest-access-pill" title="${escHtml(t('contestScreen.accessAuthorize'))}" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
@@ -988,7 +990,7 @@
       <div class="cl-col cl-activity">${actDate}</div>
       <div class="cl-col cl-actions">${accessBtn}${editBtn}</div>
     `;
-    if (hasPerm('contests.manage')) {
+    if (canEditThis) {
       row.querySelector('.contest-edit-pill:not(.contest-access-pill)')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         contestEditModal(c);
@@ -1519,7 +1521,8 @@
       else tab.classList.remove('visible');
     });
     document.querySelectorAll('.perm-required').forEach(el => {
-      if (hasPerm(el.dataset.perm)) el.removeAttribute('data-perm-denied');
+      const perms = (el.dataset.perm || '').split(' ').filter(Boolean);
+      if (perms.some(p => hasPerm(p))) el.removeAttribute('data-perm-denied');
       else el.setAttribute('data-perm-denied', '1');
     });
     $('feature-request-btn').classList.toggle('hidden', !hasPerm('feature_requests.write'));
@@ -2389,7 +2392,7 @@
   $('new-contest-btn').addEventListener('click', () => contestCreateModal());
 
   async function refreshContests() {
-    if (!hasPerm('contests.manage')) return;
+    if (!hasPerm('contests.manage') && !hasPerm('contests.manage_private')) return;
     const res = await api('/api/contests');
     if (!res.ok) return;
     allContests = await res.json();
@@ -2400,23 +2403,28 @@
   function renderContestsTable() {
     const tbody = $('contests-tbody');
     tbody.innerHTML = '';
+    const fullManager = hasPerm('contests.manage');
     for (const c of allContests) {
+      const canEditRow = fullManager || (hasPerm('contests.manage_private') && c.private);
       const tr = document.createElement('tr');
       const date = c.created_at ? new Date(c.created_at).toLocaleDateString(localeForFmt()) : '';
       const statusLabel = c.status === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished');
+      const privBadge = c.private ? ` <span class="cl-priv-badge">${escHtml(t('contestScreen.private'))}</span>` : '';
       tr.innerHTML = `
-        <td>${escHtml(c.name)}</td>
+        <td>${escHtml(c.name)}${privBadge}</td>
         <td style="color:var(--accent);font-weight:600">${escHtml(fmtCall(c.station_call))}</td>
         <td class="muted">${escHtml(c.qth || '—')}</td>
         <td><span class="badge ${c.status}">${escHtml(statusLabel)}</span></td>
         <td class="muted">${date}</td>
         <td class="actions">
-          <button class="ghost" data-action="edit" data-id="${Number(c.id)}">${escHtml(t('common.edit'))}</button>
+          ${canEditRow ? `<button class="ghost" data-action="edit" data-id="${Number(c.id)}">${escHtml(t('common.edit'))}</button>
           <button class="ghost" data-action="toggle" data-id="${Number(c.id)}"
-            data-status="${escHtml(c.status)}">${c.status === 'open' ? escHtml(t('contestScreen.markFinished')) : escHtml(t('contestScreen.reopen'))}</button>
+            data-status="${escHtml(c.status)}">${c.status === 'open' ? escHtml(t('contestScreen.markFinished')) : escHtml(t('contestScreen.reopen'))}</button>` : ''}
         </td>
       `;
-      tr.querySelectorAll('button').forEach(b => b.addEventListener('click', () => contestAction(c, b.dataset.action)));
+      if (canEditRow) {
+        tr.querySelectorAll('button').forEach(b => b.addEventListener('click', () => contestAction(c, b.dataset.action)));
+      }
       tbody.appendChild(tr);
     }
   }
@@ -2453,7 +2461,7 @@
   }
 
   function contestCreateModal(forcePrivate = false) {
-    const canPriv = hasPerm('contests.create_private');
+    const canPriv = hasPerm('contests.create_private') || hasPerm('contests.manage_private');
     showModal(`
       <h3>${escHtml(t('contestScreen.createTitle'))}</h3>
       <form>
