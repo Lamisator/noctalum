@@ -1952,7 +1952,9 @@
     $('q-lh').value = q.lighthouse || '';
     $('q-notes').value = q.notes || '';
     const qTime = new Date(q.time);
-    $('q-time').value = qTime.toISOString().substring(0, 19);
+    const qTimeField = $('q-time');
+    qTimeField.value = qTime.toISOString().substring(11, 19); // HH:MM:SS in UTC
+    qTimeField.dataset.date = qTime.toISOString().substring(0, 10); // YYYY-MM-DD in UTC
     $('log-qso-btn').textContent = t('qso.saveEdit');
     $('entry-panel-title').textContent = t('qso.editQSO');
     callsignFilter = null;
@@ -1969,6 +1971,7 @@
   function cancelQsoEdit() {
     editingQsoId = null;
     ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
+    delete $('q-time').dataset.date;
     clearQRZInfo();
     currentTargetLocator = null;
     callsignFilter = null;
@@ -2005,7 +2008,11 @@
       notes: $('q-notes').value.trim(),
     };
     const qTimeRaw = $('q-time').value;
-    if (qTimeRaw) body.time = new Date(qTimeRaw + 'Z').toISOString();
+    if (qTimeRaw) {
+      const qTimeField = $('q-time');
+      const dateStr = qTimeField.dataset.date || new Date().toISOString().substring(0, 10);
+      body.time = new Date(dateStr + 'T' + qTimeRaw + 'Z').toISOString();
+    }
     // Custom fields: enforce mandatory ones and attach to body.extras as a JSON string.
     const cfResult = collectCustomFieldsValues();
     if (cfResult.error) {
@@ -2044,6 +2051,7 @@
       return;
     }
     ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
+    delete $('q-time').dataset.date;
     clearQRZInfo();
     currentTargetLocator = null;
     callsignFilter = null;
@@ -4622,6 +4630,11 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.7',
+      en: 'Manual QSO time entry now uses a time-only (HH:MM:SS) UTC input, fixing the bug where local time was logged as UTC.',
+      de: 'Manuelle QSO-Zeiteingabe verwendet jetzt ein reines Zeitfeld (HH:MM:SS) in UTC, was den Fehler behebt, bei dem Ortszeit als UTC gespeichert wurde.',
+    },
     {
       version: '0.6',
       en: '"My Settings" button in the contest picker nav gives access to personal settings (band/mode defaults, QRZ, password, passkeys) without entering a contest.',

@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.7 — UTC time entry fix
+
+- Manual QSO time entry field now uses a time-only (HH:MM:SS) input, pre-filled with current UTC time
+- Eliminates the previous bug where local time was logged as UTC
+
 ## v0.6 — My Settings accessible from contest picker
 
 - New "My Settings" button in the contest picker nav (accessible to all users without entering a contest)
