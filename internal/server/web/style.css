@@ -614,7 +614,7 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
 .settings-card .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
 
 .login-card.wide { width: 680px; }
-#contest-screen .login-card { flex: 1; width: auto; min-width: 80vw; }
+#contest-screen .login-card { flex: 1; width: auto; min-width: 400px; }
 #global-settings-screen {
   align-items: flex-start;
   overflow-y: auto;
@@ -1106,19 +1106,53 @@ button.contest-edit-pill:hover {
 .downloads-link:last-child { border-bottom: none; }
 .downloads-link:hover { color: var(--accent); }
 
-/* ==== Admin entries on contest selection screen ==== */
-.contest-admin-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
+/* ==== Contest screen nav pill bar (left sidebar) ==== */
+.contest-nav-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 8px;
+  align-self: flex-start;
+  flex-shrink: 0;
+  width: 176px;
+  box-shadow: var(--shadow);
 }
-.contest-admin-actions button {
-  font-size: 12px;
+.contest-nav-pill .nav-pill-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   padding: 8px 10px;
-  margin: 0;
+  border-radius: 9px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  width: 100%;
+  transition: background 0.12s;
+}
+.contest-nav-pill .nav-pill-btn:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.contest-nav-pill .nav-pill-icon {
+  font-size: 13px;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+.contest-nav-pill .nav-pill-btn:hover .nav-pill-icon {
+  opacity: 1;
+}
+.contest-nav-pill .nav-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 5px 4px;
 }
 
 /* ==== Admin screens (Contests, Users, Audit, Feature Requests) ==== */
