@@ -2529,8 +2529,16 @@
 
   function contestEditModal(c) {
     const existingFields = parseCustomFields(c.custom_fields);
+    let pendingStatus = c.status;
     showModal(`
       <h3>${escHtml(t('contestScreen.editTitle'))}</h3>
+      <div style="margin-bottom:14px">
+        <button type="button" id="edit-status-toggle" class="status-toggle-pill ${escHtml(c.status)}">
+          <span class="status-dot"></span>
+          <span class="status-label">${escHtml(c.status === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished'))}</span>
+          <span class="status-toggle-arrow">&#8644;</span>
+        </button>
+      </div>
       <form>
         <label>${escHtml(t('contestScreen.contestName'))}</label>
         <input name="name" value="${escHtml(c.name)}" required />
@@ -2564,7 +2572,7 @@
           station_call: form.station_call.value.trim().toUpperCase(),
           station_id: (form.station_id?.value || '').trim(),
           qth: form.qth.value.trim().toUpperCase(),
-          status: c.status,
+          status: pendingStatus,
           bands: selectedBandsFromModal(),
           objective: form.objective.value,
           custom_fields: serializeCustomFieldsEditor(),
@@ -2577,6 +2585,15 @@
       }
       await refreshContests();
     }, { wide: true });
+    const statusToggleBtn = document.getElementById('edit-status-toggle');
+    if (statusToggleBtn) {
+      statusToggleBtn.addEventListener('click', () => {
+        pendingStatus = pendingStatus === 'open' ? 'finished' : 'open';
+        statusToggleBtn.className = 'status-toggle-pill ' + pendingStatus;
+        statusToggleBtn.querySelector('.status-label').textContent =
+          pendingStatus === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished');
+      });
+    }
     attachBandSelectListeners();
     attachCustomFieldsEditorListeners();
     attachLayoutEditorListeners(c.qso_layout || '');
