@@ -730,7 +730,7 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
 .tab-perm { display: none; }
 .tab-perm.visible { display: inline-flex; }
 
-.perm-required[data-perm-denied="1"] { display: none; }
+.perm-required[data-perm-denied="1"] { display: none !important; }
 
 #users-table { width: 100%; border-collapse: collapse; }
 #users-table th, #users-table td {
