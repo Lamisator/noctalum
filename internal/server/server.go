@@ -625,9 +625,10 @@ func sessionInfo(sess *Session) map[string]any {
 		"contest_bands":      sess.ContestBands(),
 		"contest_objective":  sess.ContestObjective(),
 		"contest_station_id": sess.ContestStationID(),
-		"contest_private":    sess.ContestPrivate(),
-		"contest_fields":     sess.ContestFields(),
-		"contest_qso_layout": sess.ContestQSOLayout(),
+		"contest_private":      sess.ContestPrivate(),
+		"contest_owner_user_id": sess.ContestOwnerID(),
+		"contest_fields":        sess.ContestFields(),
+		"contest_qso_layout":    sess.ContestQSOLayout(),
 	}
 }
 
@@ -1742,6 +1743,10 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			p := participations[c.ID]
+			if p.Role == "" && c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID {
+				p.Role = "owner"
+				p.Status = "active"
+			}
 			filtered = append(filtered, contestWithParticipation{Contest: c, MyRole: p.Role, MyStatus: p.Status})
 		}
 		writeJSON(w, http.StatusOK, filtered)
@@ -1861,17 +1866,18 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		// Refresh operator panels: previous contest now lacks this user, new contest gains them.
 		s.broadcastOperators()
 		writeJSON(w, http.StatusOK, map[string]any{
-			"contest_id":         c.ID,
-			"contest_status":     c.Status,
-			"contest_call":       c.StationCall,
-			"contest_name":       c.Name,
-			"contest_qth":        c.QTH,
-			"contest_bands":      c.Bands,
-			"contest_objective":  c.Objective,
-			"contest_station_id": c.StationID,
-			"contest_private":    c.Private,
-			"contest_fields":     c.CustomFields,
-			"contest_qso_layout": c.QSOLayout,
+			"contest_id":           c.ID,
+			"contest_status":       c.Status,
+			"contest_call":         c.StationCall,
+			"contest_name":         c.Name,
+			"contest_qth":          c.QTH,
+			"contest_bands":        c.Bands,
+			"contest_objective":    c.Objective,
+			"contest_station_id":   c.StationID,
+			"contest_private":      c.Private,
+			"contest_owner_user_id": c.OwnerUserID,
+			"contest_fields":       c.CustomFields,
+			"contest_qso_layout":   c.QSOLayout,
 		})
 		return
 	}
@@ -1890,7 +1896,8 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		sess := sessionFor(s, r)
 		isManager := HasPermission(sess.Permissions, PermContestsManage)
 		ownerParticipant, _ := s.store.GetContestParticipant(c.ID, sess.UserID)
-		isOwner := ownerParticipant != nil && ownerParticipant.Role == "owner" && ownerParticipant.Status == "active"
+		isOwner := (ownerParticipant != nil && ownerParticipant.Role == "owner" && ownerParticipant.Status == "active") ||
+			(c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID)
 
 		// GET /api/contests/{id}/participants — list participants
 		if sub == "participants" && r.Method == http.MethodGet {
