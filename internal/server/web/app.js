@@ -1007,6 +1007,11 @@
   // ----- enter main app after contest selected -----
   async function enterApp() {
     show('app');
+    // Always land on the Logging tab regardless of previous state
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelector('.tab[data-tab="log"]').classList.add('active');
+    document.querySelectorAll('.tab-pane').forEach(x => x.classList.remove('active'));
+    $('tab-log').classList.add('active');
     updateContestDisplay();
     applyContestReadonly();
     clearChat();
