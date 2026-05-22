@@ -422,7 +422,12 @@
         <div class="history-panel card">
           <div class="history-header">
             <h2 data-i18n="qso.history">QSO history</h2>
-            <input id="history-filter" type="search" data-i18n-placeholder="qso.filterPlaceholder" placeholder="Filter by call, band, mode, op…" />
+            <div class="history-filter-group">
+              <button type="button" id="history-filter-clear" class="filter-clear-pill hidden" data-i18n-title="qso.filterClear" title="Clear filter">
+                <span aria-hidden="true">×</span> <span data-i18n="qso.filterClearLabel">Filter</span>
+              </button>
+              <input id="history-filter" type="search" data-i18n-placeholder="qso.filterPlaceholder" placeholder="Filter by call, band, mode, op…" />
+            </div>
           </div>
           <div class="table-scroll">
             <table id="qso-table">

@@ -2958,8 +2958,21 @@
     if (textFilter) filterParts.push(t('qso.filterFrom', { n: qsos.length }));
     const base = shown === 1 ? t('qso.count', { n: shown }) : t('qso.countPlural', { n: shown });
     $('qso-count').textContent = filterParts.length ? `${base} (${filterParts.join(', ')})` : base;
+    updateFilterClearPill();
+  }
+  function updateFilterClearPill() {
+    const pill = $('history-filter-clear');
+    if (!pill) return;
+    const hasText = !!$('history-filter').value.trim();
+    const active = hasText || !!callsignFilter;
+    pill.classList.toggle('hidden', !active);
   }
   $('history-filter').addEventListener('input', () => renderQsos());
+  $('history-filter-clear').addEventListener('click', () => {
+    $('history-filter').value = '';
+    callsignFilter = null;
+    renderQsos();
+  });
   $('qso-tbody').addEventListener('click', async (e) => {
     const btn = e.target.closest('.del-btn');
     if (!btn) return;
@@ -5477,6 +5490,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.39',
+      date: '2026-05-22',
+      en: 'QSO history: a red "× Filter" pill appears next to the filter input when any filter is active (typed text or callsign drill-down). One click clears both filters.',
+      de: 'QSO-Verlauf: Ein roter „× Filter"-Pill erscheint neben dem Filterfeld, sobald ein Filter aktiv ist (eingetippter Text oder Rufzeichen-Drilldown). Ein Klick entfernt beide Filter.',
+    },
     {
       version: '0.38',
       date: '2026-05-22',

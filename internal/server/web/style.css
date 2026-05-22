@@ -498,6 +498,24 @@ button.ghost:hover { color: var(--text); border-color: var(--accent); }
   width: 280px;
 }
 .history-header input:focus { outline: none; border-color: var(--accent); }
+.history-filter-group { display: flex; align-items: center; gap: 8px; }
+.filter-clear-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #c53030;
+  background: #e53e3e;
+  color: #fff;
+  font: inherit;
+  font-size: 0.85em;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.filter-clear-pill:hover { background: #c53030; border-color: #9b2c2c; }
+.filter-clear-pill span[aria-hidden] { font-weight: 700; }
 .table-scroll { flex: 1; overflow: auto; min-height: 0; border-radius: 6px; border: 1px solid var(--border); }
 table {
   width: 100%;

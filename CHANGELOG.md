@@ -1,5 +1,12 @@
 # Noctalum Changelog
 
+## v0.39 — 2026-05-22 — Clear-filter pill in QSO history
+
+- Red "× Filter" button pill sits left of the `history-filter` input
+- Hidden by default; shown whenever the text filter has content or `callsignFilter` is set
+- Clicking it resets both `$('history-filter').value` and `callsignFilter` and re-renders the QSO table
+- `updateFilterClearPill()` is invoked from `renderQsos()` so the pill stays in sync with whichever path activated the filter (typing, clicking a row, accepting a cluster spot, …)
+
 ## v0.38 — 2026-05-22 — PDF cells wrap long text instead of truncating
 
 - Body rows now pre-split each cell via `pdf.SplitLines` to compute how many wrapped lines it needs, then size the row to the tallest cell
