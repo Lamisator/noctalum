@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.25 — 2026-05-22 17:00 UTC — Fix chat history loading on contest entry
+
+- Chat message history now loads reliably when entering a contest
+- Root cause: the WebSocket was reused from a previous connection, so the server never sent the history replay for the new contest
+- Fix: WebSocket is now force-reconnected each time `enterApp()` runs, causing the server to replay recent chat messages for the current contest
+
 ## v0.24 — 2026-05-22 16:00 UTC — Notes no-caps, configurable log columns
 
 - Notes field no longer forced uppercase (CSS override for `#q-notes`)

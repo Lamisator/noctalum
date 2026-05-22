@@ -1228,7 +1228,9 @@
       if (leafletMap) leafletMap.invalidateSize();
       updateMap();
     });
-    if (!ws) connectWS();
+    // Always reconnect so the server re-sends chat history for the current contest.
+    if (ws) { ws.onclose = null; ws.onerror = null; try { ws.close(); } catch {} ws = null; }
+    connectWS();
     $('q-call').focus();
   }
 
@@ -4995,6 +4997,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.25',
+      date: '2026-05-22 17:00 UTC',
+      en: 'Fix: chat message history now loads reliably when entering a contest (force WebSocket reconnect on contest entry so the server re-sends the history replay).',
+      de: 'Fix: Chat-Nachrichtenverlauf wird beim Betreten eines Contests zuverlässig geladen (WebSocket wird beim Contest-Eintritt neu verbunden, damit der Server den Verlauf erneut sendet).',
+    },
     {
       version: '0.24',
       date: '2026-05-22 16:00 UTC',
