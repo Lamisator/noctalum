@@ -216,6 +216,20 @@
           <div id="gs-custom-sounds-list" style="margin-top:8px"></div>
         </div>
       </fieldset>
+      <fieldset style="margin-top:16px">
+        <legend data-i18n="settings.qrz">QRZ.com lookup</legend>
+        <p class="muted small" data-i18n="settings.qrzHint">When configured, callsign lookups fetch the operator's name, Maidenhead locator and profile picture from QRZ.com. Requires a QRZ.com XML data subscription.</p>
+        <label><span data-i18n="settings.qrzUser">QRZ.com username</span>
+          <input id="gs-qrz-user" type="text" autocomplete="off" autocapitalize="off" style="max-width:200px" />
+        </label>
+        <label><span data-i18n="settings.qrzPass">QRZ.com password</span>
+          <input id="gs-qrz-pass" type="password" autocomplete="off" data-i18n-placeholder="settings.qrzKeep" placeholder="leave blank to keep existing" style="max-width:200px" />
+        </label>
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+          <button type="button" id="gs-qrz-test-btn" class="ghost" data-i18n="settings.qrzTest">Test connection</button>
+          <span id="gs-qrz-status" class="muted small"></span>
+        </div>
+      </fieldset>
       <div class="entry-actions" style="margin-top:16px">
         <span id="global-settings-error" class="error"></span>
         <button type="submit" class="primary" data-i18n="common.save">Save</button>
@@ -850,21 +864,7 @@
         <div style="margin-top:12px">
           <button type="button" id="ms-chat-mute-pill" class="cpill"></button>
         </div>
-        <div id="ms-qrz-section" class="perm-required" data-perm="settings.write">
-          <h2 data-i18n="settings.qrz" style="margin-top:16px">QRZ.com lookup</h2>
-          <p class="muted small" data-i18n="settings.qrzHint">When configured, callsign lookups fetch the operator's name, Maidenhead locator and profile picture from QRZ.com. Requires a QRZ.com XML data subscription.</p>
-          <label><span data-i18n="settings.qrzUser">QRZ.com username</span>
-            <input id="ms-qrz-user" type="text" autocomplete="off" autocapitalize="off" />
-          </label>
-          <label><span data-i18n="settings.qrzPass">QRZ.com password</span>
-            <input id="ms-qrz-pass" type="password" autocomplete="off" data-i18n-placeholder="settings.qrzKeep" placeholder="leave blank to keep existing" />
-          </label>
-          <div style="margin-top:10px">
-            <button type="button" id="ms-qrz-test-btn" class="ghost" data-i18n="settings.qrzTest">Test connection</button>
-          </div>
-          <div id="ms-qrz-status" class="muted small" style="margin-top:6px"></div>
-        </div>
-        <div class="entry-actions">
+<div class="entry-actions">
           <span id="ms-settings-error" class="error"></span>
           <button type="submit" class="primary perm-required" data-perm="settings.write" data-i18n="settings.saveSettings">Save settings</button>
         </div>

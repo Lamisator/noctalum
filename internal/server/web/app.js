@@ -544,6 +544,10 @@
         $('gs-cluster-call').value = s.cluster_call || '';
         $('gs-cluster-retention').value = s.cluster_retention_days || 7;
         currentSound = s.chat_sound || '';
+        if ('qrz_username' in s) {
+          $('gs-qrz-user').value = s.qrz_username || '';
+          $('gs-qrz-status').textContent = s.qrz_configured ? t('settings.qrzConfigured') : t('settings.qrzNotConfigured');
+        }
       }
     } catch {}
     loadGlobalClusterLog();
@@ -634,6 +638,8 @@
       cluster_call: $('gs-cluster-call').value.trim().toUpperCase(),
       cluster_retention_days: parseInt($('gs-cluster-retention').value) || 7,
       chat_sound: $('gs-chat-sound').value,
+      qrz_username: $('gs-qrz-user').value.trim(),
+      qrz_password: $('gs-qrz-pass').value,
     };
     const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
     if (!res.ok) {
@@ -641,6 +647,7 @@
       $('global-settings-error').textContent = j.error || t('common.saveFailed');
       return;
     }
+    $('gs-qrz-pass').value = '';
     loadGlobalClusterLog();
     if (settings) settings.chat_sound = body.chat_sound;
   });
@@ -648,6 +655,21 @@
   $('gs-chat-sound-preview').addEventListener('click', () => {
     const type = $('gs-chat-sound').value;
     if (type) playChatSound(type);
+  });
+
+  $('gs-qrz-test-btn').addEventListener('click', async () => {
+    const username = $('gs-qrz-user').value.trim();
+    const password = $('gs-qrz-pass').value;
+    const statusEl = $('gs-qrz-status');
+    if (!username) { statusEl.textContent = t('settings.qrzEnterUsername'); statusEl.style.color = 'var(--error)'; return; }
+    $('gs-qrz-test-btn').disabled = true;
+    statusEl.textContent = t('settings.qrzTesting');
+    statusEl.style.color = '';
+    const res = await api('/api/qrz/test', { method: 'POST', body: JSON.stringify({ username, password }) });
+    $('gs-qrz-test-btn').disabled = false;
+    const j = await res.json().catch(() => ({}));
+    if (j.ok) { statusEl.textContent = t('settings.qrzConnected', { name: j.name || t('settings.qrzNoName') }); statusEl.style.color = 'var(--success)'; }
+    else { statusEl.textContent = t('settings.qrzFailed', { err: j.error || t('common.unknownError') }); statusEl.style.color = 'var(--error)'; }
   });
 
   $('gs-sound-upload-btn').addEventListener('click', async () => {
@@ -2611,12 +2633,6 @@
     fillSelect($('ms-mode'), MODES, s.default_mode || 'SSB');
     fillSelect($('ms-band'), BANDS, s.default_band || '20m');
     updateMsChatMutePill();
-    if ('qrz_username' in s) {
-      const u = $('ms-qrz-user');
-      if (u) u.value = s.qrz_username || '';
-      const st = $('ms-qrz-status');
-      if (st) st.textContent = s.qrz_configured ? t('settings.qrzConfigured') : t('settings.qrzNotConfigured');
-    }
     applyPermissionsToUI();
     loadMyPasskeys();
   }
@@ -2626,8 +2642,6 @@
     const body = {
       default_mode: $('ms-mode').value,
       default_band: $('ms-band').value,
-      qrz_username: $('ms-qrz-user')?.value?.trim() || '',
-      qrz_password: $('ms-qrz-pass')?.value || '',
     };
     const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
     if (!res.ok) {
@@ -2635,25 +2649,11 @@
       $('ms-settings-error').textContent = j.error || t('common.saveFailed');
       return;
     }
-    if ($('ms-qrz-pass')) $('ms-qrz-pass').value = '';
     await loadSettings();
     applyDefaults();
     $('ms-settings-error').textContent = t('common.saved');
     $('ms-settings-error').style.color = 'var(--success)';
     setTimeout(() => { $('ms-settings-error').textContent = ''; $('ms-settings-error').style.color = ''; }, 2000);
-  });
-  $('ms-qrz-test-btn').addEventListener('click', async () => {
-    const username = $('ms-qrz-user').value.trim();
-    const password = $('ms-qrz-pass').value;
-    if (!username) { $('ms-qrz-status').textContent = t('settings.qrzEnterUsername'); $('ms-qrz-status').style.color = 'var(--error)'; return; }
-    $('ms-qrz-test-btn').disabled = true;
-    $('ms-qrz-status').textContent = t('settings.qrzTesting');
-    $('ms-qrz-status').style.color = '';
-    const res = await api('/api/qrz/test', { method: 'POST', body: JSON.stringify({ username, password }) });
-    $('ms-qrz-test-btn').disabled = false;
-    const j = await res.json().catch(() => ({}));
-    if (j.ok) { $('ms-qrz-status').textContent = t('settings.qrzConnected', { name: j.name || t('settings.qrzNoName') }); $('ms-qrz-status').style.color = 'var(--success)'; }
-    else { $('ms-qrz-status').textContent = t('settings.qrzFailed', { err: j.error || t('common.unknownError') }); $('ms-qrz-status').style.color = 'var(--error)'; }
   });
   $('ms-pwd-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -4875,6 +4875,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.23',
+      date: '2026-05-22 15:30 UTC',
+      en: 'QRZ.com credentials moved to Global Settings (one account for all server-side lookups).',
+      de: 'QRZ.com-Zugangsdaten in die Globalen Einstellungen verschoben (ein Konto für alle serverseitigen Abfragen).',
+    },
     {
       version: '0.22',
       date: '2026-05-22 15:00 UTC',

@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.23 — 2026-05-22 15:30 UTC — QRZ settings moved to Global Settings
+
+- QRZ.com credentials removed from Personal Settings
+- QRZ fieldset added to Global Settings with username, password, and test-connection button
+- One shared QRZ account is now used for all server-side callsign lookups
+
 ## v0.22 — 2026-05-22 15:00 UTC — Fix chat sounds, remove Settings tab
 
 - Fixed crash: stale `updateChatSoundToggleBtn` call was throwing a ReferenceError, breaking `showContestScreen` and silently disabling chat sounds
