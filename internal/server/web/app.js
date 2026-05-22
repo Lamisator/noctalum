@@ -745,7 +745,6 @@
     renderDownloads(downloads);
     renderGlobalOperators();
     show('contest-screen');
-    updateChatSoundToggleBtn();
   }
 
   function renderDownloads(files) {
@@ -4877,6 +4876,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.22',
+      date: '2026-05-22 15:00 UTC',
+      en: 'Fixed chat sounds (broken updateChatSoundToggleBtn reference). Settings tab removed from contest view.',
+      de: 'Chat-Töne repariert (fehlerhafte updateChatSoundToggleBtn-Referenz). Settings-Tab aus der Contest-Ansicht entfernt.',
+    },
+    {
       version: '0.21',
       date: '2026-05-22 14:30 UTC',
       en: 'Chat sound mute button removed from contest picker; replaced by a toggleable pill in Personal Settings.',
@@ -5175,7 +5180,7 @@
       try { renderRoles(); } catch {}
       try { renderAuditLog(); } catch {}
       try { renderFeatureRequests(); } catch {}
-      try { updateChatSoundToggleBtn(); } catch {}
+      try { updateMsChatMutePill(); } catch {}
       try { updateAuditTZHeader(); } catch {}
       try { renderStatistics(); } catch {}
       try { renderDownloads(window.__downloadsCache || []); } catch {}

@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.22 — 2026-05-22 15:00 UTC — Fix chat sounds, remove Settings tab
+
+- Fixed crash: stale `updateChatSoundToggleBtn` call was throwing a ReferenceError, breaking `showContestScreen` and silently disabling chat sounds
+- Settings tab removed from the contest view topbar
+
 ## v0.21 — 2026-05-22 14:30 UTC — Chat sound mute consolidated into Personal Settings
 
 - Chat sound mute button removed from the contest picker start page
