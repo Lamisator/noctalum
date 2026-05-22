@@ -1,5 +1,9 @@
 # Noctalum Changelog
 
+## v0.40 — 2026-05-22 — Smiling face for the Users menu pill
+
+- Icon glyph swapped from `&#9785;` (☹) to `&#9786;` (☺)
+
 ## v0.39 — 2026-05-22 — Clear-filter pill in QSO history
 
 - Red "× Filter" button pill sits left of the `history-filter` input

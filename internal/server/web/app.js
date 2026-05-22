@@ -5491,6 +5491,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.40',
+      date: '2026-05-22',
+      en: 'Main menu: the icon next to "Users" is now a smiling face (☺, U+263A) instead of the frowning one (☹, U+2639).',
+      de: 'Hauptmenü: Das Symbol neben „Benutzer" ist jetzt ein lächelndes Gesicht (☺, U+263A) statt des verdriesslichen (☹, U+2639).',
+    },
+    {
       version: '0.39',
       date: '2026-05-22',
       en: 'QSO history: a red "× Filter" pill appears next to the filter input when any filter is active (typed text or callsign drill-down). One click clears both filters.',
