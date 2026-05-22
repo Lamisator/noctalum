@@ -1,5 +1,12 @@
 # Noctalum Changelog
 
+## v0.38 — 2026-05-22 — PDF cells wrap long text instead of truncating
+
+- Body rows now pre-split each cell via `pdf.SplitLines` to compute how many wrapped lines it needs, then size the row to the tallest cell
+- The cell background (zebra stripe) is filled across the full row height first, then each text line is drawn at the correct Y offset; left/right borders are drawn explicitly per cell so they span the multi-line row
+- A manual page-break check sits in front of each row because the multi-line layout drives Y growth itself and the auto page-break heuristic would otherwise miss it
+- Result: long Notes, Names, or custom-field values like a multi-word event description stay legible and don't bleed past the right-hand border
+
 ## v0.37 — 2026-05-22 — PDF column titles left-aligned
 
 - `pdf.CellFormat` for the table header row now uses align "L" instead of "C", so column titles sit at the same horizontal position as the cells below them

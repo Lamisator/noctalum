@@ -5478,6 +5478,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.38',
+      date: '2026-05-22',
+      en: 'PDF export: long cell values (Notes, Name, custom fields, …) now wrap onto multiple lines instead of being truncated at the column edge. Each row grows to the height of its tallest wrapped cell; zebra stripes and column borders stay aligned.',
+      de: 'PDF-Export: Lange Zellinhalte (Notizen, Name, benutzerdefinierte Felder …) werden jetzt auf mehrere Zeilen umgebrochen, statt am Spaltenrand abgeschnitten zu werden. Jede Zeile wächst auf die Höhe der höchsten umgebrochenen Zelle; Zebra-Streifen und Spaltenrahmen bleiben ausgerichtet.',
+    },
+    {
       version: '0.37',
       date: '2026-05-22',
       en: 'PDF export: column titles in the table header are now left-aligned (they were centred), matching the body cells and giving long labels room to read.',

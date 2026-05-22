@@ -148,23 +148,75 @@ func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, sta
 
 	pdf.AddPage()
 
-	// Body rows.
+	// Body rows. Each row's height grows to fit the tallest wrapped cell, so
+	// long values like Notes get full multi-line layout instead of being
+	// truncated mid-glyph by the right border.
 	pdf.SetFont("Helvetica", "", 8)
 	pdf.SetTextColor(20, 20, 30)
 	pdf.SetDrawColor(220, 220, 230)
+	pdf.SetLineWidth(0.2)
+	const lineH = 4.2
+	_, pageH := pdf.GetPageSize()
+	_, _, _, bottomMargin := pdf.GetMargins()
+	pageBreakY := pageH - bottomMargin
+
 	for i, q := range qsos {
-		// Zebra stripes.
+		extras := parseExtras(q.Extras)
+		// Pre-translate + split each cell into wrapped lines so we can size
+		// the row to the tallest one. Empty cells still occupy one line so
+		// the row has at least the standard height.
+		cellLines := make([][]string, len(cols))
+		maxLines := 1
+		for j, c := range cols {
+			translated := s(qsoColValuePDF(q, c.Key, extras))
+			if translated == "" {
+				cellLines[j] = []string{""}
+				continue
+			}
+			rawLines := pdf.SplitLines([]byte(translated), widths[j])
+			lines := make([]string, len(rawLines))
+			for k, b := range rawLines {
+				lines[k] = string(b)
+			}
+			if len(lines) == 0 {
+				lines = []string{""}
+			}
+			cellLines[j] = lines
+			if len(lines) > maxLines {
+				maxLines = len(lines)
+			}
+		}
+		rowH := float64(maxLines) * lineH
+
+		// Manual page break — auto-break can't help us because we draw cell
+		// borders ourselves and don't call CellFormat for the whole row.
+		if pdf.GetY()+rowH > pageBreakY {
+			pdf.AddPage()
+		}
+
 		if i%2 == 1 {
 			pdf.SetFillColor(245, 246, 250)
 		} else {
 			pdf.SetFillColor(255, 255, 255)
 		}
-		extras := parseExtras(q.Extras)
+		startY := pdf.GetY()
+		x := leftMargin
 		for j, c := range cols {
-			val := qsoColValuePDF(q, c.Key, extras)
-			pdf.CellFormat(widths[j], 5.5, s(val), "LR", 0, alignFor(c.Key), true, 0, "")
+			align := alignFor(c.Key)
+			// Background fill first (drawn for the full row height so short
+			// cells stay zebra-coloured next to a tall neighbour).
+			pdf.Rect(x, startY, widths[j], rowH, "F")
+			// Text lines.
+			for k, ln := range cellLines[j] {
+				pdf.SetXY(x, startY+float64(k)*lineH)
+				pdf.CellFormat(widths[j], lineH, ln, "", 0, align, false, 0, "")
+			}
+			// Left + right cell borders.
+			pdf.Line(x, startY, x, startY+rowH)
+			pdf.Line(x+widths[j], startY, x+widths[j], startY+rowH)
+			x += widths[j]
 		}
-		pdf.Ln(-1)
+		pdf.SetXY(leftMargin, startY+rowH)
 	}
 	// Close out the bottom border.
 	pdf.SetDrawColor(220, 220, 230)
