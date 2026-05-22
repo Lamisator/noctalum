@@ -161,7 +161,6 @@
       <div id="contest-pick-error" class="error" style="margin-top:10px"></div>
       <div style="margin-top:16px;display:flex;justify-content:flex-end;align-items:center">
         <div style="display:flex;gap:8px;align-items:center">
-          <button id="chat-sound-toggle-btn" class="ghost" style="font-size:12px" data-i18n-title="contestScreen.chatSoundToggleTitle" title="Toggle chat sound notifications"></button>
           <button id="contest-logout-btn" class="ghost" style="font-size:12px" data-i18n="common.signOut">Sign out</button>
         </div>
       </div>
@@ -849,10 +848,9 @@
         <label><span data-i18n="settings.defaultBand">Default band</span>
           <select id="ms-band"></select>
         </label>
-        <label class="row" style="align-items:center;gap:8px;cursor:pointer;margin-top:8px">
-          <input id="ms-chat-mute" type="checkbox" />
-          <span data-i18n="settings.muteChat">Mute chat sounds on this device</span>
-        </label>
+        <div style="margin-top:12px">
+          <button type="button" id="ms-chat-mute-pill" class="cpill"></button>
+        </div>
         <div id="ms-qrz-section" class="perm-required" data-perm="settings.write">
           <h2 data-i18n="settings.qrz" style="margin-top:16px">QRZ.com lookup</h2>
           <p class="muted small" data-i18n="settings.qrzHint">When configured, callsign lookups fetch the operator's name, Maidenhead locator and profile picture from QRZ.com. Requires a QRZ.com XML data subscription.</p>

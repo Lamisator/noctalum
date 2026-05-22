@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.21 — 2026-05-22 14:30 UTC — Chat sound mute consolidated into Personal Settings
+
+- Chat sound mute button removed from the contest picker start page
+- Replaced by a toggleable pill (with icon) in Personal Settings, left-aligned inside the card
+
 ## v0.20 — 2026-05-22 14:00 UTC — Auto-band from frequency, topbar cleanup
 
 - Typing a frequency in the QSO form now automatically selects the matching band

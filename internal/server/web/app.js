@@ -2492,13 +2492,14 @@
     localStorage.setItem('chatSoundMuted', muted ? '1' : '0');
     const cb = $('s-chat-mute');
     if (cb) cb.checked = muted;
-    updateChatSoundToggleBtn();
+    updateMsChatMutePill();
   }
-  function updateChatSoundToggleBtn() {
-    const btn = $('chat-sound-toggle-btn');
-    if (!btn) return;
+  function updateMsChatMutePill() {
+    const pill = $('ms-chat-mute-pill');
+    if (!pill) return;
     const muted = isChatSoundMuted();
-    btn.textContent = muted ? t('contestScreen.chatSoundsOff') : t('contestScreen.chatSoundsOn');
+    pill.textContent = muted ? t('contestScreen.chatSoundsOff') : t('contestScreen.chatSoundsOn');
+    pill.classList.toggle('active', muted);
   }
 
   async function loadSettings() {
@@ -2545,13 +2546,7 @@
     const cb = $('s-chat-mute');
     if (cb) cb.addEventListener('change', () => setChatSoundMuted(cb.checked));
   }
-  {
-    const btn = $('chat-sound-toggle-btn');
-    if (btn) {
-      updateChatSoundToggleBtn();
-      btn.addEventListener('click', () => setChatSoundMuted(!isChatSoundMuted()));
-    }
-  }
+  $('ms-chat-mute-pill')?.addEventListener('click', () => setChatSoundMuted(!isChatSoundMuted()));
   $('qrz-test-btn').addEventListener('click', async () => {
     const username = $('s-qrz-user').value.trim();
     const password = $('s-qrz-pass').value;
@@ -2616,8 +2611,7 @@
     const s = await res.json();
     fillSelect($('ms-mode'), MODES, s.default_mode || 'SSB');
     fillSelect($('ms-band'), BANDS, s.default_band || '20m');
-    const cb = $('ms-chat-mute');
-    if (cb) cb.checked = isChatSoundMuted();
+    updateMsChatMutePill();
     if ('qrz_username' in s) {
       const u = $('ms-qrz-user');
       if (u) u.value = s.qrz_username || '';
@@ -2643,8 +2637,6 @@
       return;
     }
     if ($('ms-qrz-pass')) $('ms-qrz-pass').value = '';
-    const cb = $('ms-chat-mute');
-    if (cb) setChatSoundMuted(cb.checked);
     await loadSettings();
     applyDefaults();
     $('ms-settings-error').textContent = t('common.saved');
@@ -4884,6 +4876,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.21',
+      date: '2026-05-22 14:30 UTC',
+      en: 'Chat sound mute button removed from contest picker; replaced by a toggleable pill in Personal Settings.',
+      de: 'Chat-Ton-Stummschalttaste aus der Contest-Auswahl entfernt; durch eine umschaltbare Pill in den Persönlichen Einstellungen ersetzt.',
+    },
     {
       version: '0.20',
       date: '2026-05-22 14:00 UTC',
