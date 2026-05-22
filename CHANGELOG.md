@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.32 — 2026-05-22 — Chat tab framed (input pinned at bottom)
+
+- Chat input and Send button stay pinned at the bottom of the panel
+- Tab header stays at the top; only the message list scrolls
+- Previously the whole right panel scrolled when many messages accumulated, pushing the input out of view
+
 ## v0.31 — 2026-05-22 — Stash tab for in-flight QSOs (auto-stash on TRX QSY)
 
 - New "Stash" tab in the ops panel between Status and Cluster

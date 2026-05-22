@@ -5280,6 +5280,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.32',
+      date: '2026-05-22',
+      en: 'Chat tab: the message input and Send button are now pinned to the bottom and the tab header stays in place — only the message list scrolls.',
+      de: 'Chat-Tab: Das Nachrichtenfeld und der Senden-Knopf bleiben jetzt unten fixiert und der Tab-Kopf bleibt an Ort und Stelle — nur die Nachrichtenliste scrollt.',
+    },
+    {
       version: '0.31',
       date: '2026-05-22',
       en: 'New "Stash" tab next to Status: when the TRX moves to a different frequency mid-entry, the in-flight QSO is auto-stashed (callsign + all other fields kept). Click an entry to retune the TRX and refill the form. Auto-delete after a configurable time (default 60 min, set per contest).',
