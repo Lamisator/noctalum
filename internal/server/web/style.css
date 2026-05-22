@@ -149,6 +149,35 @@ a { color: var(--accent); text-decoration: none; }
   margin-left: auto;
 }
 .topbar-logo { width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0; }
+.brand-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.back-overview-pill {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.6;
+  width: fit-content;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.back-overview-pill:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .topbar .brand {
   font-weight: 700;
   color: var(--accent);
@@ -834,6 +863,17 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
   font-size: 12px; text-transform: none; letter-spacing: 0; color: var(--text);
   margin: 0;
 }
+
+/* Read-only contest settings modal — disable all interactive widgets */
+form.contest-modal-readonly .band-select-pill,
+form.contest-modal-readonly .cf-editor,
+form.contest-modal-readonly .log-col-drag,
+form.contest-modal-readonly .log-col-header,
+form.contest-modal-readonly .qso-layout-editor {
+  pointer-events: none;
+  opacity: 0.55;
+}
+form.contest-modal-readonly .band-select-pill { cursor: default; }
 
 .confirm-card { min-width: 300px; max-width: 420px; }
 .confirm-msg { margin: 0 0 4px; line-height: 1.5; }

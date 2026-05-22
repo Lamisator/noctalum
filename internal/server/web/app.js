@@ -700,7 +700,11 @@
   });
 
   // ----- contest selection screen -----
-  $('station-pill').addEventListener('click', () => showContestScreen());
+  $('back-to-overview-btn').addEventListener('click', () => showContestScreen());
+  $('station-pill').addEventListener('click', () => {
+    const c = getCurrentContestForEdit();
+    if (c) contestEditModal(c);
+  });
   $('create-contest-btn').addEventListener('click', () => contestCreateModal());
   $('create-private-contest-btn').addEventListener('click', () => contestCreateModal(true));
   $('create-contest-btn-list').addEventListener('click', () => contestCreateModal());
@@ -2986,54 +2990,70 @@
     let pendingStatus = c.status;
     const canManageContest = hasPerm('contests.manage') || (hasPerm('contests.manage_private') && c.private);
     const isOwner = c.my_role === 'owner';
+    const canEdit = canManageContest || isOwner;
+    const readOnly = !canEdit;
     const canSeeParticipants = canManageContest || isOwner;
+    const d = readOnly ? ' disabled' : '';
     const participantsSection = canSeeParticipants
       ? `<div class="participants-section">
            <div class="participants-section-header">${escHtml(t('contestScreen.participants'))}</div>
            <div id="modal-participants-list" class="participants-list"><span class="muted small">${escHtml(t('common.loading'))}</span></div>
          </div>`
       : '';
+    const statusToggleHtml = readOnly
+      ? `<div style="margin-bottom:14px">
+           <span class="status-toggle-pill ${escHtml(c.status)}" style="cursor:default">
+             <span class="status-dot"></span>
+             <span class="status-label">${escHtml(c.status === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished'))}</span>
+           </span>
+         </div>`
+      : `<div style="margin-bottom:14px">
+           <button type="button" id="edit-status-toggle" class="status-toggle-pill ${escHtml(c.status)}">
+             <span class="status-dot"></span>
+             <span class="status-label">${escHtml(c.status === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished'))}</span>
+             <span class="status-toggle-arrow">&#8644;</span>
+           </button>
+         </div>`;
+    const actionsHtml = readOnly
+      ? `<div class="modal-actions">
+           <button type="button" class="ghost cancel-btn">${escHtml(t('common.close'))}</button>
+         </div>`
+      : `<div class="modal-actions">
+           ${hasPerm('contest.admin') || isOwner ? `<button type="button" id="modal-delete-contest-btn" class="danger" style="margin-right:auto">${escHtml(t('contestScreen.deleteContest'))}</button>` : ''}
+           <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
+           <button type="submit" class="primary">${escHtml(t('common.save'))}</button>
+         </div>`;
     showModal(`
-      <h3>${escHtml(t('contestScreen.editTitle'))}</h3>
-      <div style="margin-bottom:14px">
-        <button type="button" id="edit-status-toggle" class="status-toggle-pill ${escHtml(c.status)}">
-          <span class="status-dot"></span>
-          <span class="status-label">${escHtml(c.status === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished'))}</span>
-          <span class="status-toggle-arrow">&#8644;</span>
-        </button>
-      </div>
+      <h3>${escHtml(readOnly ? t('topbar.contestSettings') : t('contestScreen.editTitle'))}</h3>
+      ${statusToggleHtml}
       ${participantsSection}
-      <form>
+      <form${readOnly ? ' class="contest-modal-readonly"' : ''}>
         <label>${escHtml(t('contestScreen.contestName'))}</label>
-        <input name="name" value="${escHtml(c.name)}" required />
+        <input name="name" value="${escHtml(c.name)}"${d} required />
         <label>${escHtml(t('contestScreen.stationCall'))}</label>
-        <input name="station_call" value="${escHtml(c.station_call)}" autocapitalize="characters" required />
+        <input name="station_call" value="${escHtml(c.station_call)}" autocapitalize="characters"${d} required />
         <label>${escHtml(t('contestScreen.stationIdentifier'))} <span class="muted small">${escHtml(t('contestScreen.stationIdentifierOptional'))}</span></label>
-        <input name="station_id" value="${escHtml(c.station_id || '')}" placeholder="${escHtml(t('contestScreen.stationIdPlaceholder'))}" />
+        <input name="station_id" value="${escHtml(c.station_id || '')}" placeholder="${escHtml(t('contestScreen.stationIdPlaceholder'))}"${d} />
         <label>${escHtml(t('contestScreen.qthLocator'))}</label>
-        <input name="qth" value="${escHtml(c.qth || '')}" placeholder="${escHtml(t('contestScreen.qthPlaceholder'))}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
+        <input name="qth" value="${escHtml(c.qth || '')}" placeholder="${escHtml(t('contestScreen.qthPlaceholder'))}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase"${d} />
         ${buildBandSelectHTML(c.bands || [])}
-        <label style="margin-top:10px"><input type="checkbox" name="nr_padded" ${c.nr_padded !== false ? 'checked' : ''} /> ${escHtml(t('contestScreen.nrPadded'))}</label>
+        <label style="margin-top:10px"><input type="checkbox" name="nr_padded" ${c.nr_padded !== false ? 'checked' : ''}${d} /> ${escHtml(t('contestScreen.nrPadded'))}</label>
         <label style="margin-top:10px">${escHtml(t('contestScreen.customFields'))} <span class="muted small">${escHtml(t('contestScreen.customFieldsPerQSO2'))}</span></label>
         ${buildCustomFieldsEditorHTML(existingFields)}
         <label style="margin-top:10px">${escHtml(t('contestScreen.layoutEditor'))} <span class="muted small">${escHtml(t('contestScreen.layoutHint'))}</span></label>
         ${buildLayoutEditorHTML()}
         <label style="margin-top:10px">${escHtml(t('contestScreen.objective'))} <span class="muted small">${escHtml(t('contestScreen.objectiveMd'))}</span></label>
         <div class="md-editor-wrap">
-          <textarea name="objective" placeholder="${escHtml(t('contestScreen.objectivePlaceholder'))}">${escHtml(c.objective || '')}</textarea>
+          <textarea name="objective" placeholder="${escHtml(t('contestScreen.objectivePlaceholder'))}"${d}>${escHtml(c.objective || '')}</textarea>
           <div class="md-preview-pane objective-content" id="modal-md-preview"></div>
         </div>
         <label style="margin-top:14px">${escHtml(t('contestScreen.logColumns'))}</label>
         <p class="muted small" style="margin:2px 0 0">${escHtml(t('contestScreen.logColumnsHint'))}</p>
         ${buildLogColumnsEditorHTML(c.log_columns || '', existingFields)}
         <div class="modal-err error"></div>
-        <div class="modal-actions">
-          ${hasPerm('contest.admin') || isOwner ? `<button type="button" id="modal-delete-contest-btn" class="danger" style="margin-right:auto">${escHtml(t('contestScreen.deleteContest'))}</button>` : ''}
-          <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
-          <button type="submit" class="primary">${escHtml(t('common.save'))}</button>
-        </div>
+        ${actionsHtml}
       </form>
-    `, async (form) => {
+    `, readOnly ? null : async (form) => {
       const res = await api('/api/contests/' + c.id, {
         method: 'PUT',
         body: JSON.stringify({
@@ -3056,26 +3076,28 @@
       }
       await refreshContests();
     }, { wide: true });
-    const statusToggleBtn = document.getElementById('edit-status-toggle');
-    if (statusToggleBtn) {
-      statusToggleBtn.addEventListener('click', () => {
-        pendingStatus = pendingStatus === 'open' ? 'finished' : 'open';
-        statusToggleBtn.className = 'status-toggle-pill ' + pendingStatus;
-        statusToggleBtn.querySelector('.status-label').textContent =
-          pendingStatus === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished');
-      });
+    if (!readOnly) {
+      const statusToggleBtn = document.getElementById('edit-status-toggle');
+      if (statusToggleBtn) {
+        statusToggleBtn.addEventListener('click', () => {
+          pendingStatus = pendingStatus === 'open' ? 'finished' : 'open';
+          statusToggleBtn.className = 'status-toggle-pill ' + pendingStatus;
+          statusToggleBtn.querySelector('.status-label').textContent =
+            pendingStatus === 'open' ? t('contestScreen.statusOpen') : t('contestScreen.statusFinished');
+        });
+      }
+      attachBandSelectListeners();
+      attachCustomFieldsEditorListeners();
+      attachLayoutEditorListeners(c.qso_layout || '');
+      initLogColDragDrop();
     }
-    attachBandSelectListeners();
-    attachCustomFieldsEditorListeners();
-    attachLayoutEditorListeners(c.qso_layout || '');
-    initLogColDragDrop();
-    // Live markdown preview
+    // Live markdown preview (always shown, read-only preview still renders)
     const ta = document.querySelector('#modal-card textarea[name=objective]');
     const preview = $('modal-md-preview');
     if (ta && preview) {
       const updatePreview = () => { preview.innerHTML = renderMarkdown(ta.value); };
       updatePreview();
-      ta.addEventListener('input', updatePreview);
+      if (!readOnly) ta.addEventListener('input', updatePreview);
     }
     // Load participants if visible
     if (canSeeParticipants) loadModalParticipants(c.id, canManageContest);
@@ -4997,6 +5019,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.27',
+      date: '2026-05-22',
+      en: 'New: slim "← Back to overview" pill below the logo in the contest view; clicking the station pill now opens contest settings (read-only for users without edit rights).',
+      de: 'Neu: Schlanke „← Zur Übersicht"-Pill unter dem Logo in der Contest-Ansicht; Klick auf die Station-Pill öffnet jetzt die Contest-Einstellungen (nur lesend für Nutzer ohne Bearbeitungsrechte).',
+    },
     {
       version: '0.26',
       date: '2026-05-22',

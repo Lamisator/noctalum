@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.27 — 2026-05-22 — Back-to-overview pill, station pill opens contest settings
+
+- Contest view topbar: new slim "← Back to overview" pill below the Noctalum logo navigates back to contest selection
+- Clicking the station pill (center topbar) now opens the contest settings modal instead of navigating away
+- Read-only users see all contest settings with greyed-out fields and no save button
+
 ## v0.26 — 2026-05-22 — "What's New" dialog on version update
 
 - Track the last app version each user acknowledged; show a "What's New?" dialog listing missed changelog entries on login or page refresh

@@ -278,8 +278,13 @@
 <div id="app" class="screen app-screen hidden">
   <header class="topbar">
     <div class="topbar-left">
-      <img src="/noctalum.png" alt="" class="topbar-logo" />
-      <div class="brand">Noctalum<span class="app-version" id="app-version-main"></span></div>
+      <div class="brand-stack">
+        <div class="brand-row">
+          <img src="/noctalum.png" alt="" class="topbar-logo" />
+          <div class="brand">Noctalum<span class="app-version" id="app-version-main"></span></div>
+        </div>
+        <button id="back-to-overview-btn" class="back-overview-pill" data-i18n="topbar.backToOverview">&#8592; Back to overview</button>
+      </div>
       <span class="op-badge"><span data-i18n="topbar.loggedInAs">Logged in as</span> <strong id="current-op"></strong></span>
       <div class="lang-switcher-host" id="lang-switcher-topbar"></div>
       <button id="feature-request-btn" class="ghost fr-btn hidden" data-i18n-title="topbar.featureRequestTitle" title="Submit a feature request" data-i18n="topbar.featureRequest">Feature Request</button>
@@ -289,7 +294,7 @@
       <div class="station-id-pill hidden" id="station-id-pill" data-i18n-title="topbar.stationIdTitle" title="Contest station identifier">
         <span id="station-id"></span>
       </div>
-      <div class="station-pill" id="station-pill" data-i18n-title="topbar.stationPillTitle" title="Click to change contest">
+      <div class="station-pill" id="station-pill" data-i18n-title="topbar.contestSettings" title="Contest settings">
         <span class="station-call" id="station-call">—</span>
         <span class="station-contest-name" id="station-contest-name"></span>
       </div>
