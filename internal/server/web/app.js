@@ -5495,6 +5495,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.44',
+      date: '2026-05-22',
+      en: 'Brand wordmark in the contest-overview topbar now uses the same blue, bold, slightly tracked-out style as the logging-window topbar. The `.topbar .brand` rule (and its mobile-mode tweaks) was scoped to `.topbar` only; the contest topbar lives under `.contest-topbar` so it had been falling back to default text styling.',
+      de: 'Die Wortmarke in der Contest-Übersicht hat jetzt dasselbe blaue, fette, leicht gesperrte Schriftbild wie im Logging-Fenster. Die Regel `.topbar .brand` (und ihre Mobile-Mode-Varianten) war nur auf `.topbar` beschränkt; die Contest-Topbar nutzt `.contest-topbar` und fiel daher auf das Standardtext-Styling zurück.',
+    },
+    {
       version: '0.43',
       date: '2026-05-22',
       en: 'Contest picker uses the full width of the page: `.contest-screen-layout` now stretches to 100 % (capped at 1800 px on ultra-wide screens). The middle card keeps its `flex: 1`, so it absorbs all the extra horizontal space while the nav-pill on the left and the Online-Now panel on the right keep their compact widths.',

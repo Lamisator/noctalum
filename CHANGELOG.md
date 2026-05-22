@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.44 — 2026-05-22 — Unified "Noctalum" wordmark across topbars
+
+- `.topbar .brand` rule extended to also match `.contest-topbar .brand`
+- Same change applied to the `max-width: 480px` font-size override and the `body.mobile-mode` font-size override so the two wordmarks stay in sync at every viewport
+
 ## v0.43 — 2026-05-22 — Full-width contest picker
 
 - `.contest-screen-layout` is now `width: 100 %; max-width: 1800 px;` instead of shrinking to content
