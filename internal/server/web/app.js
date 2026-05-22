@@ -5020,6 +5020,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.30',
+      date: '2026-05-22',
+      en: 'Fix: band selector in New QSO now shows "20 m", "70 cm" etc. correctly; notes field no longer forced to uppercase. (CSS specificity fix)',
+      de: 'Fix: Bandauswahl im neuen QSO zeigt jetzt korrekt „20 m", „70 cm" usw.; Notizfeld nicht mehr in Großbuchstaben erzwungen.',
+    },
+    {
       version: '0.29',
       date: '2026-05-22',
       en: 'Duplicate detection: SSB, USB and LSB are now treated as the same mode. A QSO logged as USB counts as a duplicate of a prior SSB or LSB contact on the same band.',

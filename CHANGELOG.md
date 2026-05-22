@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.30 — 2026-05-22 — Fix band dropdown and notes field case in New QSO form
+
+- Band selector in New QSO now correctly shows "20 m", "70 cm" etc. (CSS specificity fix)
+- Notes field no longer forced to uppercase (same fix)
+
 ## v0.29 — 2026-05-22 — SSB/USB/LSB treated as same mode for duplicate detection
 
 - USB and LSB are now normalised to SSB when checking for duplicate QSOs
