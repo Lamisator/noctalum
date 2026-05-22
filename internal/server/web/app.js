@@ -13,6 +13,69 @@
   const MODES = ['CW', 'SSB', 'USB', 'LSB', 'FM', 'AM', 'RTTY', 'FT8', 'FT4', 'PSK31', 'PSK63', 'JT65', 'DIGI'];
   const BANDS = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m', '4m', '2m', '70cm', '23cm', '13cm', '3cm'];
 
+  // ----- Mobile mode detection -----
+  // Activation order: URL flag (?mode=mobile|desktop) > Settings override
+  // (localStorage 'noctalum.displayMode' = 'mobile'|'desktop'|'auto') > UA hint
+  // OR narrow viewport.  Re-evaluated on resize and when the Settings select
+  // changes; the body.mobile-mode class drives all styling and JS branches.
+  const DISPLAY_MODE_KEY = 'noctalum.displayMode';
+  function getDisplayModeOverride() {
+    const url = new URLSearchParams(location.search).get('mode');
+    if (url === 'mobile' || url === 'desktop') return url;
+    const stored = localStorage.getItem(DISPLAY_MODE_KEY);
+    if (stored === 'mobile' || stored === 'desktop') return stored;
+    return 'auto';
+  }
+  function detectMobile() {
+    const ov = getDisplayModeOverride();
+    if (ov === 'mobile') return true;
+    if (ov === 'desktop') return false;
+    const uaMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const narrow = window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
+    return uaMobile || narrow;
+  }
+  function applyMobileMode() {
+    const wantMobile = detectMobile();
+    const wasMobile = document.body.classList.contains('mobile-mode');
+    if (wantMobile === wasMobile) return;
+    document.body.classList.toggle('mobile-mode', wantMobile);
+    if (wantMobile) {
+      moveOpsPanesToSheet();
+    } else {
+      moveOpsPanesBackToPanel();
+      setMobileSheetOpen(null);
+      document.body.classList.remove('show-all-fields');
+    }
+  }
+  function moveOpsPanesToSheet() {
+    const sheet = document.getElementById('mobile-sheet');
+    if (!sheet) return;
+    document.querySelectorAll('.ops-panel .ops-tab-pane').forEach(p => sheet.appendChild(p));
+    sheet.setAttribute('aria-hidden', 'true');
+  }
+  function moveOpsPanesBackToPanel() {
+    const panel = document.querySelector('.ops-panel');
+    const sheet = document.getElementById('mobile-sheet');
+    if (!panel || !sheet) return;
+    sheet.querySelectorAll('.ops-tab-pane').forEach(p => panel.appendChild(p));
+    sheet.classList.remove('open');
+  }
+  function setMobileSheetOpen(tab) {
+    const sheet = document.getElementById('mobile-sheet');
+    const nav = document.getElementById('mobile-bottom-nav');
+    if (!sheet || !nav) return;
+    if (!tab) {
+      sheet.classList.remove('open');
+      sheet.setAttribute('aria-hidden', 'true');
+      nav.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      return;
+    }
+    sheet.classList.add('open');
+    sheet.setAttribute('aria-hidden', 'false');
+    sheet.querySelectorAll('.ops-tab-pane').forEach(p => p.classList.toggle('active', p.id === 'ops-tab-' + tab));
+    nav.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.opsTab === tab));
+  }
+
   // ----- DXCC prefix lookup -----
   // Each entry: [prefix, country_name, iso2_or_null, continent]
   // continent: EU NA SA AS AF OC
@@ -1429,22 +1492,80 @@
   }
 
   // ----- ops panel tabs -----
-  document.querySelectorAll('.ops-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.ops-tab').forEach(x => x.classList.remove('active'));
-      document.querySelectorAll('.ops-tab-pane').forEach(x => x.classList.remove('active'));
-      tab.classList.add('active');
-      $('ops-tab-' + tab.dataset.opsTab).classList.add('active');
-      if (tab.dataset.opsTab === 'cluster') loadClusterSpots();
-      if (tab.dataset.opsTab === 'chat') {
-        tab.classList.remove('chat-notify');
+  function activateOpsTab(name, opts = {}) {
+    document.querySelectorAll('.ops-tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.ops-tab-pane').forEach(x => x.classList.remove('active'));
+    const desktopTab = document.querySelector('.ops-tab[data-ops-tab="' + name + '"]');
+    if (desktopTab) desktopTab.classList.add('active');
+    const pane = $('ops-tab-' + name);
+    if (pane) pane.classList.add('active');
+    if (name === 'cluster') loadClusterSpots();
+    if (name === 'chat') {
+      if (desktopTab) desktopTab.classList.remove('chat-notify');
+      if (opts.focusChat !== false) {
         const inp = $('chat-input');
         if (inp) inp.focus();
-        const list = $('chat-list');
-        if (list) list.scrollTop = list.scrollHeight;
+      }
+      const list = $('chat-list');
+      if (list) list.scrollTop = list.scrollHeight;
+    }
+  }
+  document.querySelectorAll('.ops-tab').forEach(tab => {
+    tab.addEventListener('click', () => activateOpsTab(tab.dataset.opsTab));
+  });
+
+  // Bottom-sheet nav (mobile mode): tap to open/switch, tap same to close.
+  document.querySelectorAll('#mobile-bottom-nav button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.opsTab;
+      const sheet = document.getElementById('mobile-sheet');
+      const isOpen = sheet && sheet.classList.contains('open');
+      const wasActive = btn.classList.contains('active');
+      if (isOpen && wasActive) {
+        setMobileSheetOpen(null);
+        return;
+      }
+      activateOpsTab(name, { focusChat: false });
+      setMobileSheetOpen(name);
+      if (name === 'chat') {
+        // Defer focus until after the sheet is laid out so iOS scrolls to the input.
+        setTimeout(() => { const inp = $('chat-input'); if (inp) inp.focus(); }, 50);
       }
     });
   });
+
+  // "More fields" toggle inside the QSO entry form on mobile.
+  {
+    const btn = $('more-fields-btn');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        const expanded = document.body.classList.toggle('show-all-fields');
+        const span = btn.querySelector('span') || btn;
+        span.textContent = expanded ? t('qso.fewerFields') : t('qso.moreFields');
+        btn.setAttribute('data-i18n', expanded ? 'qso.fewerFields' : 'qso.moreFields');
+      });
+    }
+  }
+
+  // ESC closes the bottom sheet (in addition to its other dialog-close uses).
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.body.classList.contains('mobile-mode')) {
+      const sheet = document.getElementById('mobile-sheet');
+      if (sheet && sheet.classList.contains('open')) {
+        setMobileSheetOpen(null);
+      }
+    }
+  });
+
+  // Apply mobile mode at startup and on viewport changes (rotation, resize).
+  applyMobileMode();
+  {
+    let _resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(_resizeTimer);
+      _resizeTimer = setTimeout(applyMobileMode, 150);
+    });
+  }
 
   // ----- stash (pre-QSO snapshots) -----
   function collectFormSnapshot() {
@@ -2352,6 +2473,16 @@
     $('entry-panel-title').textContent = t('qso.newQSO');
     $('q-call').focus();
     renderBandPills();
+    // Collapse the mobile "More fields" expansion after each entry.
+    if (document.body.classList.contains('mobile-mode')) {
+      document.body.classList.remove('show-all-fields');
+      const mfBtn = $('more-fields-btn');
+      if (mfBtn) {
+        const span = mfBtn.querySelector('span') || mfBtn;
+        span.textContent = t('qso.moreFields');
+        mfBtn.setAttribute('data-i18n', 'qso.moreFields');
+      }
+    }
   }
 
   $('cancel-edit-btn').addEventListener('click', cancelQsoEdit);
@@ -2818,6 +2949,8 @@
     }
     const cb = $('s-chat-mute');
     if (cb) cb.checked = isChatSoundMuted();
+    const dm = $('s-display-mode');
+    if (dm) dm.value = localStorage.getItem(DISPLAY_MODE_KEY) || 'auto';
     loadDummyRigs();
   }
   $('settings-form').addEventListener('submit', async (e) => {
@@ -2844,6 +2977,15 @@
   {
     const cb = $('s-chat-mute');
     if (cb) cb.addEventListener('change', () => setChatSoundMuted(cb.checked));
+  }
+  {
+    const dm = $('s-display-mode');
+    if (dm) dm.addEventListener('change', () => {
+      const v = dm.value;
+      if (v === 'auto') localStorage.removeItem(DISPLAY_MODE_KEY);
+      else localStorage.setItem(DISPLAY_MODE_KEY, v);
+      applyMobileMode();
+    });
   }
   $('ms-chat-mute-pill')?.addEventListener('click', () => setChatSoundMuted(!isChatSoundMuted()));
   $('qrz-test-btn').addEventListener('click', async () => {
@@ -5279,6 +5421,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.34',
+      date: '2026-05-22',
+      en: 'Mobile mode: auto-engages on phones (and on any viewport ≤640 px) with a touch-optimised layout — compact topbar, single-column QSO entry form with a "+ More fields" toggle for everything past callsign/RST/mode/band, larger 44 px tap targets, and a fixed bottom navigation bar that opens Status / Stash / Cluster / Chat / Objective as a full-screen sheet. Manual override (Auto / Desktop / Mobile) in Settings, plus a `?mode=mobile|desktop` URL flag for testing.',
+      de: 'Mobilmodus: aktiviert sich automatisch auf Telefonen (und auf jedem Viewport ≤640 px) mit Touch-optimiertem Layout — kompakte Topleiste, einspaltiges QSO-Formular mit Umschalter „+ Weitere Felder" für alles ausser Rufzeichen/RST/Mode/Band, grössere 44-px-Tap-Ziele und eine untere Navigationsleiste, die Status / Stash / Cluster / Chat / Ziel als Vollbild-Sheet öffnet. Manuelle Umschaltung (Automatisch / Desktop / Mobil) in den Einstellungen sowie ein URL-Flag `?mode=mobile|desktop` zum Testen.',
+    },
     {
       version: '0.33',
       date: '2026-05-22',

@@ -408,6 +408,7 @@
                 <input id="q-time" type="time" step="1" />
               </label>
             </div>
+            <button type="button" id="more-fields-btn" class="ghost more-fields-btn" data-i18n="qso.moreFields">+ More fields</button>
             <div class="entry-actions">
               <span id="qso-error" class="error"></span>
               <button type="button" id="cancel-edit-btn" class="ghost"><span data-i18n="common.cancel">Cancel</span> <span class="kbd">Esc</span></button>
@@ -529,6 +530,18 @@
         <h2 data-i18n="settings.title">Settings</h2>
         <form id="settings-form">
           <fieldset>
+            <legend data-i18n="settings.display">Display</legend>
+            <label><span data-i18n="settings.displayMode">Display mode</span>
+              <select id="s-display-mode">
+                <option value="auto" data-i18n="settings.displayModeAuto">Auto (detect device)</option>
+                <option value="desktop" data-i18n="settings.displayModeDesktop">Desktop</option>
+                <option value="mobile" data-i18n="settings.displayModeMobile">Mobile</option>
+              </select>
+            </label>
+            <p class="muted small" data-i18n="settings.displayModeHint">Auto switches to a touch-friendly layout on phones and narrow screens.</p>
+          </fieldset>
+
+          <fieldset>
             <legend data-i18n="settings.defaults">Defaults</legend>
             <label><span data-i18n="settings.defaultMode">Default mode</span>
               <select id="s-mode"></select>
@@ -647,6 +660,16 @@
     </section>
 
   </main>
+
+  <!-- Mobile bottom-sheet nav (only visible when body.mobile-mode is set) -->
+  <nav id="mobile-bottom-nav" class="mobile-bottom-nav" aria-hidden="true">
+    <button type="button" data-ops-tab="status"><span class="mb-icon" aria-hidden="true">●</span><span data-i18n="ops.statusTab">Status</span></button>
+    <button type="button" data-ops-tab="stash"><span class="mb-icon" aria-hidden="true">⎘</span><span data-i18n="ops.stashTab">Stash</span><span id="mb-stash-badge" class="mb-badge hidden"></span></button>
+    <button type="button" data-ops-tab="cluster"><span class="mb-icon" aria-hidden="true">⌖</span><span data-i18n="ops.clusterTab">Cluster</span></button>
+    <button type="button" data-ops-tab="chat"><span class="mb-icon" aria-hidden="true">💬</span><span data-i18n="ops.chatTab">Chat</span></button>
+    <button type="button" data-ops-tab="objective"><span class="mb-icon" aria-hidden="true">⚑</span><span data-i18n="ops.objectiveTab">Objective</span></button>
+  </nav>
+  <div id="mobile-sheet" class="mobile-sheet" aria-hidden="true"></div>
 </div>
 
 <!-- Admin screens (accessed from contest selection screen) -->

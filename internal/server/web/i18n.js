@@ -285,6 +285,8 @@
         updateFail: 'Failed to update QSO',
         saveFail: 'Failed to save QSO',
         requiredField: 'Field "{name}" is required',
+        moreFields: '+ More fields',
+        fewerFields: '− Fewer fields',
       },
       ops: {
         operatingAs: 'Operating as',
@@ -350,6 +352,12 @@
       },
       settings: {
         title: 'Settings',
+        display: 'Display',
+        displayMode: 'Display mode',
+        displayModeAuto: 'Auto (detect device)',
+        displayModeDesktop: 'Desktop',
+        displayModeMobile: 'Mobile',
+        displayModeHint: 'Auto switches to a touch-friendly layout on phones and narrow screens.',
         defaults: 'Defaults',
         defaultMode: 'Default mode',
         defaultBand: 'Default band',
@@ -864,6 +872,8 @@
         updateFail: 'QSO konnte nicht aktualisiert werden',
         saveFail: 'QSO konnte nicht gespeichert werden',
         requiredField: 'Feld "{name}" ist erforderlich',
+        moreFields: '+ Weitere Felder',
+        fewerFields: '− Weniger Felder',
       },
       ops: {
         operatingAs: 'Betrieben als',
@@ -929,6 +939,12 @@
       },
       settings: {
         title: 'Einstellungen',
+        display: 'Anzeige',
+        displayMode: 'Anzeigemodus',
+        displayModeAuto: 'Automatisch (Gerät erkennen)',
+        displayModeDesktop: 'Desktop',
+        displayModeMobile: 'Mobil',
+        displayModeHint: 'Automatisch wechselt auf Telefonen und schmalen Bildschirmen zu einem Touch-freundlichen Layout.',
         defaults: 'Standardwerte',
         defaultMode: 'Standard-Mode',
         defaultBand: 'Standard-Band',

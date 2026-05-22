@@ -1709,6 +1709,177 @@ button.small { padding: 4px 8px; font-size: 12px; }
   .qso-grid > label:not([style*="grid-column"]) { grid-column: span 3; }
 }
 
+/* ===== Mobile mode (auto-engaged on phones; manual toggle in Settings) ===== */
+/* The "More fields" toggle is hidden unless mobile mode is on. */
+.more-fields-btn { display: none; }
+body.mobile-mode .more-fields-btn {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  min-height: 40px;
+}
+
+body.mobile-mode .topbar {
+  padding: 6px 8px;
+  min-height: 48px;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+body.mobile-mode .topbar-logo { width: 22px; height: 22px; }
+body.mobile-mode .topbar .brand { font-size: 14px; letter-spacing: 0.02em; }
+body.mobile-mode .app-version { font-size: 10px; margin-left: 3px; }
+body.mobile-mode .back-overview-pill,
+body.mobile-mode .op-badge,
+body.mobile-mode .fr-btn,
+body.mobile-mode .station-id-pill { display: none; }
+body.mobile-mode .station-area { order: -1; width: 100%; justify-content: center; }
+body.mobile-mode .station-pill { padding: 3px 12px; font-size: 12px; }
+body.mobile-mode .station-pill .station-call { font-size: 13px; }
+body.mobile-mode .station-pill .station-contest-name { font-size: 10px; }
+body.mobile-mode .topbar-left .lang-switcher-host { display: none; }
+body.mobile-mode .topbar-right { gap: 4px; }
+body.mobile-mode .rig-status .rig-detail,
+body.mobile-mode .rig-status .rig-label { display: none; }
+body.mobile-mode .tabs { gap: 1px; flex: 1 1 auto; }
+body.mobile-mode .tab { padding: 8px 6px; font-size: 12px; min-height: 36px; flex: 1; }
+body.mobile-mode #logout-btn { padding: 4px 8px; font-size: 12px; }
+
+/* Layout: vertical stack, no map, no resizers */
+body.mobile-mode .layout-outer { flex-direction: column; overflow-y: auto; }
+body.mobile-mode .left-panel,
+body.mobile-mode #resizer-left,
+body.mobile-mode #resizer-right,
+body.mobile-mode #resizer-mid { display: none; }
+/* Hide desktop ops-panel — its panes are reparented into the mobile sheet by JS. */
+body.mobile-mode .ops-panel { display: none; }
+body.mobile-mode .entry-panel { height: auto !important; }
+body.mobile-mode .center-col { overflow: visible; }
+/* Reserve bottom space for the fixed nav bar so the last row isn't hidden. */
+body.mobile-mode main.layout { padding-bottom: 64px; }
+body.mobile-mode .tab-pane { padding: 0; }
+
+/* Entry form: single column, big tap targets */
+body.mobile-mode .entry-panel.card { padding: 10px; }
+body.mobile-mode .entry-panel h2 { font-size: 16px; margin: 6px 0; }
+body.mobile-mode .rig-bar { flex-wrap: wrap; gap: 6px; font-size: 12px; }
+body.mobile-mode .rig-bar select { max-width: 100%; min-width: 0; box-sizing: border-box; min-height: 40px; }
+body.mobile-mode .qso-grid { grid-template-columns: 1fr; gap: 8px; }
+body.mobile-mode .qso-grid > label { grid-column: span 1 !important; font-size: 11px; }
+body.mobile-mode .qso-grid > label > input,
+body.mobile-mode .qso-grid > label > select {
+  min-height: 44px;
+  font-size: 16px; /* prevents iOS auto-zoom on focus */
+  padding: 6px 10px;
+}
+/* By default, hide non-pinned fields. Mode + band stay visible (treated as
+   essential alongside pinned RST/callsign). */
+body.mobile-mode .qso-grid > label:not([data-qso-pinned="1"]):not([data-qso-field="mode"]):not([data-qso-field="band"]) {
+  display: none;
+}
+body.mobile-mode.show-all-fields .qso-grid > label { display: flex !important; }
+
+body.mobile-mode .entry-actions { flex-direction: column; gap: 8px; }
+body.mobile-mode .entry-actions button { width: 100%; min-height: 48px; font-size: 14px; }
+body.mobile-mode .entry-actions .kbd { display: none; }
+
+/* History panel: compact rows + sticky first column */
+body.mobile-mode .history-panel.card { padding: 10px; margin-top: 8px; }
+body.mobile-mode .history-header { flex-wrap: wrap; gap: 8px; }
+body.mobile-mode .history-header input { width: 100%; max-width: 100%; box-sizing: border-box; }
+body.mobile-mode #qso-table { font-size: 12px; }
+body.mobile-mode #qso-table th,
+body.mobile-mode #qso-table td { padding: 6px 6px; white-space: nowrap; }
+body.mobile-mode #qso-table th:first-child,
+body.mobile-mode #qso-table td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--bg-elev);
+  z-index: 1;
+}
+body.mobile-mode #qso-table thead th:first-child { background: var(--bg-elev-2); z-index: 2; }
+
+/* Settings card on mobile: full bleed */
+body.mobile-mode .settings-card { padding: 12px; }
+body.mobile-mode #settings-form label > input,
+body.mobile-mode #settings-form label > select { min-height: 40px; font-size: 16px; }
+
+/* ===== Bottom-sheet nav and overlay sheet ===== */
+.mobile-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 56px;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  z-index: 100;
+  justify-content: space-around;
+  align-items: stretch;
+  padding: 0 2px;
+  /* Respect iOS safe-area at the bottom (home indicator). */
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  height: calc(56px + env(safe-area-inset-bottom, 0px));
+}
+body.mobile-mode .mobile-bottom-nav { display: flex; }
+.mobile-bottom-nav button {
+  flex: 1 1 0;
+  min-width: 0;
+  background: none;
+  border: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  position: relative;
+  padding: 4px 2px;
+}
+.mobile-bottom-nav button.active {
+  color: var(--accent);
+  background: rgba(79, 195, 247, 0.08);
+}
+.mobile-bottom-nav .mb-icon { font-size: 18px; line-height: 1; }
+.mobile-bottom-nav .mb-badge {
+  position: absolute;
+  top: 4px;
+  right: calc(50% - 22px);
+  background: var(--accent);
+  color: #000;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  min-width: 14px;
+  text-align: center;
+}
+
+.mobile-sheet {
+  display: none;
+  position: fixed;
+  left: 0; right: 0;
+  top: 48px;
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  z-index: 99;
+  overflow-y: auto;
+  padding: 12px;
+}
+.mobile-sheet.open { display: block; }
+.mobile-sheet > .ops-tab-pane { display: none; }
+.mobile-sheet > .ops-tab-pane.active { display: block; }
+.mobile-sheet > #ops-tab-chat.active {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+.mobile-sheet > #ops-tab-chat .chat-list { flex: 1 1 auto; min-height: 0; }
+.mobile-sheet > #ops-tab-chat .chat-input-row { flex: 0 0 auto; }
+
 /* ==== Audit Log ==== */
 .audit-filters {
   display: flex;
