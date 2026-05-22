@@ -5506,6 +5506,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.46',
+      date: '2026-05-22',
+      en: 'PDF export footer now prints the current app version in the bottom-left corner (was a stale "Noctalum 0.3.0"). The server-side `programVersion` constant is now kept in sync with the CHANGELOG entry on every release, and the footer reads "Noctalum v0.46" to match how the changelog displays it.',
+      de: 'PDF-Export-Fußzeile zeigt jetzt unten links die aktuelle App-Version (vorher veralteter Wert „Noctalum 0.3.0"). Die serverseitige `programVersion`-Konstante wird jetzt bei jedem Release mit dem CHANGELOG-Eintrag synchron gehalten, und die Fußzeile schreibt „Noctalum v0.46", passend zur Anzeige im Changelog.',
+    },
+    {
       version: '0.45',
       date: '2026-05-22',
       en: 'Cluster spot click: the in-flight entry is now stashed BEFORE the spot\'s data is written into the form, so the stash carries the callsign you had typed, not the one you clicked. The rig-tune broadcast that follows is also suppressed (lastRigFreqs is pre-set to the spot frequency) so it can no longer re-stash the freshly-loaded spot.',

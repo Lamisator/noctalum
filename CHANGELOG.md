@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.46 — 2026-05-22 — PDF footer carries the current app version
+
+- `programVersion` in `internal/server/server.go` was last touched at `0.3.0` and was therefore many releases stale. Bumped to the current `0.46` and the constant is now explicitly documented as the mirror of the top CHANGELOG entry — bump it together going forward
+- PDF footer string changed from `"Noctalum " + programVersion` to `"Noctalum v" + programVersion` to match how the changelog displays versions
+- The footer is already wired through `pdf.SetFooterFunc`, so it appears in the bottom-left of every page (and updates with `{nb}` placeholder for the page count on the right)
+
 ## v0.45 — 2026-05-22 — Cluster-spot click stashes the typed callsign, not the clicked one
 
 - `useClusterSpot(spot)` previously called `cancelQsoEdit()` first (clearing the form), then wrote the spot's callsign, then tuned the rig. The subsequent `rigs` WebSocket broadcast saw the freq move and ran `stashCurrentForm()` — by that point the form already held the spot's callsign, so the stash captured the wrong call

@@ -141,7 +141,7 @@ func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, sta
 		pdf.SetY(-10)
 		pdf.SetFont("Helvetica", "I", 8)
 		pdf.SetTextColor(120, 120, 130)
-		pdf.CellFormat(usableW/2, 5, "Noctalum "+programVersion, "", 0, "L", false, 0, "")
+		pdf.CellFormat(usableW/2, 5, "Noctalum v"+programVersion, "", 0, "L", false, 0, "")
 		pdf.CellFormat(usableW/2, 5, fmt.Sprintf("Page %d / {nb}", pdf.PageNo()), "", 0, "R", false, 0, "")
 	})
 	pdf.AliasNbPages("")
