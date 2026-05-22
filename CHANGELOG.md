@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.42 — 2026-05-22 — UTF-8 BOM on CSV export so Excel renders umlauts
+
+- `ExportCSV` writes the three-byte sequence `EF BB BF` before the header row
+- Excel uses the BOM to detect UTF-8; without it the file was decoded as the local code page (CP1252 on most Windows installs) which turns `ä` into `Ã¤`, etc.
+- HTTP response header was already `text/csv; charset=utf-8`; Excel ignores that header when opening a downloaded file, hence the in-file BOM
+
 ## v0.41 — 2026-05-22 — Edit QSO loads custom-field values
 
 - `loadQsoIntoForm(q)` now parses `q.extras` (JSON keyed by custom-field `name`) and calls `applyCustomFieldsValues()` — the same path the stash flow uses

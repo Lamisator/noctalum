@@ -5495,6 +5495,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.42',
+      date: '2026-05-22',
+      en: 'CSV export now starts with a UTF-8 byte-order mark, so Excel opens the file as UTF-8 and umlauts (ä, ö, ü, ß) render correctly instead of as mojibake. The file is unchanged for text editors and tools that already handle UTF-8.',
+      de: 'CSV-Export beginnt jetzt mit einem UTF-8-Byte-Order-Mark, damit Excel die Datei als UTF-8 öffnet und Umlaute (ä, ö, ü, ß) korrekt anzeigt statt als Zeichensalat. Für Texteditoren und Tools, die UTF-8 ohnehin verstehen, ändert sich nichts.',
+    },
+    {
       version: '0.41',
       date: '2026-05-22',
       en: 'Edit QSO: custom-field values (text, number, dropdown) are now populated into the form when a logged QSO is selected for editing. Previously only the built-in fields were filled, so a dropdown saved on the QSO appeared blank in the Edit mask.',

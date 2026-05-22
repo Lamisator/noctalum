@@ -74,7 +74,14 @@ func writeField(w io.Writer, name, value string) {
 }
 
 // ExportCSV writes the QSO list to w as CSV.
+//
+// A UTF-8 BOM is emitted up front so Excel detects the encoding instead of
+// falling back to the local code page (which mangles umlauts and other
+// non-ASCII characters).
 func ExportCSV(w io.Writer, qsos []store.QSO) error {
+	if _, err := w.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
+		return err
+	}
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 	if err := cw.Write([]string{
