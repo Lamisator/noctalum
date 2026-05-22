@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.33 — 2026-05-22 — Ops-panel tabs wrap to a second row when narrow
+
+- `.ops-tabs` is now `flex-wrap: wrap` and each `.ops-tab` is `flex: 0 0 auto; white-space: nowrap`
+- When the right sidebar is too narrow to fit Status, Stash, Cluster, Chat and Objective in one row, the overflowing tabs flow to a second row instead of overlapping past the panel border
+
 ## v0.32 — 2026-05-22 — Chat tab framed (input pinned at bottom)
 
 - Chat input and Send button stay pinned at the bottom of the panel

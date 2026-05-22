@@ -5280,6 +5280,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.33',
+      date: '2026-05-22',
+      en: 'Right sidebar tabs (Status, Stash, Cluster, Chat, Objective) now wrap to a second row when the panel is too narrow instead of overflowing past the panel edge.',
+      de: 'Tabs der rechten Seitenleiste (Status, Stash, Cluster, Chat, Ziel) brechen jetzt in eine zweite Zeile um, wenn das Panel zu schmal ist, statt über den Panelrand hinauszuragen.',
+    },
+    {
       version: '0.32',
       date: '2026-05-22',
       en: 'Chat tab: the message input and Send button are now pinned to the bottom and the tab header stays in place — only the message list scrolls.',

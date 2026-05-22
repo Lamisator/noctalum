@@ -530,6 +530,7 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
 .ops-header { margin-bottom: 8px; }
 .ops-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   margin-bottom: 10px;
   border-bottom: 1px solid var(--border);
@@ -544,6 +545,8 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .ops-tab:hover { background: var(--bg-elev-2); color: var(--text); }
 .ops-tab.active { background: var(--accent-dim); color: var(--accent); }
