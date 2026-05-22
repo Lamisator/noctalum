@@ -5478,6 +5478,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.37',
+      date: '2026-05-22',
+      en: 'PDF export: column titles in the table header are now left-aligned (they were centred), matching the body cells and giving long labels room to read.',
+      de: 'PDF-Export: Spaltenüberschriften in der Tabellenkopfzeile sind jetzt linksbündig (vorher zentriert), passend zu den Datenzeilen und mit mehr Platz für lange Bezeichnungen.',
+    },
+    {
       version: '0.36',
       date: '2026-05-22',
       en: 'Export: new PDF report with a Noctalum logo header, contest meta block, repeated table header on each page, and zebra-striped rows. The Export tab now has a column picker — checkboxes default to the columns currently visible in Past QSOs, and the chosen columns are passed to the PDF in the contest\'s saved column order.',

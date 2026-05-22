@@ -1,5 +1,9 @@
 # Noctalum Changelog
 
+## v0.37 — 2026-05-22 — PDF column titles left-aligned
+
+- `pdf.CellFormat` for the table header row now uses align "L" instead of "C", so column titles sit at the same horizontal position as the cells below them
+
 ## v0.36 — 2026-05-22 — PDF report export + column picker
 
 - New `GET /api/export/pdf?cols=key1,key2,…` endpoint generates an A4-landscape report

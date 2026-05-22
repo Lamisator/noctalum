@@ -126,7 +126,7 @@ func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, sta
 		pdf.SetTextColor(255, 255, 255)
 		pdf.SetDrawColor(40, 90, 170)
 		for i, c := range cols {
-			pdf.CellFormat(widths[i], 7, s(c.Label), "1", 0, "C", true, 0, "")
+			pdf.CellFormat(widths[i], 7, s(c.Label), "1", 0, "L", true, 0, "")
 		}
 		pdf.Ln(-1)
 		pdf.SetFont("Helvetica", "", 8)
