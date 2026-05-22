@@ -1380,8 +1380,69 @@
       }
       if (tab.dataset.tab === 'settings') { loadPasskeys(); }
       if (tab.dataset.tab === 'statistics') renderStatistics();
+      if (tab.dataset.tab === 'export') renderExportColumns();
     });
   });
+
+  // ----- export column picker (PDF) -----
+  function getExportColumnDefs() {
+    const customFields = parseCustomFields(me?.contest_fields);
+    return getEffectiveLogCols(me?.contest_log_columns, customFields);
+  }
+  function exportColLabel(col) {
+    if (col.isCustom) return col.label || col.key;
+    return col.labelKey ? t(col.labelKey) : col.key;
+  }
+  function renderExportColumns() {
+    const host = $('export-cols');
+    if (!host) return;
+    const cols = getExportColumnDefs();
+    if (!cols.length) { host.innerHTML = ''; updateExportPdfHref(); return; }
+    host.innerHTML = `
+      <div class="export-cols-hint muted small" data-i18n="export.colsHint">Columns (in the order they will appear in the PDF):</div>
+      <div class="export-cols-list">
+        ${cols.map(c => `
+          <label class="export-col">
+            <input type="checkbox" data-col-key="${escHtml(c.key)}"${c.on !== false ? ' checked' : ''}>
+            <span>${escHtml(exportColLabel(c))}</span>
+          </label>`).join('')}
+      </div>
+      <div class="export-cols-actions">
+        <button type="button" class="ghost" id="export-cols-all" data-i18n="export.selectAll">Select all</button>
+        <button type="button" class="ghost" id="export-cols-none" data-i18n="export.selectNone">Select none</button>
+        <button type="button" class="ghost" id="export-cols-reset" data-i18n="export.resetDefault">Reset to defaults</button>
+      </div>
+    `;
+    host.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', updateExportPdfHref));
+    $('export-cols-all').addEventListener('click', () => {
+      host.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+      updateExportPdfHref();
+    });
+    $('export-cols-none').addEventListener('click', () => {
+      host.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+      updateExportPdfHref();
+    });
+    $('export-cols-reset').addEventListener('click', () => {
+      const defaults = new Map(getExportColumnDefs().map(c => [c.key, c.on !== false]));
+      host.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.checked = !!defaults.get(cb.dataset.colKey);
+      });
+      updateExportPdfHref();
+    });
+    updateExportPdfHref();
+  }
+  function updateExportPdfHref() {
+    const btn = $('export-pdf-btn');
+    if (!btn) return;
+    const host = $('export-cols');
+    const keys = [];
+    if (host) {
+      host.querySelectorAll('input[type="checkbox"][data-col-key]').forEach(cb => {
+        if (cb.checked) keys.push(cb.dataset.colKey);
+      });
+    }
+    btn.href = '/api/export/pdf' + (keys.length ? '?cols=' + encodeURIComponent(keys.join(',')) : '');
+  }
 
   // ----- statistics -----
   function _statsEscape(s) {
@@ -5416,6 +5477,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.36',
+      date: '2026-05-22',
+      en: 'Export: new PDF report with a Noctalum logo header, contest meta block, repeated table header on each page, and zebra-striped rows. The Export tab now has a column picker — checkboxes default to the columns currently visible in Past QSOs, and the chosen columns are passed to the PDF in the contest\'s saved column order.',
+      de: 'Export: neuer PDF-Bericht mit Noctalum-Logo-Kopfzeile, Contest-Metablock, wiederholter Tabellenkopfzeile auf jeder Seite und Zebra-Streifen. Der Export-Tab hat jetzt eine Spaltenauswahl — die Checkboxen sind vorausgewählt auf die im QSO-Verlauf sichtbaren Spalten, und die gewählten Spalten werden in der gespeicherten Reihenfolge des Contests an das PDF übergeben.',
+    },
     {
       version: '0.35',
       date: '2026-05-22',

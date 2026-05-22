@@ -202,6 +202,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/export/cabrillo", s.requirePerm(PermQSOExport, s.handleExportCabrillo))
 	mux.HandleFunc("/api/export/csv", s.requirePerm(PermQSOExport, s.handleExportCSV))
 	mux.HandleFunc("/api/export/edi", s.requirePerm(PermQSOExport, s.handleExportEDI))
+	mux.HandleFunc("/api/export/pdf", s.requirePerm(PermQSOExport, s.handleExportPDF))
 	mux.HandleFunc("/api/audit", s.requirePerm(PermAuditLog, s.handleAuditLog))
 	mux.HandleFunc("/api/feature-requests", s.requireAuth(s.handleFeatureRequests))
 	mux.HandleFunc("/api/feature-requests/mine", s.requireAuth(s.handleMyFeatureRequests))
@@ -2668,6 +2669,61 @@ func (s *Server) handleExportEDI(w http.ResponseWriter, r *http.Request) {
 	if err := ExportEDI(w, qsos, contestName, contestCall, sess.ContestQTH()); err != nil {
 		log.Printf("EDI export error: %v", err)
 	}
+}
+
+func (s *Server) handleExportPDF(w http.ResponseWriter, r *http.Request) {
+	sess := sessionFor(s, r)
+	contestID, _, contestCall, contestName := sess.ContestInfo()
+	if contestID == 0 {
+		writeError(w, http.StatusBadRequest, "no contest selected")
+		return
+	}
+	c, err := s.store.GetContest(contestID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	qsos, err := s.store.AllQSOs(contestID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	lang := "en"
+	if u, err := s.store.GetUserByID(sess.UserID); err == nil && u.Language != "" {
+		lang = u.Language
+	}
+	// Resolve all known columns for this contest, then filter to the user-selected ones.
+	all := ResolveLogColumns(c.LogColumns, c.CustomFields, lang, false)
+	var cols []LogColumn
+	if raw := strings.TrimSpace(r.URL.Query().Get("cols")); raw != "" {
+		keys := splitCSV(raw)
+		cols = FilterColumnsByKeys(all, keys)
+	}
+	if len(cols) == 0 {
+		// Default: columns currently visible in Past QSOs.
+		cols = ResolveLogColumns(c.LogColumns, c.CustomFields, lang, true)
+	}
+	logoPNG, _ := webFS.ReadFile("web/noctalum.png")
+	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: PDF")
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "pdf")+`"`)
+	if err := ExportPDF(w, qsos, cols, contestName, contestCall, sess.ContestQTH(), logoPNG, programVersion); err != nil {
+		log.Printf("PDF export error: %v", err)
+	}
+}
+
+// splitCSV splits a comma-separated list of column keys, trimming whitespace
+// and dropping empty entries.
+func splitCSV(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // ----- feature requests -----

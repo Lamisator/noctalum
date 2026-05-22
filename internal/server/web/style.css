@@ -1629,7 +1629,28 @@ button.contest-edit-pill:hover {
 .badge.finished { color: var(--text-muted); }
 
 /* ==== Export ==== */
-.export-actions { display: flex; gap: 10px; margin-top: 12px; }
+.export-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+
+.export-cols { margin-top: 8px; }
+.export-cols-hint { margin-bottom: 8px; }
+.export-cols-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 14px;
+  margin-bottom: 10px;
+}
+.export-col {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.export-col:hover { background: rgba(255, 255, 255, 0.04); }
+.export-col input[type="checkbox"] { margin: 0; cursor: pointer; }
+.export-cols-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.export-cols-actions .ghost { padding: 4px 10px; font-size: 0.85em; }
 
 /* ==== Passkey ==== */
 .passkey-divider {

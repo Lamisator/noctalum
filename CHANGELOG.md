@@ -1,5 +1,15 @@
 # Noctalum Changelog
 
+## v0.36 — 2026-05-22 — PDF report export + column picker
+
+- New `GET /api/export/pdf?cols=key1,key2,…` endpoint generates an A4-landscape report
+- Header: Noctalum logo + brand on the left; contest name, station call, QTH, QSO count and generation timestamp on the right; blue accent rule beneath
+- Table header repeats on every page (gofpdf `SetHeaderFunc`); rows are zebra-striped; numeric columns are right-aligned, band/mode/zone columns centre-aligned
+- Column widths are computed from per-column "natural" widths and scaled so the row exactly fills the page
+- Helvetica strings go through a cp1252 unicode translator so `Ø`, `·`, and German umlauts render correctly rather than as mojibake
+- Export tab gains a "PDF report" card with a column picker; checkboxes default to the columns currently visible in Past QSOs and write `?cols=…` into the download URL, preserving the contest's saved column order
+- Built-in column labels are localised on the server (EN/DE); custom-field columns use the label configured in the contest
+
 ## v0.35 — 2026-05-22 — New-QSO time field becomes a date-and-time picker
 
 - `<input id="q-time">` switched from `type="time"` to `type="datetime-local"` so the optional time field now exposes a date as well — back-log a QSO that happened on a different day without leaving the form
