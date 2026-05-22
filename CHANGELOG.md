@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.16 — 2026-05-22 12:00 UTC — Download Helper refined
+
+- OS picker buttons now display official brand logos (Windows 4-color flag, Apple silhouette, Linux penguin) instead of emoji
+- Linux AppImage downloads are labeled as "AppImage" and carry a "Recommended" badge
+- GUI helper description updated to mention that rigctld is bundled — no separate installation required
+
 ## v0.15 — 2026-05-22 11:00 UTC — Download Helper modal
 
 - The sidebar download panel has been removed and replaced by a "Download Helper" nav button in the contest picker

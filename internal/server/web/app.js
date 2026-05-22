@@ -807,10 +807,15 @@
       if (ua.includes('win')) detected = 'windows';
       else if (ua.includes('mac')) detected = 'mac';
 
+      const OS_SVGS = {
+        windows: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="1" y="1" width="10.5" height="10.5" fill="#F25022"/><rect x="12.5" y="1" width="10.5" height="10.5" fill="#7FBA00"/><rect x="1" y="12.5" width="10.5" height="10.5" fill="#00A4EF"/><rect x="12.5" y="12.5" width="10.5" height="10.5" fill="#FFB900"/></svg>`,
+        mac: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.54 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>`,
+        linux: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><ellipse cx="50" cy="67" rx="28" ry="30" fill="#1a1a2e"/><circle cx="50" cy="27" r="21" fill="#1a1a2e"/><ellipse cx="50" cy="72" rx="18" ry="22" fill="#eee"/><circle cx="41" cy="20" r="6" fill="#fff"/><circle cx="59" cy="20" r="6" fill="#fff"/><circle cx="41" cy="20" r="3" fill="#1a1a2e"/><circle cx="59" cy="20" r="3" fill="#1a1a2e"/><ellipse cx="50" cy="36" rx="7" ry="4.5" fill="#e88c00"/><ellipse cx="38" cy="96" rx="9" ry="4" fill="#e88c00"/><ellipse cx="62" cy="96" rx="9" ry="4" fill="#e88c00"/></svg>`,
+      };
       const osOptions = [
-        { id: 'windows', icon: '🪟', label: t('downloads.osWindows') },
-        { id: 'mac',     icon: '🍎', label: t('downloads.osMac')     },
-        { id: 'linux',   icon: '🐧', label: t('downloads.osLinux')   },
+        { id: 'windows', icon: OS_SVGS.windows, label: t('downloads.osWindows') },
+        { id: 'mac',     icon: OS_SVGS.mac,     label: t('downloads.osMac')     },
+        { id: 'linux',   icon: OS_SVGS.linux,   label: t('downloads.osLinux')   },
       ];
 
       const html = `
@@ -846,10 +851,14 @@
       if (!m) continue;
       const [, type, platform] = m;
       if (!grouped[type]) grouped[type] = [];
-      grouped[type].push({ file: f, platform });
+      grouped[type].push({ file: f, platform, isAppImage: f.endsWith('.AppImage') });
     }
 
-    const osIcons = { windows: '🪟', mac: '🍎', linux: '🐧' };
+    const osIcons = {
+      windows: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect x="1" y="1" width="10.5" height="10.5" fill="#F25022"/><rect x="12.5" y="1" width="10.5" height="10.5" fill="#7FBA00"/><rect x="1" y="12.5" width="10.5" height="10.5" fill="#00A4EF"/><rect x="12.5" y="12.5" width="10.5" height="10.5" fill="#FFB900"/></svg>`,
+      mac: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.54 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>`,
+      linux: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><ellipse cx="50" cy="67" rx="28" ry="30" fill="#1a1a2e"/><circle cx="50" cy="27" r="21" fill="#1a1a2e"/><ellipse cx="50" cy="72" rx="18" ry="22" fill="#eee"/><circle cx="41" cy="20" r="6" fill="#fff"/><circle cx="59" cy="20" r="6" fill="#fff"/><circle cx="41" cy="20" r="3" fill="#1a1a2e"/><circle cx="59" cy="20" r="3" fill="#1a1a2e"/><ellipse cx="50" cy="36" rx="7" ry="4.5" fill="#e88c00"/><ellipse cx="38" cy="96" rx="9" ry="4" fill="#e88c00"/><ellipse cx="62" cy="96" rx="9" ry="4" fill="#e88c00"/></svg>`,
+    };
     const osLabels = { windows: t('downloads.osWindows'), mac: t('downloads.osMac'), linux: t('downloads.osLinux') };
 
     let appsHtml = '';
@@ -862,7 +871,9 @@
       const dlBtns = available.length > 0
         ? available.map(d => {
             const platLabel = available.length > 1 ? ` (${escHtml(PLAT_LABELS[d.platform] || d.platform)})` : '';
-            return `<a class="dl-app-download-btn" href="/downloads/${encodeURIComponent(d.file)}" download>⬇️ ${escHtml(t('downloads.dlBtn'))}${platLabel}</a>`;
+            const fmtLabel = d.isAppImage ? ` · ${escHtml(t('downloads.appImage'))}` : '';
+            const badge = d.isAppImage ? `<span class="dl-recommended-badge">★ ${escHtml(t('downloads.recommended'))}</span>` : '';
+            return `<div class="dl-btn-group">${badge}<a class="dl-app-download-btn" href="/downloads/${encodeURIComponent(d.file)}" download>⬇️ ${escHtml(t('downloads.dlBtn'))}${platLabel}${fmtLabel}</a></div>`;
           }).join('')
         : `<span class="dl-app-unavail">${escHtml(t('downloads.notAvail'))}</span>`;
 
@@ -4860,6 +4871,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.16',
+      date: '2026-05-22 12:00 UTC',
+      en: 'Download Helper refined: OS buttons now show official brand logos (Windows, Apple, Linux). The Linux AppImage download is labeled as such and marked as recommended. The GUI helper description now mentions that rigctld is included — no separate installation needed.',
+      de: 'Download-Helper verfeinert: OS-Buttons zeigen jetzt offizielle Markenlogos (Windows, Apple, Linux). Der Linux-AppImage-Download ist entsprechend gekennzeichnet und als empfohlen markiert. Die GUI-Helper-Beschreibung weist nun darauf hin, dass rigctld enthalten ist – keine separate Installation nötig.',
+    },
     {
       version: '0.15',
       date: '2026-05-22 11:00 UTC',
