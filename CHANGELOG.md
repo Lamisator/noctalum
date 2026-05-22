@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.28 — 2026-05-22 — Harmonized band label capitalization
+
+- Band unit is now displayed with a space and lowercase: "20 m", "70 cm", "2 m", etc. everywhere (dropdowns, band pills, QSO table, stats, rig display, operator list, cluster filter, conflict banners)
+- Internal band identifiers (stored in DB, API) are unchanged
+
 ## v0.27 — 2026-05-22 — Back-to-overview pill, station pill opens contest settings
 
 - Contest view topbar: new slim "← Back to overview" pill below the Noctalum logo navigates back to contest selection

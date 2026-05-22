@@ -1405,7 +1405,7 @@
     const uniqueCalls = new Set(qsos.map(q => (q.callsign || '').toUpperCase())).size;
     sum.textContent = t('stats.summary', { total, uniq: uniqueCalls });
     const palette = ['#4e79a7', '#f28e2c', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'];
-    const bands = _statsTally(qsos, 'band');
+    const bands = _statsTally(qsos, 'band').map(it => ({ ...it, label: fmtBand(it.label) }));
     const modes = _statsTally(qsos, 'mode');
     const hours = _statsByHour(qsos);
     const countries = _statsByCountry(qsos).slice(0, 12);
@@ -1596,7 +1596,7 @@
     const modes = [...modeSet].sort();
 
     bandSel.innerHTML = '<option value="">All bands</option>' +
-      bands.map(b => `<option value="${escHtml(b)}"${b === curBand ? ' selected' : ''}>${escHtml(b)}</option>`).join('');
+      bands.map(b => `<option value="${escHtml(b)}"${b === curBand ? ' selected' : ''}>${escHtml(fmtBand(b))}</option>`).join('');
     modeSel.innerHTML = '<option value="">All modes</option>' +
       modes.map(m => `<option value="${escHtml(m)}"${m === curMode ? ' selected' : ''}>${escHtml(m)}</option>`).join('');
   }
@@ -1744,20 +1744,20 @@
   }
 
   // ----- mode/band fillers -----
-  function fillSelect(sel, options, def) {
+  function fillSelect(sel, options, def, labelFn) {
     sel.innerHTML = '';
     for (const v of options) {
       const o = document.createElement('option');
-      o.value = v; o.textContent = v;
+      o.value = v; o.textContent = labelFn ? labelFn(v) : v;
       if (v === def) o.selected = true;
       sel.appendChild(o);
     }
   }
   function applyDefaults() {
     fillSelect($('q-mode'), MODES, settings?.default_mode || 'SSB');
-    fillSelect($('q-band'), BANDS, settings?.default_band || '20m');
+    fillSelect($('q-band'), BANDS, settings?.default_band || '20m', fmtBand);
     fillSelect($('s-mode'), MODES, settings?.default_mode || 'SSB');
-    fillSelect($('s-band'), BANDS, settings?.default_band || '20m');
+    fillSelect($('s-band'), BANDS, settings?.default_band || '20m', fmtBand);
     applyRSTDefaults($('q-mode').value);
   }
   function defaultRST(m) {
@@ -1996,7 +1996,7 @@
     for (const band of bands) {
       const pill = document.createElement('span');
       pill.className = 'band-pill';
-      pill.textContent = band;
+      pill.textContent = fmtBand(band);
 
       const isRigBand = band === (rigBand || currentBand);
       const workedOnBand = worked.filter(q => q.band === band);
@@ -2015,7 +2015,7 @@
       }
       if (isRigBand) pill.classList.add('bp-current');
       if (isBusy) {
-        pill.title = t('ops.bandBusy', { ops: busyOps.map(fmtCall).join(', ') });
+        pill.title = t('ops.bandBusy', { band: fmtBand(band), ops: busyOps.map(fmtCall).join(', ') });
       }
 
       pill.addEventListener('click', () => {
@@ -2204,7 +2204,7 @@
     const selectedBand = body.band;
     const busyOpsOnBand = currentBandOps[selectedBand] || [];
     if (busyOpsOnBand.length > 0) {
-      if (!await showConfirm(t('ops.bandBusyConfirm', { band: selectedBand, ops: busyOpsOnBand.map(fmtCall).join(', ') }), { ok: t('qso.confirmLogAnyway') })) return;
+      if (!await showConfirm(t('ops.bandBusyConfirm', { band: fmtBand(selectedBand), ops: busyOpsOnBand.map(fmtCall).join(', ') }), { ok: t('qso.confirmLogAnyway') })) return;
     }
 
     let res = await api('/api/qsos', { method: 'POST', body: JSON.stringify(body) });
@@ -2255,7 +2255,7 @@
     const r = rigs.find(x => x.name === cur);
     $('rig-bar-detail').textContent = r
       ? (r.connected
-          ? `${(r.freq_hz/1_000_000).toFixed(4)} MHz · ${r.mode || ''} · ${r.band || ''}`
+          ? `${(r.freq_hz/1_000_000).toFixed(4)} MHz · ${r.mode || ''} · ${fmtBand(r.band || '')}`
           : (r.error || t('ops.rigOfflineShort')))
       : '';
     updateRigStatusPill();
@@ -2286,7 +2286,7 @@
       const li = document.createElement('li');
       if (r.name === me?.selected_rig) li.classList.add('selected');
       const data = r.connected
-        ? `${escHtml((r.freq_hz/1_000_000).toFixed(4))} MHz · ${escHtml(r.mode || '-')} · ${escHtml(r.band || '-')}`
+        ? `${escHtml((r.freq_hz/1_000_000).toFixed(4))} MHz · ${escHtml(r.mode || '-')} · ${escHtml(fmtBand(r.band || ''))}`
         : t('ops.rigDisconnected');
       const inUse = (r.in_use_by || []);
       const otherContests = (r.other_contests || []);
@@ -2358,7 +2358,7 @@
       const band = op.band || (rigForOp ? rigForOp.band : '');
       let label = fmtCall(op.callsign);
       if (rigName) label += ' · ' + rigName;
-      if (band) label += ' (' + band + ')';
+      if (band) label += ' (' + fmtBand(band) + ')';
       const span = document.createElement('span');
       span.textContent = label;
       li.appendChild(span);
@@ -2385,7 +2385,7 @@
     if (banner) {
       if (conflictBands.length > 0) {
         banner.innerHTML = conflictBands
-          .map(b => `<div>${escHtml(t('ops.multipleOnBand', { band: b }))}</div>`)
+          .map(b => `<div>${escHtml(t('ops.multipleOnBand', { band: fmtBand(b) }))}</div>`)
           .join('');
         banner.classList.remove('hidden');
       } else {
@@ -2473,7 +2473,7 @@
       case 'nr_sent':      return escHtml(q.nr_sent ? (me?.contest_nr_padded ? String(q.nr_sent).padStart(3,'0') : String(q.nr_sent)) : '');
       case 'time':         return escHtml(new Date(q.time).toISOString().substring(0,19).replace('T',' '));
       case 'callsign':     return `<strong>${escHtml(fmtCall(q.callsign))}</strong>`;
-      case 'band':         return escHtml(q.band || '');
+      case 'band':         return escHtml(fmtBand(q.band || ''));
       case 'freq':         return escHtml(q.freq_hz ? (q.freq_hz/1_000_000).toFixed(4) : '');
       case 'mode':         return escHtml(q.mode || '');
       case 'rst_sent':     return escHtml(q.rst_sent || '');
@@ -2532,7 +2532,7 @@
 
     for (const q of source) {
       if (textFilter) {
-        const hay = `${q.callsign} ${q.band} ${q.mode} ${q.operator} ${q.locator} ${q.dok || ''}`.toLowerCase();
+        const hay = `${q.callsign} ${q.band} ${fmtBand(q.band)} ${q.mode} ${q.operator} ${q.locator} ${q.dok || ''}`.toLowerCase();
         if (!hay.includes(textFilter)) continue;
       }
       const tr = document.createElement('tr');
@@ -2596,7 +2596,7 @@
     if (!res.ok) return;
     settings = await res.json();
     fillSelect($('s-mode'), MODES, settings.default_mode || 'SSB');
-    fillSelect($('s-band'), BANDS, settings.default_band || '20m');
+    fillSelect($('s-band'), BANDS, settings.default_band || '20m', fmtBand);
     $('s-token').value = me?.helper_token || '';
     $('hint-token').textContent = me?.helper_token || '...';
     $('hint-server').textContent = location.origin;
@@ -2699,7 +2699,7 @@
     if (!res.ok) return;
     const s = await res.json();
     fillSelect($('ms-mode'), MODES, s.default_mode || 'SSB');
-    fillSelect($('ms-band'), BANDS, s.default_band || '20m');
+    fillSelect($('ms-band'), BANDS, s.default_band || '20m', fmtBand);
     updateMsChatMutePill();
     applyPermissionsToUI();
     loadMyPasskeys();
@@ -2902,7 +2902,7 @@
   function buildBandSelectHTML(selectedBands) {
     return `<label>${escHtml(t('contestScreen.activeBands'))}</label>
       <div class="band-select-grid" id="modal-band-grid">
-        ${BANDS.map(b => `<span class="band-select-pill${selectedBands.includes(b) ? ' selected' : ''}" data-band="${escHtml(b)}">${escHtml(b)}</span>`).join('')}
+        ${BANDS.map(b => `<span class="band-select-pill${selectedBands.includes(b) ? ' selected' : ''}" data-band="${escHtml(b)}">${escHtml(fmtBand(b))}</span>`).join('')}
       </div>`;
   }
 
@@ -5020,6 +5020,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.28',
+      date: '2026-05-22',
+      en: 'Band labels now display with a space before the unit everywhere: "20 m", "70 cm", "2 m", etc. Internal identifiers are unchanged.',
+      de: 'Bandbezeichnungen werden überall mit Leerzeichen vor der Einheit angezeigt: „20 m", „70 cm", „2 m" usw. Interne Bezeichner bleiben unverändert.',
+    },
+    {
       version: '0.27',
       date: '2026-05-22',
       en: 'New: slim "← Back to overview" pill below the logo in the contest view; clicking the station pill now opens contest settings (read-only for users without edit rights).',
@@ -5239,6 +5245,10 @@
 
   function fmtCall(s) {
     return String(s).replace(/0/g, 'Ø');
+  }
+
+  function fmtBand(b) {
+    return String(b).replace(/^(\d+)(cm|m)$/, '$1 $2');
   }
 
   function fmtRelTime(iso) {
