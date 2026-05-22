@@ -4998,6 +4998,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.26',
+      date: '2026-05-22',
+      en: 'New: "What\'s New?" dialog shows missed changelog entries after a version update. German UI now uses informal "du" throughout.',
+      de: 'Neu: „Was ist neu?"-Dialog zeigt verpasste Changelog-Einträge nach einem Update. Deutsche Oberfläche nutzt jetzt durchgehend „du".',
+    },
+    {
       version: '0.25',
       date: '2026-05-22 17:00 UTC',
       en: 'Fix: chat message history now loads reliably when entering a contest (force WebSocket reconnect on contest entry so the server re-sends the history replay).',
@@ -5164,6 +5170,40 @@
     const el = $(id);
     if (el) el.textContent = _ver;
   });
+
+  function parseVer(v) {
+    const m = String(v || '').match(/^0\.(\d+)$/);
+    return m ? parseInt(m[1], 10) : 0;
+  }
+
+  function showWhatsNew(entries, currentVer) {
+    const lang = window.I18N ? window.I18N.lang() : 'en';
+    const entriesHtml = entries.map(e => `
+      <div class="changelog-entry">
+        <div class="changelog-version-row">
+          <span class="changelog-version">v${escHtml(e.version)}</span>
+          ${e.date ? `<span class="changelog-date">${escHtml(e.date)}</span>` : ''}
+        </div>
+        <div class="changelog-text">${escHtml(lang === 'de' ? e.de : e.en)}</div>
+      </div>
+    `).join('');
+    showModal(`
+      <h3>${escHtml(t('whatsNew.title'))}</h3>
+      <div style="max-height:380px;overflow-y:auto;margin:12px 0">${entriesHtml}</div>
+      <div class="modal-actions">
+        <button type="button" class="primary cancel-btn" id="whats-new-ok-btn">${escHtml(t('common.ok'))}</button>
+      </div>
+    `, null, { wide: true });
+    document.getElementById('whats-new-ok-btn').addEventListener('click', () => {
+      fetch('/api/me/last-seen-version', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+        credentials: 'same-origin',
+        body: JSON.stringify({ version: currentVer }),
+      });
+      me.last_seen_version = currentVer;
+    });
+  }
 
   function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -5365,6 +5405,22 @@
         await showContestScreen();
       } else {
         await enterApp();
+      }
+      const currentVer = CHANGELOG[0] ? CHANGELOG[0].version : '';
+      if (me.last_seen_version === '') {
+        // First login — silently record current version, no dialog needed.
+        fetch('/api/me/last-seen-version', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+          credentials: 'same-origin',
+          body: JSON.stringify({ version: currentVer }),
+        });
+        me.last_seen_version = currentVer;
+      } else {
+        const newEntries = CHANGELOG.filter(e => parseVer(e.version) > parseVer(me.last_seen_version));
+        if (newEntries.length > 0) {
+          showWhatsNew(newEntries, currentVer);
+        }
       }
     } else if (res.status === 401) {
       show('login-screen');

@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.26 — 2026-05-22 — "What's New" dialog on version update
+
+- Track the last app version each user acknowledged; show a "What's New?" dialog listing missed changelog entries on login or page refresh
+- German translations now consistently use informal "du" instead of formal "Sie"
+
 ## v0.25 — 2026-05-22 17:00 UTC — Fix chat history loading on contest entry
 
 - Chat message history now loads reliably when entering a contest

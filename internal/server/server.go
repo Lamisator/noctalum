@@ -167,6 +167,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/me/password", s.requireAuth(s.handleChangeOwnPassword))
 	mux.HandleFunc("/api/me/helper-token", s.requireAuth(s.handleRegenHelperToken))
 	mux.HandleFunc("/api/me/language", s.requireAuth(s.handleMeLanguage))
+	mux.HandleFunc("/api/me/last-seen-version", s.requireAuth(s.handleMeLastSeenVersion))
 	mux.HandleFunc("/api/passkey/register/begin", s.requireAuth(s.handlePasskeyRegisterBegin))
 	mux.HandleFunc("/api/passkey/register/finish", s.requireAuth(s.handlePasskeyRegisterFinish))
 	mux.HandleFunc("/api/passkey/credentials", s.requireAuth(s.handlePasskeyCredentials))
@@ -583,6 +584,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	if u, err := s.store.GetUserByID(sess.UserID); err == nil {
 		info["helper_token"] = u.HelperToken
 		info["language"] = u.Language
+		info["last_seen_version"] = u.LastSeenVersion
 	}
 	writeJSON(w, http.StatusOK, info)
 }
@@ -608,6 +610,27 @@ func (s *Server) handleMeLanguage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.SetLanguage(sess.UserID, lang); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleMeLastSeenVersion records the app version the user last acknowledged.
+func (s *Server) handleMeLastSeenVersion(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeError(w, http.StatusMethodNotAllowed, "PUT required")
+		return
+	}
+	sess := sessionFor(s, r)
+	var body struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if err := s.store.SetLastSeenVersion(sess.UserID, strings.TrimSpace(body.Version)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

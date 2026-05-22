@@ -26,6 +26,7 @@ type User struct {
 	CreatedAt        time.Time  `json:"created_at"`
 	LastActivityAt   *time.Time `json:"last_activity_at,omitempty"`
 	Language         string     `json:"language"`
+	LastSeenVersion  string     `json:"last_seen_version"`
 	Roles            []string   `json:"roles"`
 	Permissions      []string   `json:"permissions"`
 }
@@ -95,6 +96,7 @@ func (s *Store) migrateUsers() error {
 	}
 	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN last_activity_at TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN last_seen_version TEXT NOT NULL DEFAULT ''`)
 	return nil
 }
 
@@ -213,6 +215,12 @@ func assignRolesTx(tx *sql.Tx, userID int64, roleNames []string) error {
 	return nil
 }
 
+// SetLastSeenVersion records the app version the user acknowledged in the "What's New" dialog.
+func (s *Store) SetLastSeenVersion(userID int64, version string) error {
+	_, err := s.db.Exec(`UPDATE users SET last_seen_version = ? WHERE id = ?`, version, userID)
+	return err
+}
+
 // SetLanguage updates a user's preferred language code (e.g. "en", "de").
 func (s *Store) SetLanguage(userID int64, language string) error {
 	_, err := s.db.Exec(`UPDATE users SET language = ? WHERE id = ?`, language, userID)
@@ -255,13 +263,13 @@ func (s *Store) GetUserByUsername(username string) (User, error) {
 func (s *Store) getUser(where string, arg interface{}) (User, error) {
 	row := s.db.QueryRow(
 		`SELECT id, username, callsign, password_hash, helper_token, failed_attempts,
-		        locked_until, disabled, created_at, last_activity_at, language FROM users WHERE `+where, arg)
+		        locked_until, disabled, created_at, last_activity_at, language, last_seen_version FROM users WHERE `+where, arg)
 	var u User
 	var lockStr sql.NullString
-	var createdStr, lastActStr, lang string
+	var createdStr, lastActStr, lang, lastSeenVer string
 	var disabledInt int
 	err := row.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash, &u.HelperToken,
-		&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr, &lang)
+		&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr, &lang, &lastSeenVer)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -279,6 +287,7 @@ func (s *Store) getUser(where string, arg interface{}) (User, error) {
 		u.LastActivityAt = &t
 	}
 	u.Language = lang
+	u.LastSeenVersion = lastSeenVer
 
 	roles, perms, err := s.userRolesAndPermissions(u.ID)
 	if err != nil {
@@ -293,7 +302,7 @@ func (s *Store) getUser(where string, arg interface{}) (User, error) {
 func (s *Store) ListUsers() ([]User, error) {
 	rows, err := s.db.Query(
 		`SELECT id, username, callsign, password_hash, helper_token, failed_attempts,
-		        locked_until, disabled, created_at, last_activity_at, language
+		        locked_until, disabled, created_at, last_activity_at, language, last_seen_version
 		 FROM users ORDER BY username`)
 	if err != nil {
 		return nil, err
@@ -303,10 +312,10 @@ func (s *Store) ListUsers() ([]User, error) {
 	for rows.Next() {
 		var u User
 		var lockStr sql.NullString
-		var createdStr, lastActStr, lang string
+		var createdStr, lastActStr, lang, lastSeenVer string
 		var disabledInt int
 		if err := rows.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash, &u.HelperToken,
-			&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr, &lang); err != nil {
+			&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr, &lang, &lastSeenVer); err != nil {
 			return nil, err
 		}
 		if lockStr.Valid && lockStr.String != "" {
@@ -320,6 +329,7 @@ func (s *Store) ListUsers() ([]User, error) {
 			u.LastActivityAt = &t
 		}
 		u.Language = lang
+		u.LastSeenVersion = lastSeenVer
 		out = append(out, u)
 	}
 	if err := rows.Err(); err != nil {

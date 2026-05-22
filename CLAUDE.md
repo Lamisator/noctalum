@@ -16,3 +16,5 @@ The version number starts at `0.1` and increments by `0.1` for each change. Afte
 ## Localization
 
 Every user-facing text string must be localized in **both English (EN) and German (DE)** via `/workspace/internal/server/web/i18n.js`. Never hardcode English text in HTML or JavaScript — always add a key to the `en` and `de` catalogs and reference it with `data-i18n` (HTML) or `t('key')` (JS).
+
+In German translations, always use the informal **"du"** form (e.g. "Wähle", "Erstelle", "dein", "dich") — never the formal "Sie"/"Ihnen"/"Ihr" form.
