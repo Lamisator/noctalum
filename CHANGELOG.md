@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.43 — 2026-05-22 — Full-width contest picker
+
+- `.contest-screen-layout` is now `width: 100 %; max-width: 1800 px;` instead of shrinking to content
+- `#contest-screen .login-card { flex: 1 }` was already in place, so the middle pill absorbs the extra space while the left nav-pill and the right Online-Now panel keep their natural widths
+
 ## v0.42 — 2026-05-22 — UTF-8 BOM on CSV export so Excel renders umlauts
 
 - `ExportCSV` writes the three-byte sequence `EF BB BF` before the header row

@@ -5495,6 +5495,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.43',
+      date: '2026-05-22',
+      en: 'Contest picker uses the full width of the page: `.contest-screen-layout` now stretches to 100 % (capped at 1800 px on ultra-wide screens). The middle card keeps its `flex: 1`, so it absorbs all the extra horizontal space while the nav-pill on the left and the Online-Now panel on the right keep their compact widths.',
+      de: 'Contest-Auswahl nutzt die gesamte Seitenbreite: `.contest-screen-layout` dehnt sich jetzt auf 100 % (max. 1800 px auf Ultra-Wide-Monitoren). Die mittlere Karte behält ihr `flex: 1`, sodass sie den zusätzlichen Platz aufnimmt, während Nav-Pill links und Online-Panel rechts ihre kompakten Breiten behalten.',
+    },
+    {
       version: '0.42',
       date: '2026-05-22',
       en: 'CSV export now starts with a UTF-8 byte-order mark, so Excel opens the file as UTF-8 and umlauts (ä, ö, ü, ß) render correctly instead of as mojibake. The file is unchanged for text editors and tools that already handle UTF-8.',

@@ -1248,6 +1248,10 @@ button.contest-edit-pill:hover {
   display: flex;
   gap: 20px;
   align-items: flex-start;
+  /* Stretch across the available width; the middle card (flex: 1) absorbs
+     the extra space while the side panels keep their natural width. */
+  width: 100%;
+  max-width: 1800px;
 }
 .contest-screen-side {
   display: flex;
