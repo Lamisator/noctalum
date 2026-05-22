@@ -84,9 +84,10 @@ type Session struct {
 	contestStationID string
 	contestPrivate   bool
 	contestOwnerID   int64
-	contestFields    string // JSON array of CustomField
-	contestQSOLayout string // JSON object describing the New QSO mask layout
-	contestNrPadded  bool   // display serial numbers zero-padded to 3 digits
+	contestFields     string // JSON array of CustomField
+	contestQSOLayout  string // JSON object describing the New QSO mask layout
+	contestLogColumns string // JSON-encoded ordered array of {key,on} for log table columns
+	contestNrPadded   bool   // display serial numbers zero-padded to 3 digits
 	lastSeen         time.Time
 	lastDBUpdate     time.Time // last time last_seen was flushed to DB
 }
@@ -168,6 +169,13 @@ func (s *Session) ContestQSOLayout() string {
 	return s.contestQSOLayout
 }
 
+// ContestLogColumns returns the JSON-encoded log column config for the active contest.
+func (s *Session) ContestLogColumns() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.contestLogColumns
+}
+
 // ContestNrPadded reports whether NR display should be zero-padded to 3 digits.
 func (s *Session) ContestNrPadded() bool {
 	s.mu.Lock()
@@ -176,7 +184,7 @@ func (s *Session) ContestNrPadded() bool {
 }
 
 // SetContest sets the active contest for this session (full version).
-func (s *Session) SetContest(id int64, status, call, name, qth, bands, objective, stationID string, private bool, ownerID int64, fields, qsoLayout string, nrPadded bool) {
+func (s *Session) SetContest(id int64, status, call, name, qth, bands, objective, stationID string, private bool, ownerID int64, fields, qsoLayout, logColumns string, nrPadded bool) {
 	s.mu.Lock()
 	s.contestID = id
 	s.contestStatus = status
@@ -190,6 +198,7 @@ func (s *Session) SetContest(id int64, status, call, name, qth, bands, objective
 	s.contestOwnerID = ownerID
 	s.contestFields = fields
 	s.contestQSOLayout = qsoLayout
+	s.contestLogColumns = logColumns
 	s.contestNrPadded = nrPadded
 	s.mu.Unlock()
 }
@@ -209,6 +218,7 @@ func (s *Session) ClearContest() {
 	s.contestOwnerID = 0
 	s.contestFields = ""
 	s.contestQSOLayout = ""
+	s.contestLogColumns = ""
 	s.contestNrPadded = false
 	s.mu.Unlock()
 }
@@ -396,13 +406,13 @@ func (s *SessionStore) RefreshUser(u store.User) {
 
 // UpdateContestOnSessions refreshes contest fields on every session that has
 // the given contest selected (called after an admin edits a contest).
-func (s *SessionStore) UpdateContestOnSessions(contestID int64, status, call, name, qth, bands, objective, stationID string, private bool, ownerID int64, fields, qsoLayout string, nrPadded bool) {
+func (s *SessionStore) UpdateContestOnSessions(contestID int64, status, call, name, qth, bands, objective, stationID string, private bool, ownerID int64, fields, qsoLayout, logColumns string, nrPadded bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, sess := range s.sessions {
 		id, _, _, _ := sess.ContestInfo()
 		if id == contestID {
-			sess.SetContest(contestID, status, call, name, qth, bands, objective, stationID, private, ownerID, fields, qsoLayout, nrPadded)
+			sess.SetContest(contestID, status, call, name, qth, bands, objective, stationID, private, ownerID, fields, qsoLayout, logColumns, nrPadded)
 		}
 	}
 }

@@ -635,6 +635,7 @@ func sessionInfo(sess *Session) map[string]any {
 		"contest_owner_user_id": sess.ContestOwnerID(),
 		"contest_fields":        sess.ContestFields(),
 		"contest_qso_layout":    sess.ContestQSOLayout(),
+		"contest_log_columns":   sess.ContestLogColumns(),
 		"contest_nr_padded":     sess.ContestNrPadded(),
 	}
 }
@@ -1905,6 +1906,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			Private      bool     `json:"private"`
 			CustomFields string   `json:"custom_fields"`
 			QSOLayout    string   `json:"qso_layout"`
+			LogColumns   string   `json:"log_columns"`
 			NrPadded     *bool    `json:"nr_padded"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -1947,7 +1949,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		if in.Private {
 			ownerID = sess.UserID
 		}
-		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, in.Private, ownerID, in.CustomFields, in.QSOLayout, nrPaddedCreate)
+		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, in.Private, ownerID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedCreate)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2015,7 +2017,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		bandsStr := strings.Join(c.Bands, ",")
-		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective, c.StationID, c.Private, c.OwnerUserID, c.CustomFields, c.QSOLayout, c.NrPadded)
+		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective, c.StationID, c.Private, c.OwnerUserID, c.CustomFields, c.QSOLayout, c.LogColumns, c.NrPadded)
 		s.audit(r, store.AuditInfo, AuditContestSelect, sess.Username, c.Name, "call: "+c.StationCall)
 		// Refresh operator panels: previous contest now lacks this user, new contest gains them.
 		s.broadcastOperators()
@@ -2032,6 +2034,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"contest_owner_user_id": c.OwnerUserID,
 			"contest_fields":        c.CustomFields,
 			"contest_qso_layout":    c.QSOLayout,
+			"contest_log_columns":   c.LogColumns,
 			"contest_nr_padded":     c.NrPadded,
 		})
 		return
@@ -2347,6 +2350,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			Objective    string   `json:"objective"`
 			CustomFields string   `json:"custom_fields"`
 			QSOLayout    string   `json:"qso_layout"`
+			LogColumns   string   `json:"log_columns"`
 			NrPadded     *bool    `json:"nr_padded"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -2374,7 +2378,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid QTH locator")
 			return
 		}
-		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, nrPaddedPut); err != nil {
+		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -2383,7 +2387,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"status: "+in.Status+", call: "+strings.ToUpper(in.StationCall))
 		bandsStrUpd := strings.Join(in.Bands, ",")
 		// Propagate to any sessions that have this contest selected.
-		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH, bandsStrUpd, in.Objective, in.StationID, existing.Private, existing.OwnerUserID, in.CustomFields, in.QSOLayout, nrPaddedPut)
+		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH, bandsStrUpd, in.Objective, in.StationID, existing.Private, existing.OwnerUserID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut)
 		s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
 			"id":             id,
 			"name":           in.Name,
@@ -2395,6 +2399,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"objective":      in.Objective,
 			"custom_fields":  in.CustomFields,
 			"qso_layout":     in.QSOLayout,
+			"log_columns":    in.LogColumns,
 			"nr_padded":      nrPaddedPut,
 		}})
 		w.WriteHeader(http.StatusNoContent)
