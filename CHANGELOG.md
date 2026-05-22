@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.29 — 2026-05-22 — SSB/USB/LSB treated as same mode for duplicate detection
+
+- USB and LSB are now normalised to SSB when checking for duplicate QSOs
+- Affects the duplicate badge above the callsign field and the band-pill colour coding
+
 ## v0.28 — 2026-05-22 — Harmonized band label capitalization
 
 - Band unit is now displayed with a space and lowercase: "20 m", "70 cm", "2 m", etc. everywhere (dropdowns, band pills, QSO table, stats, rig display, operator list, cluster filter, conflict banners)

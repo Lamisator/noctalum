@@ -1947,7 +1947,7 @@
     if (!worked.length) { badge.className = 'dup-badge hidden'; renderBandPills(); return; }
     const band = $('q-band').value;
     const mode = $('q-mode').value;
-    if (worked.some(q => q.band === band && q.mode === mode)) {
+    if (worked.some(q => q.band === band && normMode(q.mode) === normMode(mode))) {
       badge.className = 'dup-badge dup-duplicate';
       badge.textContent = t('qso.duplicate');
     } else {
@@ -2000,7 +2000,7 @@
 
       const isRigBand = band === (rigBand || currentBand);
       const workedOnBand = worked.filter(q => q.band === band);
-      const dupOnBand = workedOnBand.some(q => q.mode === currentMode);
+      const dupOnBand = workedOnBand.some(q => normMode(q.mode) === normMode(currentMode));
       const busyOps = bandOps[band] || [];
       const isBusy = busyOps.length > 0;
 
@@ -5020,6 +5020,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.29',
+      date: '2026-05-22',
+      en: 'Duplicate detection: SSB, USB and LSB are now treated as the same mode. A QSO logged as USB counts as a duplicate of a prior SSB or LSB contact on the same band.',
+      de: 'Duplikaterkennung: SSB, USB und LSB werden jetzt als gleiche Betriebsart behandelt. Ein als USB geloggtes QSO gilt als Duplikat eines früheren SSB- oder LSB-Kontakts im selben Band.',
+    },
+    {
       version: '0.28',
       date: '2026-05-22',
       en: 'Band labels now display with a space before the unit everywhere: "20 m", "70 cm", "2 m", etc. Internal identifiers are unchanged.',
@@ -5249,6 +5255,10 @@
 
   function fmtBand(b) {
     return String(b).replace(/^(\d+)(cm|m)$/, '$1 $2');
+  }
+
+  function normMode(m) {
+    return (m === 'USB' || m === 'LSB') ? 'SSB' : m;
   }
 
   function fmtRelTime(iso) {
