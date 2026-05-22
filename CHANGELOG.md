@@ -1,5 +1,10 @@
 # Noctalum Changelog
 
+## v0.41 — 2026-05-22 — Edit QSO loads custom-field values
+
+- `loadQsoIntoForm(q)` now parses `q.extras` (JSON keyed by custom-field `name`) and calls `applyCustomFieldsValues()` — the same path the stash flow uses
+- Affects all custom-field types but is most visible for `select` (dropdown) fields, which previously showed their first (empty) option in the Edit QSO mask even though the QSO had a value stored
+
 ## v0.40 — 2026-05-22 — Smiling face for the Users menu pill
 
 - Icon glyph swapped from `&#9785;` (☹) to `&#9786;` (☺)

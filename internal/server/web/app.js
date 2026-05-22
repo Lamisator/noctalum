@@ -2505,6 +2505,10 @@
     $('q-notes').value = q.notes || '';
     const qTime = new Date(q.time);
     $('q-time').value = qTime.toISOString().substring(0, 19); // YYYY-MM-DDTHH:MM:SS in UTC
+    // Restore custom-field values from q.extras (JSON object keyed by field name).
+    if (q.extras) {
+      try { applyCustomFieldsValues(JSON.parse(q.extras)); } catch {}
+    }
     $('log-qso-btn').textContent = t('qso.saveEdit');
     $('entry-panel-title').textContent = t('qso.editQSO');
     callsignFilter = null;
@@ -5490,6 +5494,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.41',
+      date: '2026-05-22',
+      en: 'Edit QSO: custom-field values (text, number, dropdown) are now populated into the form when a logged QSO is selected for editing. Previously only the built-in fields were filled, so a dropdown saved on the QSO appeared blank in the Edit mask.',
+      de: 'QSO bearbeiten: Werte benutzerdefinierter Felder (Text, Zahl, Dropdown) werden jetzt ins Formular übernommen, wenn ein bereits geloggtes QSO zur Bearbeitung gewählt wird. Vorher waren nur die fest eingebauten Felder gefüllt, sodass ein gespeichertes Dropdown in der Bearbeiten-Maske leer erschien.',
+    },
     {
       version: '0.40',
       date: '2026-05-22',
