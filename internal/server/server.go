@@ -1,10 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -183,6 +185,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/settings", s.requireAuth(s.handleSettings))
 	mux.HandleFunc("/api/lookup/picture", s.requireAuth(s.handleLookupPicture))
 	mux.HandleFunc("/api/lookup", s.requireAuth(s.handleLookup))
+	mux.HandleFunc("/api/dok-cache/export", s.requirePerm(PermDOKEdit, s.handleDOKCacheExport))
+	mux.HandleFunc("/api/dok-cache/import", s.requirePerm(PermDOKEdit, s.handleDOKCacheImport))
+	mux.HandleFunc("/api/dok-cache/", s.requirePerm(PermDOKEdit, s.handleDOKCacheByCallsign))
+	mux.HandleFunc("/api/dok-cache", s.requirePerm(PermDOKEdit, s.handleDOKCache))
 	mux.HandleFunc("/api/qrz/test", s.requirePerm(PermSettingsWrite, s.handleQRZTest))
 	mux.HandleFunc("/api/permissions", s.requireAuth(s.handlePermissions))
 	mux.HandleFunc("/api/users", s.requirePerm(PermUsersManage, s.handleUsers))
@@ -871,7 +877,7 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ID = id
-	if in.DOK != "" {
+	if in.DOK != "" && s.store.GetCachedDOK(in.Callsign) == "" {
 		_ = s.store.UpsertCallsignDOK(in.Callsign, in.DOK)
 	}
 	s.audit(r, store.AuditInfo, AuditQSOCreate, sess.Username, in.Callsign,
@@ -977,7 +983,7 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if in.DOK != "" {
+		if in.DOK != "" && s.store.GetCachedDOK(in.Callsign) == "" {
 			_ = s.store.UpsertCallsignDOK(in.Callsign, in.DOK)
 		}
 		s.audit(r, store.AuditInfo, AuditQSOUpdate, sess.Username, in.Callsign,
@@ -1163,6 +1169,128 @@ func (s *Server) handleLookupPicture(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	io.Copy(w, resp.Body) //nolint:errcheck
+}
+
+// ----- DOK callsign cache management -----
+
+func (s *Server) handleDOKCache(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		entries, err := s.store.ListCallsignCache()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if entries == nil {
+			entries = []store.CallsignCacheEntry{}
+		}
+		writeJSON(w, http.StatusOK, entries)
+	case http.MethodPost:
+		var in struct {
+			Callsign string `json:"callsign"`
+			DOK      string `json:"dok"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		in.Callsign = strings.ToUpper(strings.TrimSpace(in.Callsign))
+		in.DOK = strings.ToUpper(strings.TrimSpace(in.DOK))
+		if !ValidCallsign(in.Callsign) {
+			writeError(w, http.StatusBadRequest, "invalid callsign")
+			return
+		}
+		if in.DOK == "" {
+			writeError(w, http.StatusBadRequest, "dok required")
+			return
+		}
+		if err := s.store.UpsertCallsignDOK(in.Callsign, in.DOK); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"callsign": in.Callsign, "dok": in.DOK})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "GET or POST only")
+	}
+}
+
+func (s *Server) handleDOKCacheByCallsign(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		writeError(w, http.StatusMethodNotAllowed, "DELETE only")
+		return
+	}
+	callsign := strings.ToUpper(strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/api/dok-cache/")))
+	if callsign == "" {
+		writeError(w, http.StatusBadRequest, "callsign required")
+		return
+	}
+	if err := s.store.DeleteCallsignDOK(callsign); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDOKCacheExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	entries, err := s.store.ListCallsignCache()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var buf bytes.Buffer
+	cw := csv.NewWriter(&buf)
+	_ = cw.Write([]string{"callsign", "dok"})
+	for _, e := range entries {
+		_ = cw.Write([]string{e.Callsign, e.DOK})
+	}
+	cw.Flush()
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="dok-cache.csv"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(buf.Bytes())
+}
+
+func (s *Server) handleDOKCacheImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "read error")
+		return
+	}
+	cr := csv.NewReader(bytes.NewReader(body))
+	cr.TrimLeadingSpace = true
+	rows, err := cr.ReadAll()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid CSV: "+err.Error())
+		return
+	}
+	count := 0
+	for _, row := range rows {
+		if len(row) < 2 {
+			continue
+		}
+		callsign := strings.ToUpper(strings.TrimSpace(row[0]))
+		dok := strings.ToUpper(strings.TrimSpace(row[1]))
+		if callsign == "CALLSIGN" || callsign == "" || dok == "" {
+			continue // skip header row or empty entries
+		}
+		if !ValidCallsign(callsign) {
+			continue
+		}
+		if err := s.store.UpsertCallsignDOK(callsign, dok); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		count++
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"imported": count})
 }
 
 func (s *Server) handleQRZTest(w http.ResponseWriter, r *http.Request) {

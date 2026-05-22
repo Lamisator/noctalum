@@ -1,5 +1,12 @@
 # Noctalum Changelog
 
+## v0.14 — 2026-05-22 10:00 UTC — DOK Database management screen
+
+- New "DOK Database" button in the contest picker nav (requires `dok.edit` permission)
+- Wide-screen table showing all callsign ↔ DOK associations with search/filter
+- Add, delete entries manually; import and export as CSV
+- Auto-commit logic revised: a callsign's DOK is only stored on first encounter; if a cache entry already exists, logging a different DOK will not overwrite it
+
 ## v0.13 — 2026-05-21 16:30 UTC — Band-conflict warning revised
 
 - Replaced orange band-pill/operator-row highlights with a pulsing red stripe below the operator list

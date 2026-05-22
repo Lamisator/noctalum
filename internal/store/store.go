@@ -694,3 +694,34 @@ func (s *Store) GetCachedDOK(callsign string) string {
 	_ = s.db.QueryRow(`SELECT dok FROM callsign_cache WHERE callsign = ?`, strings.ToUpper(callsign)).Scan(&dok)
 	return dok
 }
+
+// CallsignCacheEntry is one row of the callsign→DOK cache.
+type CallsignCacheEntry struct {
+	Callsign  string `json:"callsign"`
+	DOK       string `json:"dok"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// ListCallsignCache returns all entries ordered by callsign.
+func (s *Store) ListCallsignCache() ([]CallsignCacheEntry, error) {
+	rows, err := s.db.Query(`SELECT callsign, dok, updated_at FROM callsign_cache ORDER BY callsign`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CallsignCacheEntry
+	for rows.Next() {
+		var e CallsignCacheEntry
+		if err := rows.Scan(&e.Callsign, &e.DOK, &e.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// DeleteCallsignDOK removes a callsign entry from the cache.
+func (s *Store) DeleteCallsignDOK(callsign string) error {
+	_, err := s.db.Exec(`DELETE FROM callsign_cache WHERE callsign = ?`, strings.ToUpper(callsign))
+	return err
+}

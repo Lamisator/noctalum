@@ -72,6 +72,10 @@
         <span data-i18n="contestScreen.changelog">Changelog</span>
       </button>
       <div class="nav-divider"></div>
+      <button id="dok-cache-nav-btn" class="nav-pill-btn perm-required" data-perm="dok.edit">
+        <span class="nav-pill-icon">&#128220;</span>
+        <span data-i18n="contestScreen.dokDatabase">DOK Database</span>
+      </button>
       <button id="users-admin-btn" class="nav-pill-btn perm-required" data-perm="users.manage">
         <span class="nav-pill-icon">&#9785;</span>
         <span data-i18n="contestScreen.users">Users</span>
@@ -907,6 +911,41 @@
   </div>
   <div class="admin-screen-body">
     <div class="card" id="changelog-content"></div>
+  </div>
+</div>
+
+<div id="dok-cache-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="dok.title">DOK Database</h1>
+    <div class="dok-cache-header-actions">
+      <button id="dok-export-btn" class="ghost" data-i18n="dok.export">Export CSV</button>
+      <label id="dok-import-label" class="btn ghost" data-i18n="dok.import">Import CSV
+        <input type="file" id="dok-import-input" accept=".csv,text/csv" style="display:none">
+      </label>
+    </div>
+  </div>
+  <div class="admin-screen-body dok-cache-body">
+    <div class="dok-cache-add-row">
+      <input id="dok-add-callsign" type="text" data-i18n-placeholder="dok.callsignPlaceholder" placeholder="Callsign" class="dok-add-input" maxlength="20" />
+      <input id="dok-add-dok" type="text" data-i18n-placeholder="dok.dokPlaceholder" placeholder="DOK" class="dok-add-input dok-add-input-short" maxlength="20" />
+      <button id="dok-add-btn" class="primary" data-i18n="dok.add">Add</button>
+      <input id="dok-search" type="search" data-i18n-placeholder="dok.search" placeholder="Search…" class="dok-search-input" />
+      <span id="dok-status" class="dok-status muted small"></span>
+    </div>
+    <div class="dok-cache-table-wrap">
+      <table id="dok-cache-table" class="dok-cache-table">
+        <thead>
+          <tr>
+            <th data-i18n="dok.colCallsign">Callsign</th>
+            <th data-i18n="dok.colDOK">DOK</th>
+            <th data-i18n="dok.colUpdated">Last Updated</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="dok-cache-tbody"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 

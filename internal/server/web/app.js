@@ -426,7 +426,7 @@
   function show(which) {
     ['setup-screen', 'login-screen', 'contest-screen', 'global-settings-screen',
      'contests-admin-screen', 'users-admin-screen', 'audit-admin-screen', 'featurerequests-admin-screen',
-     'my-featurerequests-screen', 'my-settings-screen', 'changelog-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
+     'my-featurerequests-screen', 'my-settings-screen', 'changelog-screen', 'dok-cache-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
     $(which).classList.remove('hidden');
     if (which === 'setup-screen') $('setup-username').focus();
     if (which === 'login-screen') $('login-username').focus();
@@ -509,6 +509,7 @@
 
   // ----- admin screens (accessed from contest selection) -----
   $('my-fr-nav-btn').addEventListener('click', () => showAdminScreen('my-featurerequests-screen', refreshMyFeatureRequests));
+  $('dok-cache-nav-btn').addEventListener('click', () => { if (!hasPerm('dok.edit')) return; showAdminScreen('dok-cache-screen', loadDOKCache); });
   $('changelog-nav-btn').addEventListener('click', () => showAdminScreen('changelog-screen', renderChangelog));
   $('my-settings-nav-btn').addEventListener('click', () => showAdminScreen('my-settings-screen', loadMySettings));
   $('contests-admin-btn')?.addEventListener('click', () => showAdminScreen('contests-admin-screen', refreshContests));
@@ -4674,8 +4675,105 @@
     refreshFeatureRequests();
   });
 
+  // ----- DOK Cache screen -----
+  let dokEntries = [];
+
+  async function loadDOKCache() {
+    const res = await api('/api/dok-cache');
+    if (!res.ok) return;
+    dokEntries = await res.json();
+    renderDOKCache();
+  }
+
+  function renderDOKCache() {
+    const query = ($('dok-search')?.value || '').trim().toLowerCase();
+    const tbody = $('dok-cache-tbody');
+    if (!tbody) return;
+    const filtered = query
+      ? dokEntries.filter(e => e.callsign.toLowerCase().includes(query) || e.dok.toLowerCase().includes(query))
+      : dokEntries;
+    if (!filtered.length) {
+      tbody.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center;padding:20px">${escHtml(t('dok.noEntries'))}</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = filtered.map(e => `
+      <tr data-callsign="${escHtml(e.callsign)}">
+        <td class="dok-col-call">${escHtml(fmtCall(e.callsign))}</td>
+        <td class="dok-col-dok">${escHtml(e.dok)}</td>
+        <td class="dok-col-updated muted small">${escHtml(e.updated_at ? e.updated_at.replace('T', ' ').replace('Z', ' UTC').substring(0, 20) : '')}</td>
+        <td class="dok-col-action"><button class="ghost small dok-delete-btn" data-callsign="${escHtml(e.callsign)}" data-i18n="common.delete">${escHtml(t('common.delete'))}</button></td>
+      </tr>
+    `).join('');
+    tbody.querySelectorAll('.dok-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const call = btn.dataset.callsign;
+        if (!await showConfirm(t('dok.deleteConfirm', { call: fmtCall(call) }), { ok: t('common.delete') })) return;
+        const res = await api('/api/dok-cache/' + encodeURIComponent(call), { method: 'DELETE' });
+        if (res.ok || res.status === 204) {
+          dokEntries = dokEntries.filter(e => e.callsign !== call);
+          renderDOKCache();
+        }
+      });
+    });
+  }
+
+  $('dok-search')?.addEventListener('input', renderDOKCache);
+
+  $('dok-add-btn')?.addEventListener('click', async () => {
+    const callsign = ($('dok-add-callsign').value || '').trim().toUpperCase();
+    const dok = ($('dok-add-dok').value || '').trim().toUpperCase();
+    if (!callsign || !dok) return;
+    const statusEl = $('dok-status');
+    const res = await api('/api/dok-cache', { method: 'POST', body: JSON.stringify({ callsign, dok }) });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      if (statusEl) statusEl.textContent = j.error || t('common.saveFailed');
+      return;
+    }
+    $('dok-add-callsign').value = '';
+    $('dok-add-dok').value = '';
+    if (statusEl) statusEl.textContent = t('common.saved');
+    setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 2000);
+    await loadDOKCache();
+  });
+
+  $('dok-add-callsign')?.addEventListener('keydown', e => { if (e.key === 'Enter') $('dok-add-dok').focus(); });
+  $('dok-add-dok')?.addEventListener('keydown', e => { if (e.key === 'Enter') $('dok-add-btn').click(); });
+
+  $('dok-export-btn')?.addEventListener('click', () => {
+    window.location.href = '/api/dok-cache/export';
+  });
+
+  $('dok-import-input')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const text = await file.text();
+    const statusEl = $('dok-status');
+    const res = await api('/api/dok-cache/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/csv' },
+      body: text,
+    });
+    e.target.value = '';
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      if (statusEl) statusEl.textContent = j.error || t('common.uploadFailed');
+      return;
+    }
+    const j = await res.json();
+    if (statusEl) statusEl.textContent = t('dok.importedN', { n: j.imported });
+    setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+    await loadDOKCache();
+  });
+
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.14',
+      date: '2026-05-22 10:00 UTC',
+      en: 'DOK Database: new management screen (dok.edit permission) with full CRUD, CSV import/export. Auto-commit now only stores a callsign\'s DOK the first time; existing entries are never overwritten automatically.',
+      de: 'DOK-Datenbank: Neuer Verwaltungsbildschirm (Berechtigung dok.edit) mit vollständigem CRUD, CSV-Import/-Export. Auto-Commit speichert das DOK eines Rufzeichens jetzt nur beim ersten Auftreten; bestehende Einträge werden nie automatisch überschrieben.',
+    },
     {
       version: '0.13',
       date: '2026-05-21 16:30 UTC',
