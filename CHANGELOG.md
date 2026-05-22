@@ -1,5 +1,9 @@
 # Noctalum Changelog
 
+## v0.19 — 2026-05-22 13:15 UTC — Download Helper AppImage pill below button
+
+- AppImage pill is now displayed below the download button, inside the recommended box
+
 ## v0.18 — 2026-05-22 13:00 UTC — Download Helper recommended box
 
 - AppImage label moved out of the button text into a separate pill sitting next to the button

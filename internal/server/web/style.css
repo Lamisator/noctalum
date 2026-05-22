@@ -1262,9 +1262,9 @@ button.contest-edit-pill:hover {
 }
 .dl-btn-row {
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
 }
 .dl-recommended-box {
   border: 2px solid rgba(79,195,247,0.55);
@@ -1282,7 +1282,7 @@ button.contest-edit-pill:hover {
   border-radius: 999px;
   padding: 3px 9px;
   white-space: nowrap;
-  flex-shrink: 0;
+  align-self: center;
 }
 .dl-app-card {
   display: flex;
@@ -1312,9 +1312,8 @@ button.contest-edit-pill:hover {
   width: 220px;
 }
 .dl-app-download-btn {
-  flex: 1;
   display: block;
-  min-width: 0;
+  width: 100%;
   box-sizing: border-box;
   text-align: center;
   padding: 7px 14px;

@@ -4871,6 +4871,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.19',
+      date: '2026-05-22 13:15 UTC',
+      en: 'Download Helper: AppImage pill is now shown below the download button (inside the recommended box).',
+      de: 'Download-Helper: AppImage-Pill wird jetzt unterhalb der Download-Schaltfläche angezeigt (innerhalb des Empfohlen-Rahmens).',
+    },
+    {
       version: '0.18',
       date: '2026-05-22 13:00 UTC',
       en: 'Download Helper: AppImage label moved into a pill next to the button. Recommended downloads get a light blue box around button and pill, with "Recommended" text above.',
