@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.20 — 2026-05-22 14:00 UTC — Auto-band from frequency, topbar cleanup
+
+- Typing a frequency in the QSO form now automatically selects the matching band
+- Contest settings gear button removed from topbar
+- "My Settings" renamed to "Personal Settings" in the contest picker menu
+
 ## v0.19 — 2026-05-22 13:15 UTC — Download Helper AppImage pill below button
 
 - AppImage pill is now displayed below the download button, inside the recommended box

@@ -679,11 +679,6 @@
 
   // ----- contest selection screen -----
   $('station-pill').addEventListener('click', () => showContestScreen());
-  $('contest-settings-btn').addEventListener('click', () => {
-    const c = getCurrentContestForEdit();
-    if (c) contestEditModal(c);
-  });
-
   $('create-contest-btn').addEventListener('click', () => contestCreateModal());
   $('create-private-contest-btn').addEventListener('click', () => contestCreateModal(true));
   $('create-contest-btn-list').addEventListener('click', () => contestCreateModal());
@@ -1258,14 +1253,6 @@
     }
     $('station-contest-name').textContent = name;
     $('ops-station-call').textContent = fmtCall(call);
-    // Show settings button for managers and contest owners
-    const settingsBtn = $('contest-settings-btn');
-    if (settingsBtn) {
-      const canEdit = hasPerm('contests.manage') ||
-        (hasPerm('contests.manage_private') && me?.contest_private) ||
-        (me?.contest_owner_user_id && me.contest_owner_user_id === me?.user_id);
-      settingsBtn.classList.toggle('hidden', !me?.contest_id || !canEdit);
-    }
   }
 
   function applyContestReadonly() {
@@ -1775,6 +1762,29 @@
     return '';
   }
 
+  function bandFromFreqKHz(freq) {
+    const f = parseFloat(freq);
+    if (!f) return null;
+    if (f >= 1800 && f < 2000) return '160m';
+    if (f >= 3500 && f < 4000) return '80m';
+    if (f >= 5250 && f < 5450) return '60m';
+    if (f >= 7000 && f < 7300) return '40m';
+    if (f >= 10100 && f < 10150) return '30m';
+    if (f >= 14000 && f < 14350) return '20m';
+    if (f >= 18068 && f < 18168) return '17m';
+    if (f >= 21000 && f < 21450) return '15m';
+    if (f >= 24890 && f < 24990) return '12m';
+    if (f >= 28000 && f < 29700) return '10m';
+    if (f >= 50000 && f < 54000) return '6m';
+    if (f >= 70000 && f < 71000) return '4m';
+    if (f >= 144000 && f < 148000) return '2m';
+    if (f >= 430000 && f < 440000) return '70cm';
+    if (f >= 1240000 && f < 1300000) return '23cm';
+    if (f >= 2300000 && f < 2450000) return '13cm';
+    if (f >= 10000000 && f < 10500000) return '3cm';
+    return null;
+  }
+
   function applyRSTDefaults(m) {
     const def = defaultRST(m);
     $('q-rst-sent').placeholder = def;
@@ -1782,6 +1792,10 @@
   }
   $('q-mode').addEventListener('change', () => { applyRSTDefaults($('q-mode').value); updateDuplicateBadge(); });
   $('q-band').addEventListener('change', () => updateDuplicateBadge());
+  $('q-freq').addEventListener('input', () => {
+    const band = bandFromFreqKHz($('q-freq').value);
+    if (band) { $('q-band').value = band; updateDuplicateBadge(); }
+  });
 
   // ----- left panel -----
   function updateLeftPanel(callsign, hasPicture, locator) {
@@ -4870,6 +4884,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.20',
+      date: '2026-05-22 14:00 UTC',
+      en: 'Typing a frequency now auto-selects the correct band. Contest settings button removed from topbar; "My Settings" renamed to "Personal Settings" in the main menu.',
+      de: 'Frequenzeingabe wählt automatisch das passende Band. Contest-Einstellungs-Schaltfläche aus der Topbar entfernt; "Meine Einstellungen" in "Persönliche Einstellungen" umbenannt.',
+    },
     {
       version: '0.19',
       date: '2026-05-22 13:15 UTC',
