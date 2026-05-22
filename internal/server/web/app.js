@@ -2031,8 +2031,16 @@
 
   async function useClusterSpot(spot) {
     if (!contestIsOpen()) return;
-    // Discard any in-progress entry (as if Esc was pressed)
-    cancelQsoEdit();
+    // Stash the in-flight entry BEFORE overwriting the form. The current
+    // callsign belongs to the prior QSO attempt — not to the spot we just
+    // clicked — so it must be captured at this moment, not later.
+    if ($('q-call').value.trim() !== '' && editingQsoId === null) {
+      const sel = me?.selected_rig;
+      const oldFreqHz = sel ? lastRigFreqs[sel] : undefined;
+      await stashCurrentForm(typeof oldFreqHz === 'number' && oldFreqHz > 0 ? { freqOverrideHz: oldFreqHz } : null);
+    } else {
+      cancelQsoEdit();
+    }
     if (spot.dx) {
       $('q-call').value = spot.dx;
       callsignFilter = spot.dx;
@@ -2055,6 +2063,9 @@
       if (freqHz > 0) {
         api('/api/rigs/set_freq', { method: 'POST', body: JSON.stringify({ freq_hz: freqHz, mode: spot.mode || '' }) })
           .catch(() => {});
+        // Suppress the WS rig update that's about to arrive — we don't want
+        // it to re-stash the spot we just populated.
+        lastRigFreqs[me.selected_rig] = freqHz;
       }
     }
     // trigger lookup for pic/locator
@@ -5494,6 +5505,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.45',
+      date: '2026-05-22',
+      en: 'Cluster spot click: the in-flight entry is now stashed BEFORE the spot\'s data is written into the form, so the stash carries the callsign you had typed, not the one you clicked. The rig-tune broadcast that follows is also suppressed (lastRigFreqs is pre-set to the spot frequency) so it can no longer re-stash the freshly-loaded spot.',
+      de: 'Klick auf Cluster-Spot: Das laufende Formular wird jetzt gestasht, BEVOR die Spot-Daten ins Formular geschrieben werden — der Stash enthält also das vorher eingegebene Rufzeichen, nicht das angeklickte. Die nachfolgende TRX-QSY-Meldung wird ebenfalls unterdrückt (lastRigFreqs wird vorab auf die Spot-Frequenz gesetzt), damit sie den frisch geladenen Spot nicht erneut stasht.',
+    },
     {
       version: '0.44',
       date: '2026-05-22',

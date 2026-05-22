@@ -1,5 +1,12 @@
 # Noctalum Changelog
 
+## v0.45 — 2026-05-22 — Cluster-spot click stashes the typed callsign, not the clicked one
+
+- `useClusterSpot(spot)` previously called `cancelQsoEdit()` first (clearing the form), then wrote the spot's callsign, then tuned the rig. The subsequent `rigs` WebSocket broadcast saw the freq move and ran `stashCurrentForm()` — by that point the form already held the spot's callsign, so the stash captured the wrong call
+- Fix: lift the same pattern `recallStash()` already uses
+  - Stash the current form contents up front (only when `q-call` is non-empty and we're not editing) using `lastRigFreqs[selected_rig]` as the `freqOverrideHz`, so the stash records the rig freq from before the QSY
+  - Pre-set `lastRigFreqs[selected_rig] = freqHz` right after submitting the `set_freq` request, so the resulting `rigs` broadcast sees no delta and won't fire a second stash for the spot data we just wrote
+
 ## v0.44 — 2026-05-22 — Unified "Noctalum" wordmark across topbars
 
 - `.topbar .brand` rule extended to also match `.contest-topbar .brand`
