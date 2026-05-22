@@ -1028,6 +1028,7 @@
       me.contest_station_id = j.contest_station_id || '';
       me.contest_qso_layout = j.contest_qso_layout || '';
       me.contest_fields = j.contest_fields || '';
+      me.contest_log_columns = j.contest_log_columns || '';
       me.contest_private = j.contest_private || false;
       me.contest_owner_user_id = j.contest_owner_user_id || 0;
       me.contest_nr_padded = j.contest_nr_padded !== false;
@@ -1248,6 +1249,7 @@
       objective: me.contest_objective || '',
       custom_fields: me.contest_fields || '',
       qso_layout: me.contest_qso_layout || '',
+      log_columns: me.contest_log_columns || '',
       private: me.contest_private || false,
       owner_user_id: me.contest_owner_user_id || 0,
       access_restricted: false,
@@ -2404,26 +2406,102 @@
     });
   }
 
-  document.querySelectorAll('#qso-table thead th.sortable').forEach(th => {
-    th.addEventListener('click', () => {
-      const col = th.dataset.col;
-      if (qsoSortCol !== col) {
-        qsoSortCol = col;
-        qsoSortDir = 1;
-      } else {
-        if (qsoSortDir === 1)       qsoSortDir = -1;
-        else if (qsoSortDir === -1) qsoSortDir = 0;
-        else                        qsoSortDir = 1;
-      }
-      updateSortHeaders();
-      renderQsos();
-    });
+  document.querySelector('#qso-table thead').addEventListener('click', e => {
+    const th = e.target.closest('th.sortable');
+    if (!th) return;
+    const col = th.dataset.col;
+    if (qsoSortCol !== col) { qsoSortCol = col; qsoSortDir = 1; }
+    else {
+      if (qsoSortDir === 1) qsoSortDir = -1;
+      else if (qsoSortDir === -1) qsoSortDir = 0;
+      else qsoSortDir = 1;
+    }
+    updateSortHeaders();
+    renderQsos();
   });
 
-  updateSortHeaders();
+  // ----- log column definitions & helpers -----
+  const LOG_COL_DEFS = [
+    { key: 'nr_sent',      labelKey: 'qso.colNr',      sortKey: 'nr_sent',      defaultOn: true  },
+    { key: 'time',         labelKey: 'qso.colTimeUTC',  sortKey: 'time',         defaultOn: true  },
+    { key: 'callsign',     labelKey: 'qso.colCall',     sortKey: 'callsign',     defaultOn: true  },
+    { key: 'band',         labelKey: 'qso.colBand',     sortKey: 'band',         defaultOn: true  },
+    { key: 'freq',         labelKey: 'qso.colFreq',     sortKey: 'freq_hz',      defaultOn: true  },
+    { key: 'mode',         labelKey: 'qso.colMode',     sortKey: 'mode',         defaultOn: true  },
+    { key: 'rst_sent',     labelKey: 'qso.colSent',     sortKey: 'rst_sent',     defaultOn: true  },
+    { key: 'rst_received', labelKey: 'qso.colRcv',      sortKey: 'rst_received', defaultOn: true  },
+    { key: 'nr_received',  labelKey: 'qso.nrReceived',  sortKey: 'nr_received',  defaultOn: false },
+    { key: 'name',         labelKey: 'qso.name',        sortKey: 'name',         defaultOn: false },
+    { key: 'locator',      labelKey: 'qso.colLoc',      sortKey: 'locator',      defaultOn: true  },
+    { key: 'itu',          labelKey: 'qso.colItuCQ',    sortKey: 'itu_zone',     defaultOn: true  },
+    { key: 'dok',          labelKey: 'qso.dok',         sortKey: 'dok',          defaultOn: false },
+    { key: 'lighthouse',   labelKey: 'qso.lighthouse',  sortKey: 'lighthouse',   defaultOn: false },
+    { key: 'notes',        labelKey: 'qso.notes',       sortKey: 'notes',        defaultOn: false },
+    { key: 'operator',     labelKey: 'qso.colOp',       sortKey: 'operator',     defaultOn: true  },
+  ];
+
+  function parseLogColumns(json) {
+    if (!json) return null;
+    try { const a = JSON.parse(json); return Array.isArray(a) ? a : null; } catch { return null; }
+  }
+
+  function getEffectiveLogCols(savedJson, customFields) {
+    const saved = parseLogColumns(savedJson);
+    const cfDefs = (customFields || []).map(f => ({ key: f.name, label: f.label || f.name, isCustom: true, sortKey: null, defaultOn: false }));
+    const allDefs = [...LOG_COL_DEFS, ...cfDefs];
+    if (!saved || !saved.length) return allDefs.map(d => ({ ...d, on: d.defaultOn !== false }));
+    const result = [];
+    const seen = new Set();
+    for (const s of saved) {
+      const def = allDefs.find(d => d.key === s.key);
+      if (def) { result.push({ ...def, on: s.on !== false }); seen.add(s.key); }
+    }
+    for (const d of allDefs) {
+      if (!seen.has(d.key)) result.push({ ...d, on: d.defaultOn !== false });
+    }
+    return result;
+  }
+
+  function qsoColValue(q, key, extras) {
+    switch (key) {
+      case 'nr_sent':      return escHtml(q.nr_sent ? (me?.contest_nr_padded ? String(q.nr_sent).padStart(3,'0') : String(q.nr_sent)) : '');
+      case 'time':         return escHtml(new Date(q.time).toISOString().substring(0,19).replace('T',' '));
+      case 'callsign':     return `<strong>${escHtml(fmtCall(q.callsign))}</strong>`;
+      case 'band':         return escHtml(q.band || '');
+      case 'freq':         return escHtml(q.freq_hz ? (q.freq_hz/1_000_000).toFixed(4) : '');
+      case 'mode':         return escHtml(q.mode || '');
+      case 'rst_sent':     return escHtml(q.rst_sent || '');
+      case 'rst_received': return escHtml(q.rst_received || '');
+      case 'nr_received':  return escHtml(q.nr_received ? String(q.nr_received) : '');
+      case 'name':         return escHtml(q.name || '');
+      case 'locator':      return escHtml(q.locator || '');
+      case 'itu':          return (q.itu_zone||q.cq_zone) ? `${escHtml(q.itu_zone||'-')}/${escHtml(q.cq_zone||'-')}` : '';
+      case 'dok':          return escHtml(q.dok || '');
+      case 'lighthouse':   return escHtml(q.lighthouse || '');
+      case 'notes':        return escHtml(q.notes || '');
+      case 'operator':     return escHtml(fmtCall(q.operator));
+      default:             return escHtml(extras?.[key] || '');
+    }
+  }
+
+  function renderLogHeaders() {
+    const customFields = parseCustomFields(me?.contest_fields);
+    const cols = getEffectiveLogCols(me?.contest_log_columns, customFields).filter(c => c.on !== false);
+    const tr = document.querySelector('#qso-table thead tr');
+    if (!tr) return;
+    tr.innerHTML = cols.map(col => {
+      const label = col.isCustom ? escHtml(col.label || col.key) : escHtml(t(col.labelKey));
+      const sortKey = col.sortKey || col.key;
+      return `<th class="sortable" data-col="${escHtml(sortKey)}"><span>${label}</span> <span class="sort-arrow"></span></th>`;
+    }).join('') + '<th></th>';
+    updateSortHeaders();
+  }
 
   function renderQsos(highlightId) {
     if ($('tab-statistics')?.classList.contains('active')) renderStatistics();
+    renderLogHeaders();
+    const customFields = parseCustomFields(me?.contest_fields);
+    const cols = getEffectiveLogCols(me?.contest_log_columns, customFields).filter(c => c.on !== false);
     const textFilter = $('history-filter').value.trim().toLowerCase();
     const tbody = $('qso-tbody');
     tbody.innerHTML = '';
@@ -2453,28 +2531,12 @@
       }
       const tr = document.createElement('tr');
       if (q.id === highlightId) tr.classList.add('fresh');
-      const qDate = new Date(q.time);
-      const utc = qDate.toISOString().substring(0, 19).replace('T', ' ');
-      const mhz = q.freq_hz ? (q.freq_hz / 1_000_000).toFixed(4) : '';
-      const zone = (q.itu_zone || q.cq_zone) ? `${escHtml(q.itu_zone || '-')}/${escHtml(q.cq_zone || '-')}` : '';
-      const isEditing = q.id === editingQsoId;
-      tr.className = isEditing ? 'editing-row' : '';
+      tr.className = (q.id === editingQsoId) ? 'editing-row' : '';
       tr.style.cursor = 'pointer';
-      const nrDisplay = q.nr_sent ? (me && me.contest_nr_padded ? String(q.nr_sent).padStart(3, '0') : String(q.nr_sent)) : '';
-      tr.innerHTML = `
-        <td>${escHtml(nrDisplay)}</td>
-        <td>${escHtml(utc)}</td>
-        <td><strong>${escHtml(fmtCall(q.callsign))}</strong></td>
-        <td>${escHtml(q.band)}</td>
-        <td>${escHtml(mhz)}</td>
-        <td>${escHtml(q.mode)}</td>
-        <td>${escHtml(q.rst_sent)}</td>
-        <td>${escHtml(q.rst_received)}</td>
-        <td>${escHtml(q.locator || '')}</td>
-        <td>${zone}</td>
-        <td>${escHtml(fmtCall(q.operator))}</td>
-        <td>${canDelete ? `<button class="del-btn" data-id="${Number(q.id)}">✕</button>` : ''}</td>
-      `;
+      let extras = {};
+      if (q.extras) { try { extras = JSON.parse(q.extras); } catch {} }
+      tr.innerHTML = cols.map(col => `<td>${qsoColValue(q, col.key, extras)}</td>`).join('')
+        + `<td>${canDelete ? `<button class="del-btn" data-id="${Number(q.id)}">✕</button>` : ''}</td>`;
       tr.addEventListener('click', (e) => {
         if (e.target.closest('.del-btn')) return;
         if (hasPerm('qso.write') && contestIsOpen()) {
@@ -2959,6 +3021,9 @@
           <textarea name="objective" placeholder="${escHtml(t('contestScreen.objectivePlaceholder'))}">${escHtml(c.objective || '')}</textarea>
           <div class="md-preview-pane objective-content" id="modal-md-preview"></div>
         </div>
+        <label style="margin-top:14px">${escHtml(t('contestScreen.logColumns'))}</label>
+        <p class="muted small" style="margin:2px 0 0">${escHtml(t('contestScreen.logColumnsHint'))}</p>
+        ${buildLogColumnsEditorHTML(c.log_columns || '', existingFields)}
         <div class="modal-err error"></div>
         <div class="modal-actions">
           ${hasPerm('contest.admin') || isOwner ? `<button type="button" id="modal-delete-contest-btn" class="danger" style="margin-right:auto">${escHtml(t('contestScreen.deleteContest'))}</button>` : ''}
@@ -2979,6 +3044,7 @@
           objective: form.objective.value,
           custom_fields: serializeCustomFieldsEditor(),
           qso_layout: serializeQSOLayout(),
+          log_columns: serializeLogColumnsEditor(),
           nr_padded: form.nr_padded.checked,
         }),
       });
@@ -3000,6 +3066,7 @@
     attachBandSelectListeners();
     attachCustomFieldsEditorListeners();
     attachLayoutEditorListeners(c.qso_layout || '');
+    initLogColDragDrop();
     // Live markdown preview
     const ta = document.querySelector('#modal-card textarea[name=objective]');
     const preview = $('modal-md-preview');
@@ -3471,6 +3538,58 @@
       out.push({ name, label, type, required, options, order: i });
     });
     return JSON.stringify(out);
+  }
+
+  // ----- Log columns editor -----
+  function buildLogColumnsEditorHTML(savedJson, customFields) {
+    const cols = getEffectiveLogCols(savedJson, customFields);
+    const items = cols.map(col => {
+      const label = col.isCustom ? escHtml(col.label || col.key) : escHtml(t(col.labelKey));
+      const on = col.on !== false;
+      return `<div class="log-col-item" draggable="true" data-key="${escHtml(col.key)}">
+        <span class="log-col-drag">⠿</span>
+        <span class="log-col-label">${label}</span>
+        <button type="button" class="cpill log-col-pill${on?' active':''}">${escHtml(on?t('contestScreen.logColVisible'):t('contestScreen.logColHidden'))}</button>
+      </div>`;
+    }).join('');
+    return `<div id="log-cols-editor" class="log-cols-editor">${items}</div>`;
+  }
+
+  function serializeLogColumnsEditor() {
+    const editor = document.getElementById('log-cols-editor');
+    if (!editor) return '';
+    const result = [];
+    editor.querySelectorAll('.log-col-item[data-key]').forEach(item => {
+      result.push({ key: item.dataset.key, on: item.querySelector('.log-col-pill')?.classList.contains('active') ?? false });
+    });
+    return result.length ? JSON.stringify(result) : '';
+  }
+
+  function initLogColDragDrop() {
+    const editor = document.getElementById('log-cols-editor');
+    if (!editor) return;
+    let dragSrc = null;
+    editor.addEventListener('dragstart', e => {
+      dragSrc = e.target.closest('.log-col-item');
+      if (dragSrc) { e.dataTransfer.effectAllowed = 'move'; dragSrc.classList.add('dragging'); }
+    });
+    editor.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const target = e.target.closest('.log-col-item');
+      if (target && target !== dragSrc) {
+        const rect = target.getBoundingClientRect();
+        if (e.clientY > rect.top + rect.height / 2) target.after(dragSrc);
+        else target.before(dragSrc);
+      }
+    });
+    editor.addEventListener('dragend', () => { dragSrc?.classList.remove('dragging'); dragSrc = null; });
+    editor.addEventListener('click', e => {
+      const pill = e.target.closest('.log-col-pill');
+      if (!pill) return;
+      const on = pill.classList.toggle('active');
+      pill.textContent = on ? t('contestScreen.logColVisible') : t('contestScreen.logColHidden');
+    });
   }
 
   // ----- QSO layout editor (used inside contest modals) -----
@@ -4198,6 +4317,7 @@
             if ('station_id' in msg.payload) me.contest_station_id = msg.payload.station_id;
             if ('custom_fields' in msg.payload) me.contest_fields = msg.payload.custom_fields;
             if ('qso_layout' in msg.payload) me.contest_qso_layout = msg.payload.qso_layout;
+            if ('log_columns' in msg.payload) { me.contest_log_columns = msg.payload.log_columns; renderQsos(); }
             if ('nr_padded' in msg.payload) me.contest_nr_padded = msg.payload.nr_padded !== false;
             updateContestDisplay();
             applyContestReadonly();
@@ -4875,6 +4995,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.24',
+      date: '2026-05-22 16:00 UTC',
+      en: 'Notes field no longer forced uppercase. Contest edit modal: draggable log-column picker below WYSIWYG editor configures which columns appear in QSO history.',
+      de: 'Notizfeld nicht mehr Großschreibung. Contest-Bearbeitungsmaske: Ziehbarer Spalten-Auswähler unterhalb des WYSIWYG-Editors konfiguriert sichtbare QSO-Protokollspalten.',
+    },
     {
       version: '0.23',
       date: '2026-05-22 15:30 UTC',

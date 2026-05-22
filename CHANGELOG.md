@@ -1,5 +1,14 @@
 # Noctalum Changelog
 
+## v0.24 — 2026-05-22 16:00 UTC — Notes no-caps, configurable log columns
+
+- Notes field no longer forced uppercase (CSS override for `#q-notes`)
+- Contest edit modal: draggable log-column picker below the WYSIWYG editor
+  - Toggle visibility (Visible/Hidden pill) for each QSO field + custom fields
+  - Drag rows to reorder columns
+  - Configuration saved in contest as `log_columns` JSON (backend DB column added)
+  - QSO history table headers and cells rendered dynamically from this config
+
 ## v0.23 — 2026-05-22 15:30 UTC — QRZ settings moved to Global Settings
 
 - QRZ.com credentials removed from Personal Settings
