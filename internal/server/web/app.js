@@ -511,6 +511,7 @@
   $('my-fr-nav-btn').addEventListener('click', () => showAdminScreen('my-featurerequests-screen', refreshMyFeatureRequests));
   $('dok-cache-nav-btn').addEventListener('click', () => { if (!hasPerm('dok.edit')) return; showAdminScreen('dok-cache-screen', loadDOKCache); });
   $('changelog-nav-btn').addEventListener('click', () => showAdminScreen('changelog-screen', renderChangelog));
+  $('download-helper-btn').addEventListener('click', () => openDownloadModal(null));
   $('my-settings-nav-btn').addEventListener('click', () => showAdminScreen('my-settings-screen', loadMySettings));
   $('contests-admin-btn')?.addEventListener('click', () => showAdminScreen('contests-admin-screen', refreshContests));
   $('users-admin-btn').addEventListener('click', () => { if (!hasPerm('users.manage')) return; showAdminScreen('users-admin-screen', refreshUsers); });
@@ -754,54 +755,145 @@
 
   function renderDownloads(files) {
     window.__downloadsCache = files || [];
-    const list = $('downloads-list');
-    const panel = $('downloads-panel');
-    if (!files || files.length === 0) {
-      panel.classList.add('hidden');
+  }
+
+  function openDownloadModal(os) {
+    const files = window.__downloadsCache || [];
+
+    // Platform labels
+    const PLAT_LABELS = {
+      'windows-amd64': t('downloads.platformX64'),
+      'darwin-amd64':  t('downloads.platformIntel'),
+      'darwin-arm64':  t('downloads.platformAppleSilicon'),
+      'linux-amd64':   t('downloads.platformX64'),
+      'linux-arm64':   t('downloads.platformArm64'),
+    };
+
+    const OS_PLATFORMS = {
+      windows: ['windows-amd64'],
+      mac:     ['darwin-arm64', 'darwin-amd64'],
+      linux:   ['linux-amd64', 'linux-arm64'],
+    };
+
+    const APP_DEFS = [
+      {
+        type: 'helper-gui',
+        icon: '🖥️',
+        nameKey: 'downloads.appHelperGuiName',
+        variantKey: 'downloads.appHelperGuiVariant',
+        descKey: 'downloads.appHelperGuiDesc',
+      },
+      {
+        type: 'helper',
+        icon: '⌨️',
+        nameKey: 'downloads.appHelperCliName',
+        variantKey: 'downloads.appHelperCliVariant',
+        descKey: 'downloads.appHelperCliDesc',
+      },
+      {
+        type: 'wsjtx',
+        icon: '📡',
+        nameKey: 'downloads.appWsjtxName',
+        variantKey: null,
+        descKey: 'downloads.appWsjtxDesc',
+      },
+    ];
+
+    if (os === null || os === undefined) {
+      // Step 1: OS picker
+      // Auto-detect likely OS
+      const ua = navigator.userAgent.toLowerCase();
+      let detected = 'linux';
+      if (ua.includes('win')) detected = 'windows';
+      else if (ua.includes('mac')) detected = 'mac';
+
+      const osOptions = [
+        { id: 'windows', icon: '🪟', label: t('downloads.osWindows') },
+        { id: 'mac',     icon: '🍎', label: t('downloads.osMac')     },
+        { id: 'linux',   icon: '🐧', label: t('downloads.osLinux')   },
+      ];
+
+      const html = `
+        <h3 style="margin:0 0 6px;font-size:18px">📥 ${escHtml(t('downloads.dlHelper'))}</h3>
+        <p class="muted" style="margin:0 0 24px;font-size:13px">${escHtml(t('downloads.chooseOS'))}</p>
+        <div class="dl-os-grid">
+          ${osOptions.map(o => `
+            <button class="dl-os-btn${o.id === detected ? ' dl-os-detected' : ''}" data-os="${escHtml(o.id)}">
+              <span class="dl-os-icon">${o.icon}</span>
+              <span class="dl-os-label">${escHtml(o.label)}</span>
+              ${o.id === detected ? `<span class="dl-os-badge">${escHtml(t('downloads.detected'))}</span>` : ''}
+            </button>
+          `).join('')}
+        </div>
+        <div class="modal-actions"><button type="button" class="ghost cancel-btn">${escHtml(t('common.close'))}</button></div>
+      `;
+      showModal(html, null, { wide: false });
+
+      // Wire up OS buttons
+      document.querySelectorAll('.dl-os-btn').forEach(btn => {
+        btn.addEventListener('click', () => openDownloadModal(btn.dataset.os));
+      });
       return;
     }
-    panel.classList.remove('hidden');
 
-    const OS_LABELS = {
-      'linux-amd64':   'Linux (x86-64)',
-      'linux-arm64':   'Linux (ARM64)',
-      'darwin-amd64':  'macOS (Intel)',
-      'darwin-arm64':  'macOS (Apple Silicon)',
-      'windows-amd64': 'Windows (x86-64)',
-    };
-    // Three types matched in one regex: helper-gui must come BEFORE helper
-    // (greedy alternation), or "noctalum-helper-gui-linux-amd64" lands in
-    // the plain-helper bucket with platform=="gui-linux-amd64", and the user
-    // sees an unlabelled link they can't distinguish from the curses CLI.
-    const GROUP_LABELS = {
-      'helper-gui': t('downloads.helperGUI'),
-      'helper':     t('downloads.helperCLI'),
-      'wsjtx':      t('downloads.wsjtx'),
-    };
-    const GROUP_ORDER = ['helper-gui', 'helper', 'wsjtx'];
+    // Step 2: App list for selected OS
+    const platforms = OS_PLATFORMS[os] || [];
 
-    const groups = {};
+    // Group files by type and platform
+    const grouped = {};
     for (const f of files) {
       const m = f.match(/^noctalum-(helper-gui|helper|wsjtx)-(.+?)(?:\.AppImage|\.exe)?$/);
       if (!m) continue;
       const [, type, platform] = m;
-      if (!groups[type]) groups[type] = [];
-      groups[type].push({ file: f, platform });
+      if (!grouped[type]) grouped[type] = [];
+      grouped[type].push({ file: f, platform });
     }
 
-    let html = '';
-    for (const type of GROUP_ORDER) {
-      const items = groups[type];
-      if (!items || items.length === 0) continue;
-      const groupName = GROUP_LABELS[type] || type;
-      html += `<div class="downloads-group"><div class="downloads-group-name">${escHtml(groupName)}</div>`;
-      for (const { file, platform } of items) {
-        const label = OS_LABELS[platform] || platform;
-        html += `<a class="downloads-link" href="/downloads/${encodeURIComponent(file)}" download>${escHtml(label)}</a>`;
-      }
-      html += '</div>';
+    const osIcons = { windows: '🪟', mac: '🍎', linux: '🐧' };
+    const osLabels = { windows: t('downloads.osWindows'), mac: t('downloads.osMac'), linux: t('downloads.osLinux') };
+
+    let appsHtml = '';
+
+    for (const app of APP_DEFS) {
+      const available = (grouped[app.type] || []).filter(d => platforms.includes(d.platform));
+      // Sort by platform order defined in OS_PLATFORMS
+      available.sort((a, b) => platforms.indexOf(a.platform) - platforms.indexOf(b.platform));
+
+      const dlBtns = available.length > 0
+        ? available.map(d => {
+            const platLabel = available.length > 1 ? ` (${escHtml(PLAT_LABELS[d.platform] || d.platform)})` : '';
+            return `<a class="dl-app-download-btn" href="/downloads/${encodeURIComponent(d.file)}" download>⬇️ ${escHtml(t('downloads.dlBtn'))}${platLabel}</a>`;
+          }).join('')
+        : `<span class="dl-app-unavail">${escHtml(t('downloads.notAvail'))}</span>`;
+
+      appsHtml += `
+        <div class="dl-app-card${available.length === 0 ? ' dl-app-card-dim' : ''}">
+          <div class="dl-app-icon">${app.icon}</div>
+          <div class="dl-app-body">
+            <div class="dl-app-name">${escHtml(t(app.nameKey))}${app.variantKey ? `<span class="dl-app-variant"> — ${escHtml(t(app.variantKey))}</span>` : ''}</div>
+            <div class="dl-app-desc">${escHtml(t(app.descKey))}</div>
+          </div>
+          <div class="dl-app-actions">${dlBtns}</div>
+        </div>
+      `;
     }
-    list.innerHTML = html || `<p class="muted" style="font-size:12px;margin:0">${escHtml(t('downloads.noFiles'))}</p>`;
+
+    if (!files.length) {
+      appsHtml = `<p class="muted" style="text-align:center;padding:24px 0">${escHtml(t('downloads.noFiles'))}</p>`;
+    }
+
+    const html = `
+      <div class="dl-step2-header">
+        <button class="ghost dl-back-btn">← ${escHtml(t('common.back'))}</button>
+        <h3 style="margin:0;font-size:18px">📥 ${escHtml(t('downloads.dlHelper'))}</h3>
+        <span class="dl-os-pill">${osIcons[os]} ${escHtml(osLabels[os])}</span>
+      </div>
+      <div class="dl-apps-list">${appsHtml}</div>
+      <div class="modal-actions"><button type="button" class="ghost cancel-btn">${escHtml(t('common.close'))}</button></div>
+    `;
+    showModal(html, null, { wide: true });
+
+    document.querySelector('.dl-back-btn')?.addEventListener('click', () => openDownloadModal(null));
   }
 
   function renderGlobalOperators() {
@@ -4768,6 +4860,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.15',
+      date: '2026-05-22 11:00 UTC',
+      en: 'Download Helper: the sidebar download panel is replaced by a "Download Helper" button that opens a two-step modal — first choose your OS, then see each application with description and download links.',
+      de: 'Download-Helper: Das Sidebar-Download-Panel wurde durch einen "Helper herunterladen"-Button ersetzt, der ein zweistufiges Modal öffnet — zuerst das Betriebssystem wählen, dann jede Anwendung mit Beschreibung und Download-Links.',
+    },
     {
       version: '0.14',
       date: '2026-05-22 10:00 UTC',

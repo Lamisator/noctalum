@@ -1133,21 +1133,6 @@ button.contest-edit-pill:hover {
   width: 240px;
   flex-shrink: 0;
 }
-.downloads-panel {
-  background: var(--bg-elev);
-  padding: 24px 28px;
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-  border: 1px solid var(--border);
-}
-.downloads-panel-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 14px;
-}
 .online-panel {
   background: var(--bg-elev);
   padding: 24px 28px;
@@ -1187,24 +1172,123 @@ button.contest-edit-pill:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.downloads-group { margin-bottom: 16px; }
-.downloads-group:last-child { margin-bottom: 0; }
-.downloads-group-name {
-  font-size: 12px;
+/* ==== Download Helper nav button ==== */
+.nav-pill-btn-download {
+  background: linear-gradient(135deg, rgba(79,195,247,0.15), rgba(79,195,247,0.08));
+  border: 1px solid rgba(79,195,247,0.35) !important;
+  color: #4fc3f7 !important;
+  margin-top: 6px;
+  padding: 10px 14px !important;
+  font-weight: 600;
+}
+.nav-pill-btn-download:hover {
+  background: linear-gradient(135deg, rgba(79,195,247,0.25), rgba(79,195,247,0.15)) !important;
+}
+
+/* ==== Download Helper modal ==== */
+.dl-os-grid {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.dl-os-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 28px;
+  background: var(--bg-elev-2);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  min-width: 110px;
+  position: relative;
+}
+.dl-os-btn:hover {
+  border-color: var(--accent);
+  background: rgba(79,195,247,0.08);
+}
+.dl-os-btn.dl-os-detected {
+  border-color: var(--accent);
+}
+.dl-os-icon { font-size: 36px; line-height: 1; }
+.dl-os-label { font-size: 14px; font-weight: 600; }
+.dl-os-badge {
+  position: absolute;
+  top: -8px; right: -8px;
+  background: var(--accent);
+  color: #000;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+.dl-step2-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.dl-step2-header h3 { flex: 1; }
+.dl-os-pill {
+  font-size: 13px;
   font-weight: 600;
   color: var(--accent);
-  margin-bottom: 6px;
+  background: rgba(79,195,247,0.1);
+  border: 1px solid rgba(79,195,247,0.3);
+  border-radius: 999px;
+  padding: 3px 12px;
 }
-.downloads-link {
-  display: block;
-  padding: 5px 0;
+.dl-apps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dl-app-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.dl-app-card-dim { opacity: 0.45; }
+.dl-app-icon { font-size: 32px; line-height: 1; flex-shrink: 0; margin-top: 2px; }
+.dl-app-body { flex: 1; min-width: 0; }
+.dl-app-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.dl-app-variant { font-weight: 400; color: var(--text-muted); font-size: 13px; }
+.dl-app-desc { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+.dl-app-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: flex-end;
+}
+.dl-app-download-btn {
+  display: inline-block;
+  padding: 7px 14px;
+  background: var(--accent);
+  color: #000;
+  font-weight: 700;
   font-size: 12px;
-  color: var(--fg);
+  border-radius: 6px;
   text-decoration: none;
-  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
 }
-.downloads-link:last-child { border-bottom: none; }
-.downloads-link:hover { color: var(--accent); }
+.dl-app-download-btn:hover { background: #81d4fa; }
+.dl-app-unavail { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
 
 /* ==== Contest screen nav pill bar (left sidebar) ==== */
 .contest-nav-pill {

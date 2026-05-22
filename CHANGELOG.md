@@ -1,5 +1,12 @@
 # Noctalum Changelog
 
+## v0.15 — 2026-05-22 11:00 UTC — Download Helper modal
+
+- The sidebar download panel has been removed and replaced by a "Download Helper" nav button in the contest picker
+- Clicking the button opens a two-step modal: first choose your OS (Windows, macOS, Linux — auto-detected), then see each application with icon, description, and download link(s)
+- Three apps listed: Rig Control Helper GUI, Rig Control Helper CLI, and WSJT-X Bridge
+- Unavailable apps for the selected platform are shown dimmed with a "Not available" note
+
 ## v0.14 — 2026-05-22 10:00 UTC — DOK Database management screen
 
 - New "DOK Database" button in the contest picker nav (requires `dok.edit` permission)
