@@ -868,10 +868,11 @@
       const dlBtns = available.length > 0
         ? available.map(d => {
             const platLabel = available.length > 1 ? ` (${escHtml(PLAT_LABELS[d.platform] || d.platform)})` : '';
-            const fmtLabel = d.isAppImage ? ` · ${escHtml(t('downloads.appImage'))}` : '';
-            const badge = d.isAppImage ? `<span class="dl-recommended-badge">★ ${escHtml(t('downloads.recommended'))}</span>` : '';
-            const recClass = d.isAppImage ? ' dl-btn-recommended' : '';
-            return `<div class="dl-btn-group">${badge}<a class="dl-app-download-btn${recClass}" href="/downloads/${encodeURIComponent(d.file)}" download>⬇️ ${escHtml(t('downloads.dlBtn'))}${platLabel}${fmtLabel}</a></div>`;
+            const isRec = d.isAppImage;
+            const recLabel = isRec ? `<span class="dl-recommended-label">★ ${escHtml(t('downloads.recommended'))}</span>` : '';
+            const appImgPill = d.isAppImage ? `<span class="dl-appimage-pill">${escHtml(t('downloads.appImage'))}</span>` : '';
+            const rowClass = isRec ? 'dl-btn-row dl-recommended-box' : 'dl-btn-row';
+            return `<div class="dl-btn-group">${recLabel}<div class="${rowClass}"><a class="dl-app-download-btn" href="/downloads/${encodeURIComponent(d.file)}" download>⬇️ ${escHtml(t('downloads.dlBtn'))}${platLabel}</a>${appImgPill}</div></div>`;
           }).join('')
         : `<span class="dl-app-unavail">${escHtml(t('downloads.notAvail'))}</span>`;
 
@@ -4869,6 +4870,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.18',
+      date: '2026-05-22 13:00 UTC',
+      en: 'Download Helper: AppImage label moved into a pill next to the button. Recommended downloads get a light blue box around button and pill, with "Recommended" text above.',
+      de: 'Download-Helper: AppImage-Label als Pill neben den Button verschoben. Empfohlene Downloads erhalten einen hellblauen Rahmen um Schaltfläche und Pill, mit "Empfohlen"-Text darüber.',
+    },
     {
       version: '0.17',
       date: '2026-05-22 12:30 UTC',

@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.18 — 2026-05-22 13:00 UTC — Download Helper recommended box
+
+- AppImage label moved out of the button text into a separate pill sitting next to the button
+- Recommended downloads (AppImage on Linux) wrapped in a light blue box enclosing both the button and the pill
+- "Recommended" label shown above the box
+
 ## v0.17 — 2026-05-22 12:30 UTC — Download Helper polished
 
 - Linux OS icon replaced with the official Tux from Simple Icons
