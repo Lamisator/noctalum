@@ -434,6 +434,7 @@ a { color: var(--accent); text-decoration: none; }
 #qso-form input[type="checkbox"] { width: auto; margin-top: 0; }
 #qso-form input[type="datetime-local"] { text-transform: none; }
 #q-notes { text-transform: none; }
+#q-band { text-transform: none; }
 #qso-form input::placeholder { color: var(--text-muted); }
 #qso-form input:focus, #qso-form select:focus, .settings-card input:focus, .settings-card select:focus {
   border-color: var(--accent);
