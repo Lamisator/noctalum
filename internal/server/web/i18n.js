@@ -428,7 +428,7 @@
         resetDefault: 'Reset to defaults',
       },
       credits: {
-        line: 'Noctalum is co-created by DM2LAP and Claude, with support from his friends at DARC O35. Noctalum is free software and licensed under GPLv3. You can find its source code on <a href="https://github.com/Lamisator/noctalum" target="_blank" rel="noopener">GitHub</a>. Noctalum is provided free of charge; if you like Noctalum, please consider a donation for <a href="https://panthera.org" target="_blank" rel="noopener">wild cat conservation efforts</a>.',
+        line: 'Noctalum is co-created by DM2LAP and Claude, with support from friends at <a href="https://o35.de" target="_blank" rel="noopener">DARC O35</a>. Noctalum is free software and licensed under GPLv3. You can find its source code on <a href="https://github.com/Lamisator/noctalum" target="_blank" rel="noopener">GitHub</a>. Noctalum is provided free of charge; if you like Noctalum, please consider to support <a href="https://panthera.org" target="_blank" rel="noopener">wild cat conservation efforts</a>.',
       },
       globalSettings: {
         title: 'Global Settings',
@@ -1028,7 +1028,7 @@
         resetDefault: 'Standard wiederherstellen',
       },
       credits: {
-        line: 'Noctalum wird gemeinsam von DM2LAP und Claude entwickelt, mit Unterstützung seiner Freunde im DARC-Ortsverband O35. Noctalum ist freie Software und steht unter der GPLv3. Den Quellcode findest du auf <a href="https://github.com/Lamisator/noctalum" target="_blank" rel="noopener">GitHub</a>. Noctalum ist kostenlos — wenn dir Noctalum gefällt, denk doch über eine Spende an den <a href="https://panthera.org" target="_blank" rel="noopener">Schutz von Wildkatzen</a> nach.',
+        line: 'Noctalum wird gemeinsam von DM2LAP und Claude entwickelt, mit Unterstützung von Freunden im <a href="https://o35.de" target="_blank" rel="noopener">DARC-Ortsverband O35</a>. Noctalum ist freie Software und steht unter der GPLv3. Den Quellcode findest du auf <a href="https://github.com/Lamisator/noctalum" target="_blank" rel="noopener">GitHub</a>. Noctalum ist kostenlos — wenn dir Noctalum gefällt, unterstütze doch <a href="https://panthera.org" target="_blank" rel="noopener">den Schutz von Wildkatzen</a>.',
       },
       globalSettings: {
         title: 'Globale Einstellungen',

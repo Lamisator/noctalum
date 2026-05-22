@@ -5506,6 +5506,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.48',
+      date: '2026-05-22',
+      en: 'Credits footer reworded: "his friends" → "friends"; "DARC O35" now links to https://o35.de; donation phrasing changed from "consider a donation for" to "consider to support".',
+      de: 'Credits-Zeile umformuliert: „seiner Freunde" → „Freunden"; „DARC-Ortsverband O35" verlinkt jetzt auf https://o35.de; Spenden-Formulierung geändert von „denk doch über eine Spende … nach" zu „unterstütze doch …".',
+    },
+    {
       version: '0.47',
       date: '2026-05-22',
       en: 'Contest picker: a credits footer at the bottom of the screen acknowledges DM2LAP and Claude as co-creators (with the DARC O35 club), states the GPLv3 license, links to the source on GitHub, and links to panthera.org for donations toward wild-cat conservation.',
