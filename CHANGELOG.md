@@ -1,5 +1,15 @@
 # Noctalum Changelog
 
+## v0.31 — 2026-05-22 — Stash tab for in-flight QSOs (auto-stash on TRX QSY)
+
+- New "Stash" tab in the ops panel between Status and Cluster
+- When a callsign has been entered and the selected TRX moves to a different frequency (≥ 100 Hz shift), the in-flight New QSO entry is automatically stashed: all field values are captured along with the *old* frequency, and the form is cleared (as if ESC had been pressed)
+- Click a stashed entry to retune the TRX to the stashed frequency and refill the form with the captured values (including custom fields)
+- If the New QSO form already has data when a stash is recalled, the current contents are auto-stashed first
+- Stashes are scoped per user + contest, persisted server-side (new `qso_stashes` table), and synchronised across all of a user's browser tabs via WebSocket
+- New per-contest setting "Auto-delete stashed pre-QSOs after (minutes)" — default 60, settable from the contest settings modal
+- Manual edits to the frequency input do not trigger a stash; only TRX-reported changes do
+
 ## v0.30 — 2026-05-22 — Fix band dropdown and notes field case in New QSO form
 
 - Band selector in New QSO now correctly shows "20 m", "70 cm" etc. (CSS specificity fix)

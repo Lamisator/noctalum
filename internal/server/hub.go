@@ -315,6 +315,21 @@ func (h *Hub) SendToSession(sessionID string, ev Event) {
 	}
 }
 
+// SendToUser enqueues an event for every browser session of the given user.
+func (h *Hub) SendToUser(userID int64, ev Event) {
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c := range h.clients {
+		if c.role == RoleBrowser && c.session != nil && c.session.UserID == userID {
+			h.deliver(c, data)
+		}
+	}
+}
+
 // Broadcast sends an event to every browser client.
 func (h *Hub) Broadcast(ev Event) {
 	data, err := json.Marshal(ev)

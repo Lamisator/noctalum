@@ -162,6 +162,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateCallsignCache(); err != nil {
 		return err
 	}
+	if err := s.migrateStashes(); err != nil {
+		return err
+	}
 	for _, col := range [][2]string{
 		{"nr_sent", "INTEGER NOT NULL DEFAULT 0"},
 		{"nr_received", "INTEGER NOT NULL DEFAULT 0"},

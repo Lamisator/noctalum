@@ -447,6 +447,7 @@
           </div>
           <div class="ops-tabs">
             <button class="ops-tab active" data-ops-tab="status" data-i18n="ops.statusTab">Status</button>
+            <button class="ops-tab" data-ops-tab="stash"><span data-i18n="ops.stashTab">Stash</span><span id="stash-count-badge" class="stash-count-badge hidden"></span></button>
             <button class="ops-tab" data-ops-tab="cluster" data-i18n="ops.clusterTab">Cluster</button>
             <button class="ops-tab" data-ops-tab="chat" data-i18n="ops.chatTab">Chat</button>
             <button class="ops-tab" data-ops-tab="objective" data-i18n="ops.objectiveTab">Objective</button>
@@ -458,6 +459,12 @@
             <div id="band-conflict-banner" class="band-conflict-banner hidden"></div>
             <h3 style="margin-top:18px" data-i18n="ops.availableRigs">Available rigs</h3>
             <ul id="rig-list" class="rig-list"></ul>
+          </div>
+
+          <div id="ops-tab-stash" class="ops-tab-pane">
+            <p class="muted small" data-i18n="stash.hint">Pre-QSOs you started but had to abandon when the TRX moved to a different frequency. Click an entry to retune the TRX and refill the form.</p>
+            <ul id="stash-list" class="stash-list"></ul>
+            <div id="stash-empty" class="muted small" data-i18n="stash.empty">No stashed pre-QSOs.</div>
           </div>
 
           <div id="ops-tab-cluster" class="ops-tab-pane">

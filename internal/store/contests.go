@@ -27,6 +27,7 @@ type Contest struct {
 	LogColumns       string     `json:"log_columns"`        // JSON-encoded ordered array of {key,on} for log table columns
 	AccessRestricted bool       `json:"access_restricted"`  // when true, only access-listed users / owners / admins can see & enter
 	NrPadded         bool       `json:"nr_padded"`          // display serial numbers zero-padded to 3 digits
+	StashExpiryMinutes int64    `json:"stash_expiry_minutes"` // auto-delete stashed pre-QSOs after this many minutes (default 60)
 	CreatedAt        time.Time  `json:"created_at"`
 	LastActivityAt   *time.Time `json:"last_activity_at"` // time of the most recent QSO; nil if no QSOs logged
 }
@@ -95,6 +96,9 @@ func (s *Store) migrateContests() error {
 	if err := s.addColumnIfMissing("contests", "nr_padded", "INTEGER NOT NULL DEFAULT 1"); err != nil {
 		return fmt.Errorf("migrate contests nr_padded: %w", err)
 	}
+	if err := s.addColumnIfMissing("contests", "stash_expiry_minutes", "INTEGER NOT NULL DEFAULT 60"); err != nil {
+		return fmt.Errorf("migrate contests stash_expiry_minutes: %w", err)
+	}
 	if err := s.addColumnIfMissing("qsos", "extras", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return fmt.Errorf("migrate qsos extras: %w", err)
 	}
@@ -146,7 +150,7 @@ func (s *Store) addColumnIfMissing(table, column, colType string) error {
 }
 
 // CreateContest inserts a new contest in 'open' status.
-func (s *Store) CreateContest(name, stationCall, qth string, bands []string, objective, stationID string, private bool, ownerUserID int64, customFields, qsoLayout, logColumns string, nrPadded bool) (*Contest, error) {
+func (s *Store) CreateContest(name, stationCall, qth string, bands []string, objective, stationID string, private bool, ownerUserID int64, customFields, qsoLayout, logColumns string, nrPadded bool, stashExpiryMinutes int64) (*Contest, error) {
 	name = strings.TrimSpace(name)
 	stationCall = strings.ToUpper(strings.TrimSpace(stationCall))
 	qth = strings.ToUpper(strings.TrimSpace(qth))
@@ -159,10 +163,13 @@ func (s *Store) CreateContest(name, stationCall, qth string, bands []string, obj
 	if !nrPadded {
 		nrp = 0
 	}
+	if stashExpiryMinutes <= 0 {
+		stashExpiryMinutes = 60
+	}
 	now := time.Now().UTC()
 	res, err := s.db.Exec(
-		`INSERT INTO contests (name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, nr_padded, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)`,
-		name, stationCall, qth, bandsToString(bands), objective, stationID, priv, ownerUserID, customFields, qsoLayout, logColumns, nrp, now.Format(time.RFC3339),
+		`INSERT INTO contests (name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, nr_padded, stash_expiry_minutes, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		name, stationCall, qth, bandsToString(bands), objective, stationID, priv, ownerUserID, customFields, qsoLayout, logColumns, nrp, stashExpiryMinutes, now.Format(time.RFC3339),
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
@@ -171,14 +178,14 @@ func (s *Store) CreateContest(name, stationCall, qth string, bands []string, obj
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
-	return &Contest{ID: id, Name: name, StationCall: stationCall, QTH: qth, Bands: bands, Objective: objective, Status: "open", StationID: stationID, Private: private, OwnerUserID: ownerUserID, CustomFields: customFields, QSOLayout: qsoLayout, LogColumns: logColumns, NrPadded: nrPadded, CreatedAt: now}, nil
+	return &Contest{ID: id, Name: name, StationCall: stationCall, QTH: qth, Bands: bands, Objective: objective, Status: "open", StationID: stationID, Private: private, OwnerUserID: ownerUserID, CustomFields: customFields, QSOLayout: qsoLayout, LogColumns: logColumns, NrPadded: nrPadded, StashExpiryMinutes: stashExpiryMinutes, CreatedAt: now}, nil
 }
 
 // ListContests returns all contests, newest first, with last QSO activity time.
 func (s *Store) ListContests() ([]Contest, error) {
 	rows, err := s.db.Query(
 		`SELECT c.id, c.name, c.station_call, c.qth, c.bands, c.objective, c.status, c.station_id,
-		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.log_columns, c.access_restricted, c.nr_padded, c.created_at,
+		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.log_columns, c.access_restricted, c.nr_padded, c.stash_expiry_minutes, c.created_at,
 		        MAX(q.time_utc) AS last_activity_at
 		 FROM contests c
 		 LEFT JOIN qsos q ON q.contest_id = c.id
@@ -194,7 +201,7 @@ func (s *Store) ListContests() ([]Contest, error) {
 		var t, bandsStr string
 		var priv, ar, nrp int
 		var lastAct sql.NullString
-		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &ar, &nrp, &t, &lastAct); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &ar, &nrp, &c.StashExpiryMinutes, &t, &lastAct); err != nil {
 			return nil, err
 		}
 		c.Private = priv != 0
@@ -214,11 +221,11 @@ func (s *Store) ListContests() ([]Contest, error) {
 // GetContest returns a single contest by ID.
 func (s *Store) GetContest(id int64) (*Contest, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, access_restricted, nr_padded, created_at FROM contests WHERE id = ?`, id)
+		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, access_restricted, nr_padded, stash_expiry_minutes, created_at FROM contests WHERE id = ?`, id)
 	var c Contest
 	var t, bandsStr string
 	var priv, ar, nrp int
-	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &ar, &nrp, &t); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &ar, &nrp, &c.StashExpiryMinutes, &t); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrContestNotFound
 		}
@@ -233,16 +240,19 @@ func (s *Store) GetContest(id int64) (*Contest, error) {
 }
 
 // UpdateContest updates name, station_call, qth, bands, objective and status of an existing contest.
-func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, bands []string, objective, stationID, customFields, qsoLayout, logColumns string, nrPadded bool) error {
+func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, bands []string, objective, stationID, customFields, qsoLayout, logColumns string, nrPadded bool, stashExpiryMinutes int64) error {
 	nrp := 1
 	if !nrPadded {
 		nrp = 0
 	}
+	if stashExpiryMinutes <= 0 {
+		stashExpiryMinutes = 60
+	}
 	_, err := s.db.Exec(
-		`UPDATE contests SET name = ?, station_call = ?, qth = ?, bands = ?, objective = ?, status = ?, station_id = ?, custom_fields = ?, qso_layout = ?, log_columns = ?, nr_padded = ? WHERE id = ?`,
+		`UPDATE contests SET name = ?, station_call = ?, qth = ?, bands = ?, objective = ?, status = ?, station_id = ?, custom_fields = ?, qso_layout = ?, log_columns = ?, nr_padded = ?, stash_expiry_minutes = ? WHERE id = ?`,
 		strings.TrimSpace(name), strings.ToUpper(strings.TrimSpace(stationCall)),
 		strings.ToUpper(strings.TrimSpace(qth)), bandsToString(bands), objective, status,
-		strings.TrimSpace(stationID), customFields, qsoLayout, logColumns, nrp, id,
+		strings.TrimSpace(stationID), customFields, qsoLayout, logColumns, nrp, stashExpiryMinutes, id,
 	)
 	return err
 }

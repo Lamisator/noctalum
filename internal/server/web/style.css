@@ -767,6 +767,59 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
 .dummy-rig-row:last-child { border-bottom: none; }
 .dummy-rig-name { font-weight: 600; }
 
+/* Stash tab */
+.stash-list { list-style: none; margin: 0; padding: 0; }
+.stash-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.stash-item:hover { border-color: var(--accent); background: var(--accent-dim); }
+.stash-main { flex: 1; min-width: 0; }
+.stash-line1 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+.stash-line1 strong { color: var(--accent); }
+.stash-line1 .stash-freq { color: var(--text); font-variant-numeric: tabular-nums; }
+.stash-line1 .stash-band,
+.stash-line1 .stash-mode { color: var(--text-muted); font-size: 11px; }
+.stash-line2 { margin-top: 2px; }
+.stash-delete-btn {
+  flex: 0 0 auto;
+  color: var(--error);
+  border-color: var(--error);
+  padding: 2px 8px;
+  line-height: 1.2;
+  font-size: 14px;
+}
+.stash-delete-btn:hover { background: var(--error); color: #fff; }
+.stash-count-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+}
+.stash-count-badge.hidden { display: none; }
+
 .tab-perm { display: none; }
 .tab-perm.visible { display: inline-flex; }
 

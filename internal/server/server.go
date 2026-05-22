@@ -1920,17 +1920,18 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		sess := sessionFor(s, r)
 		var in struct {
-			Name         string   `json:"name"`
-			StationCall  string   `json:"station_call"`
-			StationID    string   `json:"station_id"`
-			QTH          string   `json:"qth"`
-			Bands        []string `json:"bands"`
-			Objective    string   `json:"objective"`
-			Private      bool     `json:"private"`
-			CustomFields string   `json:"custom_fields"`
-			QSOLayout    string   `json:"qso_layout"`
-			LogColumns   string   `json:"log_columns"`
-			NrPadded     *bool    `json:"nr_padded"`
+			Name               string   `json:"name"`
+			StationCall        string   `json:"station_call"`
+			StationID          string   `json:"station_id"`
+			QTH                string   `json:"qth"`
+			Bands              []string `json:"bands"`
+			Objective          string   `json:"objective"`
+			Private            bool     `json:"private"`
+			CustomFields       string   `json:"custom_fields"`
+			QSOLayout          string   `json:"qso_layout"`
+			LogColumns         string   `json:"log_columns"`
+			NrPadded           *bool    `json:"nr_padded"`
+			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1939,6 +1940,10 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		nrPaddedCreate := true
 		if in.NrPadded != nil {
 			nrPaddedCreate = *in.NrPadded
+		}
+		stashExpiryCreate := int64(60)
+		if in.StashExpiryMinutes != nil && *in.StashExpiryMinutes > 0 {
+			stashExpiryCreate = *in.StashExpiryMinutes
 		}
 		canManage := HasPermission(sess.Permissions, PermContestsManage)
 		canCreatePrivate := HasPermission(sess.Permissions, PermContestsCreatePrivate) || HasPermission(sess.Permissions, PermContestsManagePrivate)
@@ -1972,7 +1977,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		if in.Private {
 			ownerID = sess.UserID
 		}
-		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, in.Private, ownerID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedCreate)
+		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, in.Private, ownerID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedCreate, stashExpiryCreate)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2334,6 +2339,98 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Stashes sub-route: /api/contests/{id}/stashes[/{stashID}] — per-user pre-QSO stash
+	if sub == "stashes" || strings.HasPrefix(sub, "stashes/") {
+		sess := sessionFor(s, r)
+		c, err := s.store.GetContest(id)
+		if errors.Is(err, store.ErrContestNotFound) {
+			writeError(w, http.StatusNotFound, "contest not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		// Stashes need the same write access that creating a QSO needs.
+		if !HasPermission(sess.Permissions, PermQSOWrite) {
+			writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
+			return
+		}
+		expiry := time.Duration(c.StashExpiryMinutes) * time.Minute
+		if expiry <= 0 {
+			expiry = 60 * time.Minute
+		}
+
+		// GET /api/contests/{id}/stashes — list current user's stashes (auto-prune first)
+		if sub == "stashes" && r.Method == http.MethodGet {
+			if ids, _ := s.store.PruneExpiredStashes(id, sess.UserID, expiry); len(ids) > 0 {
+				for _, sid := range ids {
+					s.hub.SendToUser(sess.UserID, Event{Type: "stash_deleted", Payload: map[string]any{"id": sid}})
+				}
+			}
+			list, err := s.store.ListStashes(id, sess.UserID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if list == nil {
+				list = []store.Stash{}
+			}
+			writeJSON(w, http.StatusOK, list)
+			return
+		}
+
+		// POST /api/contests/{id}/stashes — create a stash from current form snapshot
+		if sub == "stashes" && r.Method == http.MethodPost {
+			var in store.Stash
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid JSON")
+				return
+			}
+			in.ID = 0
+			in.ContestID = id
+			in.UserID = sess.UserID
+			in.CreatedAt = time.Now().UTC()
+			in.Callsign = strings.ToUpper(strings.TrimSpace(in.Callsign))
+			if in.Callsign == "" {
+				writeError(w, http.StatusBadRequest, "callsign required")
+				return
+			}
+			out, err := s.store.CreateStash(&in)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.hub.SendToUser(sess.UserID, Event{Type: "stash_created", Payload: out})
+			writeJSON(w, http.StatusCreated, out)
+			return
+		}
+
+		// DELETE /api/contests/{id}/stashes/{stashID}
+		if strings.HasPrefix(sub, "stashes/") && r.Method == http.MethodDelete {
+			stashIDStr := strings.TrimPrefix(sub, "stashes/")
+			stashID, err := strconv.ParseInt(stashIDStr, 10, 64)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid stash id")
+				return
+			}
+			if err := s.store.DeleteStash(stashID, sess.UserID); err != nil {
+				if errors.Is(err, store.ErrStashNotFound) {
+					writeError(w, http.StatusNotFound, "stash not found")
+					return
+				}
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.hub.SendToUser(sess.UserID, Event{Type: "stash_deleted", Payload: map[string]any{"id": stashID}})
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
 	// PUT — update contest (contests.manage, contests.manage_private, or contest owner)
 	if r.Method == http.MethodPut {
 		sess := sessionFor(s, r)
@@ -2364,17 +2461,18 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in struct {
-			Name         string   `json:"name"`
-			StationCall  string   `json:"station_call"`
-			StationID    string   `json:"station_id"`
-			QTH          string   `json:"qth"`
-			Status       string   `json:"status"`
-			Bands        []string `json:"bands"`
-			Objective    string   `json:"objective"`
-			CustomFields string   `json:"custom_fields"`
-			QSOLayout    string   `json:"qso_layout"`
-			LogColumns   string   `json:"log_columns"`
-			NrPadded     *bool    `json:"nr_padded"`
+			Name               string   `json:"name"`
+			StationCall        string   `json:"station_call"`
+			StationID          string   `json:"station_id"`
+			QTH                string   `json:"qth"`
+			Status             string   `json:"status"`
+			Bands              []string `json:"bands"`
+			Objective          string   `json:"objective"`
+			CustomFields       string   `json:"custom_fields"`
+			QSOLayout          string   `json:"qso_layout"`
+			LogColumns         string   `json:"log_columns"`
+			NrPadded           *bool    `json:"nr_padded"`
+			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -2383,6 +2481,13 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		nrPaddedPut := existing.NrPadded
 		if in.NrPadded != nil {
 			nrPaddedPut = *in.NrPadded
+		}
+		stashExpiryPut := existing.StashExpiryMinutes
+		if in.StashExpiryMinutes != nil && *in.StashExpiryMinutes > 0 {
+			stashExpiryPut = *in.StashExpiryMinutes
+		}
+		if stashExpiryPut <= 0 {
+			stashExpiryPut = 60
 		}
 		if strings.TrimSpace(in.Name) == "" {
 			writeError(w, http.StatusBadRequest, "contest name required")
@@ -2401,7 +2506,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid QTH locator")
 			return
 		}
-		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut); err != nil {
+		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut, stashExpiryPut); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -2412,18 +2517,19 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		// Propagate to any sessions that have this contest selected.
 		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH, bandsStrUpd, in.Objective, in.StationID, existing.Private, existing.OwnerUserID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut)
 		s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
-			"id":             id,
-			"name":           in.Name,
-			"station_call":   strings.ToUpper(in.StationCall),
-			"station_id":     in.StationID,
-			"qth":            putQTH,
-			"status":         in.Status,
-			"bands":          in.Bands,
-			"objective":      in.Objective,
-			"custom_fields":  in.CustomFields,
-			"qso_layout":     in.QSOLayout,
-			"log_columns":    in.LogColumns,
-			"nr_padded":      nrPaddedPut,
+			"id":                   id,
+			"name":                 in.Name,
+			"station_call":         strings.ToUpper(in.StationCall),
+			"station_id":           in.StationID,
+			"qth":                  putQTH,
+			"status":               in.Status,
+			"bands":                in.Bands,
+			"objective":            in.Objective,
+			"custom_fields":        in.CustomFields,
+			"qso_layout":           in.QSOLayout,
+			"log_columns":          in.LogColumns,
+			"nr_padded":            nrPaddedPut,
+			"stash_expiry_minutes": stashExpiryPut,
 		}})
 		w.WriteHeader(http.StatusNoContent)
 		return

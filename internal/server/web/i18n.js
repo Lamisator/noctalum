@@ -176,6 +176,8 @@
         privateContest: 'Private contest',
         privateOnlyYou: '(only visible to you)',
         nrPadded: 'Pad serial numbers to 3 digits (e.g. 001, 042)',
+        stashExpiryMinutes: 'Auto-delete stashed pre-QSOs after (minutes)',
+        stashExpiryHint: '60 = 1 hour; stashes older than this are removed automatically.',
         customFields: 'Custom fields',
         customFieldsPerQSO: '(per-QSO; optional)',
         customFieldsPerQSO2: '(per-QSO)',
@@ -287,6 +289,7 @@
       ops: {
         operatingAs: 'Operating as',
         statusTab: 'Status',
+        stashTab: 'Stash',
         clusterTab: 'Cluster',
         chatTab: 'Chat',
         objectiveTab: 'Objective',
@@ -308,6 +311,14 @@
         bandConflict: 'Band conflict: another op is on {band}',
         bandBusyConfirm: '{ops} is already on {band} — log anyway?',
         multipleOnBand: 'MULTIPLE STATIONS ON {band}',
+      },
+      stash: {
+        hint: 'Pre-QSOs you started but had to abandon when the TRX moved to a different frequency. Click an entry to retune the TRX and refill the form.',
+        empty: 'No stashed pre-QSOs.',
+        ageJustNow: 'just now',
+        ageMinutes: '{n} min ago',
+        ageHours: '{n} h ago',
+        recallTitle: 'Tune TRX and reload form',
       },
       cluster: {
         allBands: 'All bands',
@@ -746,6 +757,8 @@
         privateContest: 'Privater Contest',
         privateOnlyYou: '(nur für dich sichtbar)',
         nrPadded: 'Seriennummern auf 3 Stellen auffüllen (z. B. 001, 042)',
+        stashExpiryMinutes: 'Gestashte Pre-QSOs automatisch löschen nach (Minuten)',
+        stashExpiryHint: '60 = 1 Stunde; ältere Stashes werden automatisch entfernt.',
         customFields: 'Benutzerdefinierte Felder',
         customFieldsPerQSO: '(pro QSO; optional)',
         customFieldsPerQSO2: '(pro QSO)',
@@ -855,6 +868,7 @@
       ops: {
         operatingAs: 'Betrieben als',
         statusTab: 'Status',
+        stashTab: 'Stash',
         clusterTab: 'Cluster',
         chatTab: 'Chat',
         objectiveTab: 'Ziel',
@@ -876,6 +890,14 @@
         bandConflict: 'Bandkonflikt: ein anderer Operator ist auf {band}',
         bandBusyConfirm: '{ops} ist bereits auf {band} — trotzdem loggen?',
         multipleOnBand: 'MEHRERE STATIONEN AUF {band}',
+      },
+      stash: {
+        hint: 'Pre-QSOs, die du angefangen hast und verlassen musstest, weil dein TRX die Frequenz gewechselt hat. Klicke einen Eintrag an, um den TRX zurückzustimmen und die Maske wiederherzustellen.',
+        empty: 'Keine gestashten Pre-QSOs.',
+        ageJustNow: 'gerade eben',
+        ageMinutes: 'vor {n} min',
+        ageHours: 'vor {n} h',
+        recallTitle: 'TRX abstimmen und Maske wiederherstellen',
       },
       cluster: {
         allBands: 'Alle Bänder',

@@ -408,6 +408,9 @@
   let callsignFilter = null; // callsign to narrow QSO history while entering a contact
   let editingQsoId = null; // ID of the QSO being edited, or null for new entry
   let currentBandOps = {}; // band → [callsign, ...] of other ops on that band (updated by renderBandPills)
+  let stashes = []; // [{id, callsign, freq_hz, ...}] stashed pre-QSOs for the current user+contest
+  let lastRigFreqs = {}; // rig name → last known freq_hz, used to detect TRX QSY
+  let stashAgeTimer = null;
 
   function hasPerm(p) {
     if (!me) return false;
@@ -1204,6 +1207,7 @@
     applyContestReadonly();
     clearChat();
     qsos = [];
+    stashes = [];
     editingQsoId = null;
     const [qres, ores, rres] = await Promise.all([
       api('/api/qsos'), api('/api/operators'), api('/api/rigs')
@@ -1216,6 +1220,12 @@
     renderRigSelect();
     renderRigList();
     applySelectedRigToForm();
+    // seed the per-rig freq cache so a fresh contest enter doesn't fire a stash on the next WS update
+    lastRigFreqs = {};
+    for (const r of rigs) {
+      if (r && r.connected) lastRigFreqs[r.name] = r.freq_hz;
+    }
+    loadStashes();
     clearLeftPanel();
     renderBandPills();
     renderObjective();
@@ -1435,6 +1445,206 @@
       }
     });
   });
+
+  // ----- stash (pre-QSO snapshots) -----
+  function collectFormSnapshot() {
+    // Mirrors the body assembled by the QSO submit handler, minus server-only fields.
+    const snap = {
+      callsign: $('q-call').value.trim().toUpperCase(),
+      name: $('q-name').value.trim(),
+      nr_received: parseInt($('q-nr-rcvd').value || '0', 10) || 0,
+      nr_sent: parseInt($('q-nr-sent').value || '0', 10) || 0,
+      mode: $('q-mode').value,
+      band: $('q-band').value,
+      freq_hz: Math.round(parseFloat($('q-freq').value || '0') * 1000),
+      rst_sent: $('q-rst-sent').value.trim(),
+      rst_received: $('q-rst-rcvd').value.trim(),
+      dok: $('q-dok').value.trim().toUpperCase(),
+      locator: $('q-loc').value.trim().toUpperCase(),
+      itu_zone: $('q-itu').value.trim(),
+      cq_zone: $('q-cq').value.trim(),
+      notes: $('q-notes').value.trim(),
+      lighthouse: $('q-lh').value.trim(),
+      utc_time: $('q-time').value || '',
+    };
+    const cf = (typeof collectCustomFieldsValues === 'function') ? collectCustomFieldsValues() : null;
+    if (cf && cf.values && Object.keys(cf.values).length) {
+      snap.extras = JSON.stringify(cf.values);
+    } else {
+      snap.extras = '';
+    }
+    return snap;
+  }
+
+  async function stashCurrentForm(opts) {
+    if (!me?.contest_id) return null;
+    if (!$('q-call').value.trim()) return null;
+    const snap = collectFormSnapshot();
+    if (opts && typeof opts.freqOverrideHz === 'number') {
+      snap.freq_hz = opts.freqOverrideHz;
+    }
+    if (!snap.callsign) return null;
+    const res = await api('/api/contests/' + me.contest_id + '/stashes', {
+      method: 'POST', body: JSON.stringify(snap),
+    });
+    if (!res.ok) return null;
+    const created = await res.json().catch(() => null);
+    if (created) {
+      if (!stashes.find(s => s.id === created.id)) stashes.unshift(created);
+      renderStashList();
+    }
+    // Clear the form like ESC would.
+    cancelQsoEdit();
+    return created;
+  }
+
+  async function loadStashes() {
+    if (!me?.contest_id) { stashes = []; renderStashList(); return; }
+    const res = await api('/api/contests/' + me.contest_id + '/stashes');
+    if (res.ok) {
+      stashes = (await res.json()) || [];
+    } else {
+      stashes = [];
+    }
+    renderStashList();
+  }
+
+  function fmtStashAge(createdAt) {
+    const t = new Date(createdAt).getTime();
+    if (!Number.isFinite(t)) return '';
+    const diffSec = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (diffSec < 60) return t_safe('stash.ageJustNow', null, 'just now');
+    const mins = Math.floor(diffSec / 60);
+    if (mins < 60) return t_safe('stash.ageMinutes', { n: mins }, mins + ' min ago');
+    const hrs = Math.floor(mins / 60);
+    return t_safe('stash.ageHours', { n: hrs }, hrs + ' h ago');
+  }
+
+  // Wrapper that falls back to plain English if the i18n key isn't yet loaded.
+  function t_safe(key, vars, fallback) {
+    try {
+      const out = t(key, vars || {});
+      if (out && out !== key) return out;
+    } catch {}
+    if (!vars) return fallback;
+    return Object.keys(vars).reduce((s, k) => s.replace('{' + k + '}', vars[k]), fallback);
+  }
+
+  function renderStashList() {
+    const list = $('stash-list');
+    const empty = $('stash-empty');
+    const badge = $('stash-count-badge');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!stashes.length) {
+      if (empty) empty.classList.remove('hidden');
+      if (badge) { badge.classList.add('hidden'); badge.textContent = ''; }
+      return;
+    }
+    if (empty) empty.classList.add('hidden');
+    if (badge) { badge.textContent = String(stashes.length); badge.classList.remove('hidden'); }
+    for (const st of stashes) {
+      const li = document.createElement('li');
+      li.className = 'stash-item';
+      li.title = t_safe('stash.recallTitle', null, 'Tune TRX and reload form');
+      const freqKHz = (st.freq_hz / 1000).toFixed(2);
+      const bandLabel = (typeof fmtBand === 'function') ? fmtBand(st.band || '') : (st.band || '');
+      const main = document.createElement('div');
+      main.className = 'stash-main';
+      main.innerHTML = `
+        <div class="stash-line1">
+          <strong>${escHtml(st.callsign || '')}</strong>
+          <span class="stash-freq">${escHtml(freqKHz)} kHz</span>
+          <span class="stash-band">${escHtml(bandLabel)}</span>
+          <span class="stash-mode">${escHtml(st.mode || '')}</span>
+        </div>
+        <div class="stash-line2 muted small">
+          ${st.name ? escHtml(st.name) + ' · ' : ''}${st.locator ? escHtml(st.locator) + ' · ' : ''}<span class="stash-age">${escHtml(fmtStashAge(st.created_at))}</span>
+        </div>`;
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'ghost small stash-delete-btn';
+      del.textContent = '×';
+      del.title = t_safe('common.delete', null, 'Delete');
+      del.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const res = await api('/api/contests/' + me.contest_id + '/stashes/' + st.id, { method: 'DELETE' });
+        if (res.ok) {
+          stashes = stashes.filter(x => x.id !== st.id);
+          renderStashList();
+        }
+      });
+      li.appendChild(main);
+      li.appendChild(del);
+      li.addEventListener('click', () => recallStash(st));
+      list.appendChild(li);
+    }
+  }
+
+  async function recallStash(stash) {
+    if (!stash) return;
+    // Auto-stash current form contents (if any) before overwriting.
+    if ($('q-call').value.trim() !== '' && editingQsoId === null) {
+      const sel = me?.selected_rig;
+      const oldFreqHz = sel ? lastRigFreqs[sel] : undefined;
+      await stashCurrentForm(typeof oldFreqHz === 'number' && oldFreqHz > 0 ? { freqOverrideHz: oldFreqHz } : null);
+    }
+    // Populate form from stash.
+    $('q-call').value = stash.callsign || '';
+    $('q-name').value = stash.name || '';
+    $('q-nr-rcvd').value = stash.nr_received ? String(stash.nr_received) : '';
+    $('q-nr-sent').value = '';
+    if (stash.mode) $('q-mode').value = stash.mode;
+    if (stash.band) $('q-band').value = stash.band;
+    $('q-freq').value = stash.freq_hz ? (stash.freq_hz / 1000).toFixed(2) : '';
+    $('q-rst-sent').value = stash.rst_sent || '';
+    $('q-rst-rcvd').value = stash.rst_received || '';
+    $('q-dok').value = stash.dok || '';
+    $('q-loc').value = stash.locator || '';
+    $('q-itu').value = stash.itu_zone || '';
+    $('q-cq').value = stash.cq_zone || '';
+    $('q-notes').value = stash.notes || '';
+    $('q-lh').value = stash.lighthouse || '';
+    $('q-time').value = stash.utc_time || '';
+    // Restore custom field values.
+    if (stash.extras && typeof applyCustomFieldsValues === 'function') {
+      try { applyCustomFieldsValues(JSON.parse(stash.extras)); } catch {}
+    }
+    applyRSTDefaults($('q-mode').value);
+    updateDuplicateBadge();
+    // Tune the selected TRX to the stashed frequency.
+    if (me?.selected_rig && stash.freq_hz > 0) {
+      api('/api/rigs/set_freq', {
+        method: 'POST',
+        body: JSON.stringify({ freq_hz: stash.freq_hz, mode: stash.mode || '' }),
+      }).catch(() => {});
+      // Prevent the resulting WS rig update from re-stashing.
+      lastRigFreqs[me.selected_rig] = stash.freq_hz;
+    }
+    // Trigger lookup so the left panel updates picture/locator.
+    if (stash.callsign && stash.callsign.length >= 3 && typeof triggerQRZLookup === 'function') {
+      clearLeftPanel();
+      triggerQRZLookup(stash.callsign);
+    }
+    currentTargetLocator = stash.locator || null;
+    if (typeof updateCallCountry === 'function') updateCallCountry(stash.callsign);
+    if (typeof updateMap === 'function') updateMap();
+    // Delete server-side.
+    await api('/api/contests/' + me.contest_id + '/stashes/' + stash.id, { method: 'DELETE' }).catch(() => {});
+    stashes = stashes.filter(x => x.id !== stash.id);
+    renderStashList();
+    $('q-call').focus();
+  }
+
+  // Periodically refresh age labels on the stash list.
+  if (stashAgeTimer) clearInterval(stashAgeTimer);
+  stashAgeTimer = setInterval(() => {
+    if (!stashes.length) return;
+    document.querySelectorAll('#stash-list .stash-age').forEach((el, i) => {
+      const st = stashes[i];
+      if (st) el.textContent = fmtStashAge(st.created_at);
+    });
+  }, 60000);
 
   // ----- chat -----
   const chatHistory = [];
@@ -3038,6 +3248,10 @@
         <input name="qth" value="${escHtml(c.qth || '')}" placeholder="${escHtml(t('contestScreen.qthPlaceholder'))}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase"${d} />
         ${buildBandSelectHTML(c.bands || [])}
         <label style="margin-top:10px"><input type="checkbox" name="nr_padded" ${c.nr_padded !== false ? 'checked' : ''}${d} /> ${escHtml(t('contestScreen.nrPadded'))}</label>
+        <label style="margin-top:10px">${escHtml(t('contestScreen.stashExpiryMinutes'))}
+          <input type="number" name="stash_expiry_minutes" min="1" max="10080" value="${escHtml(String(c.stash_expiry_minutes && c.stash_expiry_minutes > 0 ? c.stash_expiry_minutes : 60))}"${d} style="width:120px" />
+          <span class="muted small">${escHtml(t('contestScreen.stashExpiryHint'))}</span>
+        </label>
         <label style="margin-top:10px">${escHtml(t('contestScreen.customFields'))} <span class="muted small">${escHtml(t('contestScreen.customFieldsPerQSO2'))}</span></label>
         ${buildCustomFieldsEditorHTML(existingFields)}
         <label style="margin-top:10px">${escHtml(t('contestScreen.layoutEditor'))} <span class="muted small">${escHtml(t('contestScreen.layoutHint'))}</span></label>
@@ -3068,6 +3282,7 @@
           qso_layout: serializeQSOLayout(),
           log_columns: serializeLogColumnsEditor(),
           nr_padded: form.nr_padded.checked,
+          stash_expiry_minutes: Math.max(1, parseInt(form.stash_expiry_minutes?.value || '60', 10) || 60),
         }),
       });
       if (!res.ok) {
@@ -3545,6 +3760,16 @@
       if (v) values[name] = v;
     }
     return { values };
+  }
+
+  function applyCustomFieldsValues(values) {
+    if (!values || typeof values !== 'object') return;
+    const grid = document.getElementById('qso-grid');
+    if (!grid) return;
+    grid.querySelectorAll('[data-cf-name]').forEach(el => {
+      const name = el.dataset.cfName;
+      if (name in values) el.value = values[name];
+    });
   }
 
   function serializeCustomFieldsEditor() {
@@ -4322,13 +4547,48 @@
           globalOperators = msg.payload || [];
           renderGlobalOperators();
           break;
-        case 'rigs':
+        case 'rigs': {
           rigs = msg.payload || [];
+          // Detect a TRX-driven frequency change on the currently selected rig.
+          // Triggers a stash when:
+          //   - a callsign has been entered
+          //   - we're not in QSO-edit mode
+          //   - the selected rig is connected and its freq moved by >= 100 Hz
+          const selName = me?.selected_rig;
+          if (selName) {
+            const r = rigs.find(x => x.name === selName);
+            const newFreq = r && r.connected ? r.freq_hz : null;
+            const oldFreq = lastRigFreqs[selName];
+            const haveCall = $('q-call').value.trim() !== '';
+            if (newFreq != null && typeof oldFreq === 'number' && oldFreq > 0 &&
+                Math.abs(newFreq - oldFreq) >= 100 &&
+                haveCall && editingQsoId === null) {
+              // Stash the in-flight pre-QSO using the OLD freq, then fall through to
+              // applySelectedRigToForm() which will set q-freq to the new value.
+              stashCurrentForm({ freqOverrideHz: oldFreq });
+            }
+            lastRigFreqs[selName] = newFreq;
+          }
           renderRigSelect();
           renderRigList();
           renderOperators();
           applySelectedRigToForm();
           renderBandPills();
+          break;
+        }
+        case 'stash_created':
+          if (msg.payload && !stashes.find(s => s.id === msg.payload.id)) {
+            stashes.unshift(msg.payload);
+            renderStashList();
+          }
+          break;
+        case 'stash_deleted':
+          if (msg.payload) {
+            const sid = msg.payload.id;
+            const before = stashes.length;
+            stashes = stashes.filter(s => s.id !== sid);
+            if (stashes.length !== before) renderStashList();
+          }
           break;
         case 'contest_updated':
           if (me && msg.payload.id === me.contest_id) {
@@ -5019,6 +5279,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.31',
+      date: '2026-05-22',
+      en: 'New "Stash" tab next to Status: when the TRX moves to a different frequency mid-entry, the in-flight QSO is auto-stashed (callsign + all other fields kept). Click an entry to retune the TRX and refill the form. Auto-delete after a configurable time (default 60 min, set per contest).',
+      de: 'Neuer Tab „Stash" neben Status: Wenn der TRX während der Eingabe die Frequenz wechselt, wird das laufende QSO automatisch gestasht (Rufzeichen + alle weiteren Felder bleiben erhalten). Klicke einen Eintrag an, um den TRX zurückzustimmen und die Maske wiederherzustellen. Automatisches Löschen nach konfigurierbarer Zeit (Standard 60 min, pro Contest einstellbar).',
+    },
     {
       version: '0.30',
       date: '2026-05-22',
