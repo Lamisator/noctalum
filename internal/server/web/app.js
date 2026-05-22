@@ -5506,6 +5506,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.47',
+      date: '2026-05-22',
+      en: 'Contest picker: a credits footer at the bottom of the screen acknowledges DM2LAP and Claude as co-creators (with the DARC O35 club), states the GPLv3 license, links to the source on GitHub, and links to panthera.org for donations toward wild-cat conservation.',
+      de: 'Contest-Auswahl: Eine Credits-Zeile am unteren Seitenrand würdigt DM2LAP und Claude als Mit-Entwickler (mit dem DARC-OV O35), nennt die GPLv3-Lizenz, verlinkt den Quellcode auf GitHub und panthera.org für Spenden zum Schutz von Wildkatzen.',
+    },
+    {
       version: '0.46',
       date: '2026-05-22',
       en: 'PDF export footer now prints the current app version in the bottom-left corner (was a stale "Noctalum 0.3.0"). The server-side `programVersion` constant is now kept in sync with the CHANGELOG entry on every release, and the footer reads "Noctalum v0.46" to match how the changelog displays it.',

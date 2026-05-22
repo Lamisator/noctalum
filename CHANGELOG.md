@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.47 — 2026-05-22 — Credits footer on the contest picker
+
+- New `<footer class="app-credits">` at the bottom of `#contest-screen`, rendered via `data-i18n-html` so each language ships its own sentence with the two embedded links
+- Text acknowledges DM2LAP + Claude (with the DARC O35 club), states the GPLv3 license, links source code to https://github.com/Lamisator/noctalum, and links donations to https://panthera.org
+- `.contest-screen-body` switched from a centred-row flex container to a centred-column one so the credits footer sits below the contest layout (using the same 1800 px max-width cap, so it visually aligns with the picker on wide screens)
+
 ## v0.46 — 2026-05-22 — PDF footer carries the current app version
 
 - `programVersion` in `internal/server/server.go` was last touched at `0.3.0` and was therefore many releases stale. Bumped to the current `0.46` and the constant is now explicitly documented as the mirror of the top CHANGELOG entry — bump it together going forward
