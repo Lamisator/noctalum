@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.17 — 2026-05-22 12:30 UTC — Download Helper polished
+
+- Linux OS icon replaced with the official Tux from Simple Icons
+- All download buttons now have exactly the same fixed width
+- AppImage downloads show "Recommended" text above the button with an accent-colored border rim
+
 ## v0.16 — 2026-05-22 12:00 UTC — Download Helper refined
 
 - OS picker buttons now display official brand logos (Windows 4-color flag, Apple silhouette, Linux penguin) instead of emoji
