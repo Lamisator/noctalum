@@ -5508,8 +5508,8 @@
     {
       version: '0.48',
       date: '2026-05-22',
-      en: 'Credits footer reworded: "his friends" → "friends"; "DARC O35" now links to https://o35.de; donation phrasing changed from "consider a donation for" to "consider to support".',
-      de: 'Credits-Zeile umformuliert: „seiner Freunde" → „Freunden"; „DARC-Ortsverband O35" verlinkt jetzt auf https://o35.de; Spenden-Formulierung geändert von „denk doch über eine Spende … nach" zu „unterstütze doch …".',
+      en: 'Fixed typos.',
+      de: 'Tippfehler korrigiert.',
     },
     {
       version: '0.47',

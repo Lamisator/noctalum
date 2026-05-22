@@ -1,10 +1,6 @@
 # Noctalum Changelog
 
-## v0.48 — 2026-05-22 — Tweaks to credits footer wording + O35 link
-
-- Dropped the possessive "his" from the DM2LAP/Claude/DARC O35 sentence
-- "DARC O35" / "DARC-Ortsverband O35" now wrapped in an `<a href="https://o35.de">` link
-- Donation phrasing softened from "please consider a donation for …" to "please consider to support …" (DE: "unterstütze doch …")
+## v0.48 — 2026-05-22 — Fixed typos
 
 ## v0.47 — 2026-05-22 — Credits footer on the contest picker
 
