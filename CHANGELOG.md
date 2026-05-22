@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.35 — 2026-05-22 — New-QSO time field becomes a date-and-time picker
+
+- `<input id="q-time">` switched from `type="time"` to `type="datetime-local"` so the optional time field now exposes a date as well — back-log a QSO that happened on a different day without leaving the form
+- Form submit assembles `YYYY-MM-DDTHH:MM:SS` (UTC) directly from the input instead of stitching it together from a separate `dataset.date` field
+- Edit flow pre-fills both date and time from the QSO's UTC timestamp
+
 ## v0.34 — 2026-05-22 — Mobile mode (auto-engages on phones)
 
 - New `body.mobile-mode` class auto-applied when `navigator.userAgent` matches a mobile device or the viewport is ≤640 px wide

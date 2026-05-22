@@ -2443,9 +2443,7 @@
     $('q-lh').value = q.lighthouse || '';
     $('q-notes').value = q.notes || '';
     const qTime = new Date(q.time);
-    const qTimeField = $('q-time');
-    qTimeField.value = qTime.toISOString().substring(11, 19); // HH:MM:SS in UTC
-    qTimeField.dataset.date = qTime.toISOString().substring(0, 10); // YYYY-MM-DD in UTC
+    $('q-time').value = qTime.toISOString().substring(0, 19); // YYYY-MM-DDTHH:MM:SS in UTC
     $('log-qso-btn').textContent = t('qso.saveEdit');
     $('entry-panel-title').textContent = t('qso.editQSO');
     callsignFilter = null;
@@ -2462,7 +2460,6 @@
   function cancelQsoEdit() {
     editingQsoId = null;
     ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
-    delete $('q-time').dataset.date;
     clearQRZInfo();
     currentTargetLocator = null;
     callsignFilter = null;
@@ -2510,9 +2507,8 @@
     };
     const qTimeRaw = $('q-time').value;
     if (qTimeRaw) {
-      const qTimeField = $('q-time');
-      const dateStr = qTimeField.dataset.date || new Date().toISOString().substring(0, 10);
-      body.time = new Date(dateStr + 'T' + qTimeRaw + 'Z').toISOString();
+      // datetime-local emits "YYYY-MM-DDTHH:MM" or "YYYY-MM-DDTHH:MM:SS" — treat as UTC.
+      body.time = new Date(qTimeRaw + 'Z').toISOString();
     }
     // Custom fields: enforce mandatory ones and attach to body.extras as a JSON string.
     const cfResult = collectCustomFieldsValues();
@@ -2559,7 +2555,6 @@
       return;
     }
     ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
-    delete $('q-time').dataset.date;
     clearQRZInfo();
     currentTargetLocator = null;
     callsignFilter = null;
@@ -5421,6 +5416,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.35',
+      date: '2026-05-22',
+      en: 'New QSO form: the optional UTC-time input is now a full date-and-time picker — pick the date and the time together when back-logging a QSO that happened on a different day.',
+      de: 'Neue-QSO-Formular: Die optionale UTC-Zeit ist jetzt eine kombinierte Datum-und-Zeit-Auswahl — wähle Datum und Uhrzeit zusammen, wenn du ein QSO nachträglich für einen anderen Tag eintragen willst.',
+    },
     {
       version: '0.34',
       date: '2026-05-22',
