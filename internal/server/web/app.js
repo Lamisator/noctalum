@@ -5506,6 +5506,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.49',
+      date: '2026-05-24',
+      en: 'Serial-number recycling: deleting a QSO now frees its number on the server. The next number handed out is max(nr_sent) + 1 over the remaining QSOs, so deleting the top-most QSO immediately makes its number available again. An operator already mid-entry keeps their pre-filled number (the empty-form preview is what refreshes); the atomic assignment at log time then gives them whichever number is current.',
+      de: 'NR-Recycling: Beim Löschen eines QSOs wird dessen Nummer auf dem Server wieder freigegeben. Die nächste vergebene Nummer ist nun max(nr_sent) + 1 über die verbleibenden QSOs — wird also das oberste QSO gelöscht, ist dessen Nummer sofort wieder verfügbar. Wenn du gerade mitten in einer Eingabe bist, behältst du die bereits eingetragene Nummer (nur die leere Formular-Vorschau aktualisiert sich); die atomare Zuweisung beim Speichern vergibt dann die aktuell niedrigste freie Nummer.',
+    },
+    {
       version: '0.48',
       date: '2026-05-22',
       en: 'Fixed typos.',

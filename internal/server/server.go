@@ -32,7 +32,7 @@ const (
 	// Bumped with every release; mirror the top entry of the CHANGELOG array
 	// in internal/server/web/app.js so server-side artefacts (ADIF header,
 	// PDF footer) carry the same version the UI advertises.
-	programVersion = "0.46"
+	programVersion = "0.49"
 	dupWindow      = 10 * time.Minute
 )
 
@@ -1032,6 +1032,19 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 		if err := s.store.DeleteQSO(id); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		// Recycle freed NR slots: after a delete, the next number to hand out is
+		// max(nr_sent) + 1 over the remaining QSOs.  An operator mid-entry keeps
+		// "dibs" naturally — their q-nr-sent field already holds a value, so the
+		// frontend preview won't overwrite it, and the atomic assignment at insert
+		// time gives them whatever the current low number is.
+		if maxNr, err := s.store.MaxNrSent(contestID); err == nil {
+			s.nrMu.Lock()
+			if s.nrNext == nil {
+				s.nrNext = make(map[int64]int)
+			}
+			s.nrNext[contestID] = maxNr + 1
+			s.nrMu.Unlock()
 		}
 		s.audit(r, store.AuditInfo, AuditQSODelete, sess.Username, existing.Callsign,
 			"id: "+strconv.FormatInt(id, 10)+", band: "+existing.Band+", mode: "+existing.Mode)

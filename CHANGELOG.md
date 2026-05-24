@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.49 — 2026-05-24 — NR counter recycles freed numbers on QSO delete
+
+- `handleQSOByID` DELETE branch in `internal/server/server.go` now resets `s.nrNext[contestID]` to `MaxNrSent(contestID) + 1` under `nrMu` after the row is removed. Previously the in-memory counter only ever incremented, so deleting the top-most QSO left a gap — the next insert reused the *old* (higher) value instead of the freed one
+- The frontend `updateNrPreview` (`internal/server/web/app.js:2490`) already recomputes from the local `qsos` array on the `qso_deleted` WS event and only fills the field if it's empty (`!field.value`) — an operator mid-entry therefore keeps their pre-filled number, and the server's atomic assignment at log time hands out whichever number is current
+- `programVersion` bumped to `0.49` (was stale at `0.46` — `v0.47` and `v0.48` forgot to bump it; this entry catches it up to today's release)
+
 ## v0.48 — 2026-05-22 — Fixed typos
 
 ## v0.47 — 2026-05-22 — Credits footer on the contest picker
