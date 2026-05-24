@@ -474,6 +474,10 @@
   let stashes = []; // [{id, callsign, freq_hz, ...}] stashed pre-QSOs for the current user+contest
   let lastRigFreqs = {}; // rig name → last known freq_hz, used to detect TRX QSY
   let stashAgeTimer = null;
+  // True when q-nr-sent currently holds an auto-filled preview value (not user-typed).
+  // Lets updateNrPreview refresh a stale preview after another QSO is logged/deleted
+  // without overwriting a number the operator actually typed.
+  let nrSentAutoFilled = false;
 
   function hasPerm(p) {
     if (!me) return false;
@@ -2494,8 +2498,16 @@
     const preview = me && me.contest_nr_padded ? String(next).padStart(3, '0') : String(next);
     const field = $('q-nr-sent');
     field.placeholder = preview;
-    if (!field.value) field.value = preview;
+    // Refresh the field if empty OR if it still holds the auto-filled preview from
+    // a prior state — otherwise a delete/insert elsewhere leaves a stale number
+    // (e.g. field shows 11 after #11 was deleted).  Operator-typed values are
+    // preserved (nrSentAutoFilled is cleared by the input listener).
+    if (!field.value || nrSentAutoFilled) {
+      field.value = preview;
+      nrSentAutoFilled = true;
+    }
   }
+  $('q-nr-sent').addEventListener('input', () => { nrSentAutoFilled = false; });
 
   function loadQsoIntoForm(q) {
     editingQsoId = q.id;
@@ -5505,6 +5517,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.50',
+      date: '2026-05-24',
+      en: 'QSO entry: the "NR given" field now refreshes when another QSO is logged or deleted elsewhere. Previously the auto-filled preview was treated like a typed value, so it stayed put even when the underlying next-number changed — leaving the field showing a stale number that was already in use or just freed. A new flag tracks whether the field holds an auto-filled preview vs. a number you actually typed; only auto-filled values get overwritten on refresh.',
+      de: 'QSO-Eingabe: Das Feld „NR gegeben" wird jetzt aktualisiert, wenn anderswo ein QSO geloggt oder gelöscht wird. Vorher wurde die automatisch eingetragene Vorschau wie ein eingetippter Wert behandelt und blieb stehen, auch wenn sich die nächste Nummer geändert hatte — das Feld zeigte dann eine veraltete Nummer, die bereits vergeben oder gerade freigeworden war. Ein neues Flag unterscheidet jetzt zwischen automatisch eingetragener Vorschau und tatsächlich eingetippter Nummer; nur die Vorschau wird beim Refresh überschrieben.',
+    },
     {
       version: '0.49',
       date: '2026-05-24',

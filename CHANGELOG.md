@@ -1,5 +1,11 @@
 # Noctalum Changelog
 
+## v0.50 — 2026-05-24 — "NR given" form field refreshes on QSO delete/insert
+
+- The auto-fill in `updateNrPreview` (`internal/server/web/app.js:2494`) only wrote to `q-nr-sent` when the field was empty — so once filled, subsequent WS `qso`/`qso_deleted`/`qso_updated` events left the displayed number stale even though the underlying next-NR had changed. The server still assigned the correct number at log time, but the operator saw a value that was already in use or had just been freed
+- New module-level flag `nrSentAutoFilled` tracks whether the field currently holds an auto-filled preview vs. a value the operator typed. `updateNrPreview` now refreshes the field when it's empty OR when it still holds the auto-filled preview. An `input` listener on `q-nr-sent` clears the flag the moment the operator types, so typed values are never overwritten
+- Programmatic `field.value = preview` assignments don't trigger the `input` event, so the listener fires only on real keystrokes
+
 ## v0.49 — 2026-05-24 — NR counter recycles freed numbers on QSO delete
 
 - `handleQSOByID` DELETE branch in `internal/server/server.go` now resets `s.nrNext[contestID]` to `MaxNrSent(contestID) + 1` under `nrMu` after the row is removed. Previously the in-memory counter only ever incremented, so deleting the top-most QSO left a gap — the next insert reused the *old* (higher) value instead of the freed one
