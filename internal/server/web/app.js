@@ -4862,6 +4862,7 @@
             if ('bands' in msg.payload) me.contest_bands = (msg.payload.bands || []).join(',');
             if ('objective' in msg.payload) me.contest_objective = msg.payload.objective;
             if ('station_id' in msg.payload) me.contest_station_id = msg.payload.station_id;
+            const layoutAffected = ('custom_fields' in msg.payload) || ('qso_layout' in msg.payload);
             if ('custom_fields' in msg.payload) me.contest_fields = msg.payload.custom_fields;
             if ('qso_layout' in msg.payload) me.contest_qso_layout = msg.payload.qso_layout;
             if ('log_columns' in msg.payload) { me.contest_log_columns = msg.payload.log_columns; renderQsos(); }
@@ -4872,6 +4873,11 @@
             renderBandPills();
             renderObjective();
             if (typeof renderCustomFields === 'function') renderCustomFields();
+            // applyQSOLayout assigns gridColumn/gridRow + tabIndex from the layout
+            // JSON.  Without this call the QSO-form positions update on next
+            // page load but Tab order stays frozen on whatever order was applied
+            // at form init — the symptom users see as "Tab jumps wildly".
+            if (layoutAffected && typeof applyQSOLayout === 'function') applyQSOLayout();
           }
           break;
         case 'rig_select_denied':
