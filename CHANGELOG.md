@@ -1,5 +1,32 @@
 # Noctalum Changelog
 
+## v0.55 — 2026-05-29 — Contest config reuse, QSO entry polish, and settings-save preservation
+
+### QSO entry mask
+- Date/time tile no longer bursts its 3-column slot — `min-width: 0` now propagates to the `<input>` / `<select>` children so native `datetime-local` collapses to the grid cell (`style.css:2425`)
+- ITU, CQ, locator, lighthouse, notes, DOK, and the nr-sent/nr-rcvd inputs got `autocomplete="off"` to stop browser autofill from prefilling stale values. Doubles as the answer to the "ITU/CQ auto-filled with wrong zones" report: there is no zone lookup in the codebase; the values came from the browser's form memory
+- Submit handler now rejects mismatched frequency/band combinations: `qso.freqBandMismatch` when the typed frequency belongs to a known band other than the selected one, `qso.freqNoBand` when it falls outside every amateur band. The existing auto-snap on freq input keeps doing its job, so most users never see the error
+- Tab order through the QSO form now refreshes when the layout changes — `applyQSOLayout()` runs from the `contest_updated` WS handler whenever `qso_layout` or `custom_fields` is in the payload, so dragging fields and saving immediately rewrites `tabIndex` on the live form
+- Enter pressed inside the Band or Mode `<select>` submits the form (browsers swallow Enter inside `<select>` natively). A new keydown listener on `#qso-form` calls `requestSubmit()`; all other Enter handling stays untouched
+
+### Contest configuration reuse
+- New "Duplicate" pill on every contest tile (`POST /api/contests/:id/copy`): clones custom fields, QSO-mask layout, log columns, band list, NR padding, stash expiry and station defaults into a fresh empty contest. Permissions mirror the create flow (`contests.manage` for public, `create_private` for private) plus read access to the source. `Store.DuplicateContest()` lives in `internal/store/contests.go`
+- Cross-operator share-via-link workflow (`internal/server/shares.go`, `internal/store/shares.go`). New `contest_shares` table (token PK, contest_id, owner_user_id, source_name, frozen JSON payload, created_at) backs 22-char URL-safe tokens from `crypto/rand`. Endpoints: `POST/GET/DELETE /api/contests/:id/shares[/{tok}]` for the owner side, public `GET /api/share/:token` for previews (returns payload summary — custom-field count, layout tiles, bands — so importers can inspect before committing), and `POST /api/import-share` to materialise a snapshot into a new contest. Station identity (callsign/QTH/station_id) is intentionally not in the payload — importer brings their own
+- A 🔗 pill on each contest tile opens `contestShareModal()` with the existing share links (copy-URL and revoke actions) plus a "Create share link" button. The contest picker gains "Import shared config" next to "+ New Contest" in both card and list views; `showContestScreen()` auto-detects `?share=TOKEN` in the page URL, strips the query and pre-fills the import dialog
+- `DeleteContest` cascades into `DeleteSharesForContest` so revoking a contest doesn't leave dangling tokens
+- All visible strings localised in EN and informal-du DE
+
+### Settings-save preservation
+- `/api/settings` PUT now decodes every field as `*string` / `*int` / `*bool`. `nil` = "field absent → preserve current"; non-nil = "client sent this, apply it". The handler starts `ns` from `s.settings` and overlays only the fields actually present in the request body
+- Resolves a class of silent data-loss bugs caused by three forms (`#global-settings-form`, `#settings-form`, `#ms-settings-form`) sharing one endpoint while each managing a different subset of fields. Saving Global Settings used to wipe `default_mode` / `default_band` — this is what the long-standing "defaults can't be saved" report was actually about. Saving Personal Settings used to wipe `cluster_server` / `chat_sound` / `public_feature_requests`. Any save could wipe the QRZ.com credentials
+- Audit-log "details" line rebuilt with `appendDetail()` so it only mentions fields the request actually touched
+- Client-side belt-and-braces: `showGlobalSettings()` and `loadSettings()` stash the loaded QRZ username; the submit handler only sends `qrz_username` when the input differs and `qrz_password` when the operator typed something. Works in tandem with the pointer-based server change
+
+### Other UX polish
+- Global Settings card got a top toolbar with the heading on the left and Back-to-contests + Save on the right. The top Save is a `<button type=submit form=global-settings-form>` so the existing submit handler does all the work; the action group wraps below the heading on narrow screens
+- Sidebar nav labels renamed for clarity: operator-facing "My Requests" pill is now "Feature Requests"; the admin-only button is now "View all Feature Requests". EN + DE catalogs updated; templates already bound via `data-i18n` so no HTML edits needed
+- `programVersion` bumped to `0.55`
+
 ## v0.54 — 2026-05-29 — Sortable columns on feature-request tables
 
 - `#fr-table` and `#my-fr-table` headers gain `class="sortable"` + `data-sort-key`; the checkbox column and the trailing actions column in the admin table stay unsortable
