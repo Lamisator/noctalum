@@ -201,6 +201,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/roles/", s.requirePerm(PermUsersManage, s.handleRoleByID))
 	mux.HandleFunc("/api/contests", s.requireAuth(s.handleContests))
 	mux.HandleFunc("/api/contests/", s.requireAuth(s.handleContestByID))
+	// Share preview is public — the token is a bearer credential and the
+	// payload carries no PII.  Importing a share creates a contest and
+	// requires auth.
+	mux.HandleFunc("/api/share/", s.handleSharePreview)
+	mux.HandleFunc("/api/import-share", s.requireAuth(s.handleImportShare))
 	mux.HandleFunc("/api/export/adif", s.requirePerm(PermQSOExport, s.handleExportADIF))
 	mux.HandleFunc("/api/export/cabrillo", s.requirePerm(PermQSOExport, s.handleExportCabrillo))
 	mux.HandleFunc("/api/export/csv", s.requirePerm(PermQSOExport, s.handleExportCSV))
@@ -2448,6 +2453,12 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		}
 
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// Shares sub-route: /api/contests/{id}/shares[/{token}]
+	if sub == "shares" || strings.HasPrefix(sub, "shares/") {
+		s.handleContestShares(w, r, id, sub)
 		return
 	}
 

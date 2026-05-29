@@ -124,8 +124,9 @@
         <div class="contest-columns">
           <div class="contest-col">
             <div id="contest-picker-list" class="contest-picker-list"></div>
-            <div id="contest-create-section" class="hidden" style="margin-top:16px">
-              <button id="create-contest-btn" class="primary" style="width:100%" data-i18n="contestScreen.newContest">+ New Contest</button>
+            <div id="contest-create-section" class="hidden" style="margin-top:16px;display:flex;gap:8px">
+              <button id="create-contest-btn" class="primary" style="flex:1" data-i18n="contestScreen.newContest">+ New Contest</button>
+              <button id="import-share-btn" class="ghost" data-i18n="contestScreen.importShareBtn">Import shared config</button>
             </div>
           </div>
           <div class="contest-col contest-col-private hidden" id="private-contest-col">
@@ -152,6 +153,7 @@
         <div class="contest-list-actions">
           <div id="contest-list-create-section" class="hidden">
             <button id="create-contest-btn-list" class="ghost" data-i18n="contestScreen.newContest">+ New Contest</button>
+            <button id="import-share-btn-list" class="ghost" data-i18n="contestScreen.importShareBtn">Import shared config</button>
           </div>
           <div id="contest-list-create-private-section" class="hidden">
             <button id="create-private-contest-btn-list" class="ghost" data-i18n="contestScreen.newPrivateContest">+ New Private Contest</button>

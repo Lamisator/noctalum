@@ -784,6 +784,8 @@
   $('create-private-contest-btn').addEventListener('click', () => contestCreateModal(true));
   $('create-contest-btn-list').addEventListener('click', () => contestCreateModal());
   $('create-private-contest-btn-list').addEventListener('click', () => contestCreateModal(true));
+  $('import-share-btn')?.addEventListener('click', () => contestImportShareModal());
+  $('import-share-btn-list')?.addEventListener('click', () => contestImportShareModal());
 
   // Toolbar: status filter pills
   document.querySelectorAll('.cpill[data-cf]').forEach(btn => {
@@ -846,6 +848,18 @@
     renderDownloads(downloads);
     renderGlobalOperators();
     show('contest-screen');
+    // If the user followed a share link (?share=TOKEN), open the import flow
+    // pre-filled with that token.  Strip the query so a page reload does not
+    // re-open the dialog after the operator dismissed it.
+    const params = new URLSearchParams(window.location.search);
+    const shareTok = params.get('share');
+    if (shareTok) {
+      params.delete('share');
+      const qs = params.toString();
+      const url = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
+      window.history.replaceState({}, '', url);
+      contestImportShareModal(shareTok);
+    }
   }
 
   function renderDownloads(files) {
@@ -1035,11 +1049,15 @@
     const canDuplicate = c.private
       ? (hasPerm('contests.manage') || hasPerm('contests.manage_private') || hasPerm('contests.create_private'))
       : hasPerm('contests.manage');
+    const canShare = canEditThis;
     const editBtn = canEditThis
       ? `<button class="contest-edit-pill" title="Edit contest" tabindex="-1">&#128295;</button>`
       : '';
     const duplicateBtn = canDuplicate
       ? `<button class="contest-edit-pill contest-duplicate-pill" title="${escHtml(t('contestScreen.duplicateTitle'))}" tabindex="-1">&#128203;</button>`
+      : '';
+    const shareBtn = canShare
+      ? `<button class="contest-edit-pill contest-share-pill" title="${escHtml(t('contestScreen.sharePillTitle'))}" tabindex="-1">&#128279;</button>`
       : '';
     const accessBtn = canManageAccess
       ? `<button class="contest-edit-pill contest-access-pill" title="${escHtml(t('contestScreen.accessAuthorize'))}" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
@@ -1060,12 +1078,13 @@
         <span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span>
         ${joinBtn}
         ${accessBtn}
+        ${shareBtn}
         ${duplicateBtn}
         ${editBtn}
       </div>
     `;
     if (canEditThis) {
-      item.querySelector('.contest-edit-pill:not(.contest-access-pill):not(.contest-duplicate-pill)')?.addEventListener('click', async (e) => {
+      item.querySelector('.contest-edit-pill:not(.contest-access-pill):not(.contest-duplicate-pill):not(.contest-share-pill)')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         contestEditModal(c);
       });
@@ -1074,6 +1093,12 @@
       item.querySelector('.contest-duplicate-pill')?.addEventListener('click', (e) => {
         e.stopPropagation();
         contestDuplicateModal(c);
+      });
+    }
+    if (canShare) {
+      item.querySelector('.contest-share-pill')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        contestShareModal(c);
       });
     }
     if (canManageAccess) {
@@ -1233,10 +1258,14 @@
     const canDuplicate = c.private
       ? (hasPerm('contests.manage') || hasPerm('contests.manage_private') || hasPerm('contests.create_private'))
       : hasPerm('contests.manage');
+    const canShare = canEditThis;
     const editBtn = canEditThis
       ? `<button class="contest-edit-pill" title="${escHtml(t('contestScreen.editTitle'))}" tabindex="-1">&#128295;</button>` : '';
     const duplicateBtn = canDuplicate
       ? `<button class="contest-edit-pill contest-duplicate-pill" title="${escHtml(t('contestScreen.duplicateTitle'))}" tabindex="-1">&#128203;</button>`
+      : '';
+    const shareBtn = canShare
+      ? `<button class="contest-edit-pill contest-share-pill" title="${escHtml(t('contestScreen.sharePillTitle'))}" tabindex="-1">&#128279;</button>`
       : '';
     const accessBtn = canManageAccess
       ? `<button class="contest-edit-pill contest-access-pill" title="${escHtml(t('contestScreen.accessAuthorize'))}" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
@@ -1254,10 +1283,10 @@
       <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span></div>
       <div class="cl-col cl-date">${createdDate}</div>
       <div class="cl-col cl-activity">${actDate}</div>
-      <div class="cl-col cl-actions">${joinBtn}${accessBtn}${duplicateBtn}${editBtn}</div>
+      <div class="cl-col cl-actions">${joinBtn}${accessBtn}${shareBtn}${duplicateBtn}${editBtn}</div>
     `;
     if (canEditThis) {
-      row.querySelector('.contest-edit-pill:not(.contest-access-pill):not(.contest-duplicate-pill)')?.addEventListener('click', async (e) => {
+      row.querySelector('.contest-edit-pill:not(.contest-access-pill):not(.contest-duplicate-pill):not(.contest-share-pill)')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         contestEditModal(c);
       });
@@ -1266,6 +1295,12 @@
       row.querySelector('.contest-duplicate-pill')?.addEventListener('click', (e) => {
         e.stopPropagation();
         contestDuplicateModal(c);
+      });
+    }
+    if (canShare) {
+      row.querySelector('.contest-share-pill')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        contestShareModal(c);
       });
     }
     if (canManageAccess) {
@@ -3738,6 +3773,224 @@
         else alert(t('contestScreen.participantUpdateFail'));
       });
     });
+  }
+
+  // ----- Contest share-link modal -----
+  // Renders the list of existing share tokens for the contest plus a button
+  // to mint a new one.  Each row shows the URL with copy + revoke actions.
+  function contestShareModal(c) {
+    const rowsHtml = `<div id="share-list-rows" class="share-list-rows"><span class="muted small">${escHtml(t('common.loading'))}</span></div>`;
+    showModal(`
+      <h3>${escHtml(t('contestScreen.shareTitle'))}: ${escHtml(c.name)}</h3>
+      <p class="muted small">${escHtml(t('contestScreen.shareCreateHint'))}</p>
+      <div class="modal-actions" style="margin:8px 0 4px">
+        <button type="button" id="share-create-btn" class="primary">${escHtml(t('contestScreen.shareCreate'))}</button>
+      </div>
+      <label style="margin-top:14px">${escHtml(t('contestScreen.shareList'))}</label>
+      ${rowsHtml}
+      <div class="modal-err error"></div>
+      <div class="modal-actions">
+        <button type="button" class="ghost cancel-btn">${escHtml(t('common.close'))}</button>
+      </div>
+    `, null);
+
+    const errEl = document.querySelector('#modal-card .modal-err');
+
+    function shareUrl(tok) {
+      return `${window.location.origin}/?share=${encodeURIComponent(tok)}`;
+    }
+
+    function renderShareRow(s) {
+      const url = shareUrl(s.token);
+      const created = s.created_at ? new Date(s.created_at).toLocaleString(localeForFmt()) : '';
+      return `<div class="share-row" data-token="${escHtml(s.token)}">
+        <div class="share-row-meta">
+          <code class="share-row-url">${escHtml(url)}</code>
+          <span class="muted small">${escHtml(t('contestScreen.shareCreated'))}: ${escHtml(created)}</span>
+        </div>
+        <div class="share-row-actions">
+          <button class="ghost small share-copy-btn">${escHtml(t('contestScreen.shareCopyUrl'))}</button>
+          <button class="danger small share-revoke-btn">${escHtml(t('contestScreen.shareRevoke'))}</button>
+        </div>
+      </div>`;
+    }
+
+    function bindRowHandlers(container) {
+      container.querySelectorAll('.share-copy-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('.share-row');
+          const tok = row?.dataset.token;
+          if (!tok) return;
+          const url = shareUrl(tok);
+          try {
+            await navigator.clipboard.writeText(url);
+            const original = btn.textContent;
+            btn.textContent = t('contestScreen.shareCopied');
+            setTimeout(() => { btn.textContent = original; }, 1500);
+          } catch {
+            // Fallback for browsers without clipboard permission
+            const ta = document.createElement('textarea');
+            ta.value = url;
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch {}
+            document.body.removeChild(ta);
+          }
+        });
+      });
+      container.querySelectorAll('.share-revoke-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('.share-row');
+          const tok = row?.dataset.token;
+          if (!tok) return;
+          if (!await showConfirm(t('contestScreen.shareRevokeConfirm'), { ok: t('contestScreen.shareRevoke') })) return;
+          const res = await api(`/api/contests/${c.id}/shares/${encodeURIComponent(tok)}`, { method: 'DELETE' });
+          if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            if (errEl) errEl.textContent = j.error || t('contestScreen.shareRevokeFail');
+            return;
+          }
+          if (errEl) errEl.textContent = '';
+          row.remove();
+          ensureEmptyHint();
+        });
+      });
+    }
+
+    function ensureEmptyHint() {
+      const list = document.getElementById('share-list-rows');
+      if (!list) return;
+      if (!list.querySelector('.share-row')) {
+        list.innerHTML = `<span class="muted small">${escHtml(t('contestScreen.shareNone'))}</span>`;
+      }
+    }
+
+    async function refreshList() {
+      const list = document.getElementById('share-list-rows');
+      if (!list) return;
+      const res = await api(`/api/contests/${c.id}/shares`);
+      if (!res.ok) {
+        list.innerHTML = `<span class="error small">${escHtml(t('contestScreen.shareLoadFail'))}</span>`;
+        return;
+      }
+      const shares = await res.json();
+      if (!shares || !shares.length) {
+        list.innerHTML = `<span class="muted small">${escHtml(t('contestScreen.shareNone'))}</span>`;
+        return;
+      }
+      list.innerHTML = shares.map(renderShareRow).join('');
+      bindRowHandlers(list);
+    }
+
+    document.getElementById('share-create-btn')?.addEventListener('click', async () => {
+      if (errEl) errEl.textContent = '';
+      const res = await api(`/api/contests/${c.id}/shares`, { method: 'POST' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        if (errEl) errEl.textContent = j.error || t('contestScreen.shareCreateFail');
+        return;
+      }
+      await refreshList();
+    });
+
+    refreshList();
+  }
+
+  // ----- Import shared configuration modal -----
+  // Lets the operator paste a share URL or token, previews the contained
+  // configuration, then creates a fresh contest from it (their station call /
+  // QTH, the source contest's layout + custom fields + columns + bands).
+  function contestImportShareModal(initialToken) {
+    const canPriv = hasPerm('contests.create_private') || hasPerm('contests.manage_private');
+    showModal(`
+      <h3>${escHtml(t('contestScreen.importShareTitle'))}</h3>
+      <form>
+        <label>${escHtml(t('contestScreen.importSharePrompt'))}</label>
+        <input name="token" autocomplete="off" required value="${escHtml(initialToken || '')}" />
+        <div id="import-share-preview" class="muted small" style="margin-top:8px"></div>
+        <hr style="margin:14px 0;border:none;border-top:1px solid var(--border)">
+        <label>${escHtml(t('contestScreen.importShareNewName'))}</label>
+        <input name="name" autocomplete="off" required />
+        <label>${escHtml(t('contestScreen.stationCall'))}</label>
+        <input name="station_call" autocomplete="off" autocapitalize="characters" required />
+        <label>${escHtml(t('contestScreen.qthLocator'))}</label>
+        <input name="qth" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
+        ${canPriv ? `<label style="margin-top:10px"><input type="checkbox" name="private" /> ${escHtml(t('contestScreen.privateContest'))}</label>` : ''}
+        <div class="modal-err error"></div>
+        <div class="modal-actions">
+          <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
+          <button type="submit" class="primary">${escHtml(t('contestScreen.importShareSubmit'))}</button>
+        </div>
+      </form>
+    `, async (form) => {
+      const tok = extractShareToken(form.token.value);
+      if (!tok) throw new Error(t('contestScreen.importShareLookupFail'));
+      const res = await api('/api/import-share', {
+        method: 'POST',
+        body: JSON.stringify({
+          token: tok,
+          name: form.name.value.trim(),
+          station_call: form.station_call.value.trim().toUpperCase(),
+          qth: form.qth.value.trim().toUpperCase(),
+          private: !!(form.private && form.private.checked),
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || t('contestScreen.importShareCreateFail'));
+      }
+      await refreshContests();
+      if (!$('contest-screen').classList.contains('hidden')) {
+        const r = await api('/api/contests');
+        if (r.ok) allContests = await r.json();
+        renderContestPicker();
+      }
+    });
+
+    const tokenInput = document.querySelector('#modal-card input[name="token"]');
+    const preview = document.getElementById('import-share-preview');
+    const nameInput = document.querySelector('#modal-card input[name="name"]');
+
+    async function refreshPreview() {
+      const tok = extractShareToken(tokenInput.value);
+      if (!tok) { preview.textContent = ''; return; }
+      const res = await fetch(`/api/share/${encodeURIComponent(tok)}`);
+      if (!res.ok) {
+        preview.innerHTML = `<span class="error">${escHtml(t('contestScreen.importShareLookupFail'))}</span>`;
+        return;
+      }
+      const j = await res.json();
+      const s = j.summary || {};
+      preview.innerHTML = `
+        <div><b>${escHtml(t('contestScreen.importSharePreviewTitle'))}</b> ${escHtml(j.source_name || '')}</div>
+        <div>${escHtml(t('contestScreen.importSharePreviewFields'))} ${s.custom_field_count || 0}</div>
+        <div>${escHtml(t('contestScreen.importSharePreviewLayout'))} ${s.layout_item_count || 0}</div>
+        <div>${escHtml(t('contestScreen.importSharePreviewBands'))} ${escHtml((s.bands || []).map(fmtBand).join(', ') || '—')}</div>`;
+      if (nameInput && !nameInput.value && j.source_name) {
+        nameInput.value = j.source_name + t('contestScreen.duplicateSuffix');
+      }
+    }
+    if (tokenInput) {
+      tokenInput.addEventListener('input', () => {
+        clearTimeout(tokenInput._previewTimer);
+        tokenInput._previewTimer = setTimeout(refreshPreview, 250);
+      });
+      if (tokenInput.value) refreshPreview();
+    }
+  }
+
+  // Extract the share token from either a raw token string or a full share
+  // URL (?share=TOKEN).  Returns '' if nothing token-like is present.
+  function extractShareToken(input) {
+    const raw = (input || '').trim();
+    if (!raw) return '';
+    try {
+      const u = new URL(raw, window.location.origin);
+      const fromQuery = u.searchParams.get('share');
+      if (fromQuery) return fromQuery.trim();
+    } catch {}
+    // Bare token — strip any leading "share=" prefix users sometimes paste.
+    return raw.replace(/^share=/, '');
   }
 
   // ----- Contest duplicate modal -----

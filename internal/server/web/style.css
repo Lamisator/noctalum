@@ -1119,6 +1119,45 @@ button.contest-edit-pill:hover {
   font-size: 12px;
 }
 
+/* ==== Share-link list (inside Share configuration modal) ==== */
+.share-list-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.share-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.share-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.share-row-url {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.share-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.share-row-actions button {
+  margin: 0;
+}
+
 /* ==== Contest picker toolbar ==== */
 .contest-toolbar {
   display: flex;

@@ -285,12 +285,16 @@ func (s *Store) DuplicateContest(srcID int64, newName string, ownerUserID int64)
 	)
 }
 
-// DeleteContest removes a contest, its access list, and participants from the database.
+// DeleteContest removes a contest, its access list, participants, and any
+// outstanding share tokens that point at it.
 func (s *Store) DeleteContest(id int64) error {
 	if _, err := s.db.Exec(`DELETE FROM contest_access WHERE contest_id = ?`, id); err != nil {
 		return err
 	}
 	if _, err := s.db.Exec(`DELETE FROM contest_participants WHERE contest_id = ?`, id); err != nil {
+		return err
+	}
+	if err := s.DeleteSharesForContest(id); err != nil {
 		return err
 	}
 	_, err := s.db.Exec(`DELETE FROM contests WHERE id = ?`, id)
