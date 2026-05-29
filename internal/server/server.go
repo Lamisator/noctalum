@@ -32,7 +32,7 @@ const (
 	// Bumped with every release; mirror the top entry of the CHANGELOG array
 	// in internal/server/web/app.js so server-side artefacts (ADIF header,
 	// PDF footer) carry the same version the UI advertises.
-	programVersion = "0.52"
+	programVersion = "0.53"
 	dupWindow      = 10 * time.Minute
 )
 
@@ -1062,9 +1062,10 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		out := map[string]any{
-			"default_mode": s.settings.DefaultMode,
-			"default_band": s.settings.DefaultBand,
-			"chat_sound":   s.settings.ChatSound,
+			"default_mode":            s.settings.DefaultMode,
+			"default_band":            s.settings.DefaultBand,
+			"chat_sound":              s.settings.ChatSound,
+			"public_feature_requests": s.settings.PublicFeatureRequests,
 		}
 		if HasPermission(sess.Permissions, PermSettingsWrite) {
 			out["helper_token"] = s.settings.HelperToken
@@ -1082,15 +1083,16 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in struct {
-			DefaultMode          string `json:"default_mode"`
-			DefaultBand          string `json:"default_band"`
-			RegenHelperToken     bool   `json:"regen_helper_token"`
-			QRZUsername          string `json:"qrz_username"`
-			QRZPassword          string `json:"qrz_password"`
-			ClusterCall          string `json:"cluster_call"`
-			ClusterServer        string `json:"cluster_server"`
-			ClusterRetentionDays int    `json:"cluster_retention_days"`
-			ChatSound            string `json:"chat_sound"`
+			DefaultMode           string `json:"default_mode"`
+			DefaultBand           string `json:"default_band"`
+			RegenHelperToken      bool   `json:"regen_helper_token"`
+			QRZUsername           string `json:"qrz_username"`
+			QRZPassword           string `json:"qrz_password"`
+			ClusterCall           string `json:"cluster_call"`
+			ClusterServer         string `json:"cluster_server"`
+			ClusterRetentionDays  int    `json:"cluster_retention_days"`
+			ChatSound             string `json:"chat_sound"`
+			PublicFeatureRequests bool   `json:"public_feature_requests"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1101,15 +1103,16 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			retDays = s.settings.ClusterRetentionDays
 		}
 		ns := store.Settings{
-			DefaultMode:          in.DefaultMode,
-			DefaultBand:          in.DefaultBand,
-			HelperToken:          s.settings.HelperToken,
-			QRZUsername:          in.QRZUsername,
-			QRZPassword:          s.settings.QRZPassword,
-			ClusterCall:          s.settings.ClusterCall,
-			ClusterServer:        s.settings.ClusterServer,
-			ClusterRetentionDays: retDays,
-			ChatSound:            in.ChatSound,
+			DefaultMode:           in.DefaultMode,
+			DefaultBand:           in.DefaultBand,
+			HelperToken:           s.settings.HelperToken,
+			QRZUsername:           in.QRZUsername,
+			QRZPassword:           s.settings.QRZPassword,
+			ClusterCall:           s.settings.ClusterCall,
+			ClusterServer:         s.settings.ClusterServer,
+			ClusterRetentionDays:  retDays,
+			ChatSound:             in.ChatSound,
+			PublicFeatureRequests: in.PublicFeatureRequests,
 		}
 		if in.ClusterCall != "" {
 			ns.ClusterCall = strings.ToUpper(strings.TrimSpace(in.ClusterCall))
@@ -2797,7 +2800,13 @@ func (s *Server) handleMyFeatureRequests(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	sess := sessionFor(s, r)
-	list, err := s.store.ListFeatureRequestsByUser(sess.Username)
+	var list []store.FeatureRequest
+	var err error
+	if s.settings.PublicFeatureRequests {
+		list, err = s.store.ListFeatureRequests()
+	} else {
+		list, err = s.store.ListFeatureRequestsByUser(sess.Username)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -48,6 +48,7 @@ type Settings struct {
 	ClusterServer         string `json:"cluster_server"`
 	ClusterRetentionDays  int    `json:"cluster_retention_days"`
 	ChatSound             string `json:"chat_sound"` // "" | "beep" | "ding" | "chime"
+	PublicFeatureRequests bool   `json:"public_feature_requests"`
 }
 
 // DummyRig is a simulated transceiver configuration persisted in the database.
@@ -472,6 +473,8 @@ func (s *Store) LoadSettings() (Settings, error) {
 			}
 		case "chat_sound":
 			out.ChatSound = v
+		case "public_feature_requests":
+			out.PublicFeatureRequests = v == "1" || v == "true"
 		}
 	}
 	return out, rows.Err()
@@ -496,6 +499,11 @@ func (s *Store) SaveSettings(set Settings) error {
 		pairs = append(pairs, [2]string{"cluster_retention_days", strconv.Itoa(set.ClusterRetentionDays)})
 	}
 	pairs = append(pairs, [2]string{"chat_sound", set.ChatSound})
+	publicFR := "0"
+	if set.PublicFeatureRequests {
+		publicFR = "1"
+	}
+	pairs = append(pairs, [2]string{"public_feature_requests", publicFR})
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err

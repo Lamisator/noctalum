@@ -218,6 +218,14 @@
         </div>
       </fieldset>
       <fieldset style="margin-top:16px">
+        <legend data-i18n="globalSettings.featureRequestsTitle">Feature requests</legend>
+        <p class="muted small" data-i18n="globalSettings.featureRequestsHint">When enabled, all logged-in users see the full list of feature requests (read-only). When disabled, each user sees only their own.</p>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <input id="gs-public-feature-requests" type="checkbox" style="width:auto;margin:0" />
+          <span data-i18n="globalSettings.publicFeatureRequests">Make feature requests public to all logged-in users</span>
+        </label>
+      </fieldset>
+      <fieldset style="margin-top:16px">
         <legend data-i18n="settings.qrz">QRZ.com lookup</legend>
         <p class="muted small" data-i18n="settings.qrzHint">When configured, callsign lookups fetch the operator's name, Maidenhead locator and profile picture from QRZ.com. Requires a QRZ.com XML data subscription.</p>
         <label><span data-i18n="settings.qrzUser">QRZ.com username</span>
@@ -857,7 +865,7 @@
 <div id="my-featurerequests-screen" class="screen admin-screen hidden">
   <div class="admin-screen-header">
     <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
-    <h1 data-i18n="featureRequests.myTitle">My Feature Requests</h1>
+    <h1 id="my-fr-title" data-i18n="featureRequests.myTitle">My Feature Requests</h1>
     <button id="my-fr-submit-btn" class="primary" style="margin-left:auto;width:auto;font-size:13px" data-i18n="topbar.featureRequest">Feature Request</button>
   </div>
   <div class="admin-screen-body">
@@ -866,6 +874,7 @@
         <thead>
           <tr>
             <th data-i18n="featureRequests.colDate">Date</th>
+            <th id="my-fr-th-from" class="hidden" data-i18n="featureRequests.colFrom">From</th>
             <th data-i18n="featureRequests.colStatus">Status</th>
             <th data-i18n="featureRequests.colRequest">Request</th>
             <th data-i18n="featureRequests.colAdminComment">Admin comment</th>

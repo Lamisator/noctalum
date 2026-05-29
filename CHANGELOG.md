@@ -1,5 +1,16 @@
 # Noctalum Changelog
 
+## v0.53 — 2026-05-29 — Public feature requests toggle
+
+- New global setting `public_feature_requests` (bool, persisted in the `settings` key/value table) — exposed in the `/api/settings` GET/PUT payload alongside the other admin-only fields
+- `Settings` struct in `internal/store/store.go` gains `PublicFeatureRequests bool`, loaded from / saved to the `public_feature_requests` row (`"1"` / `"0"`)
+- `handleMyFeatureRequests` (`GET /api/feature-requests/mine`) now serves `ListFeatureRequests()` (the full list) when the toggle is on, and `ListFeatureRequestsByUser(sess.Username)` (only the caller's) when it is off — POST/PUT/DELETE behavior is unchanged, so the public view is strictly read-only
+- New fieldset "Feature requests" in the global settings screen (admin-only) with a single checkbox bound to `gs-public-feature-requests`; the setting round-trips through `showGlobalSettings()` and the `global-settings-form` submit handler
+- `renderMyFeatureRequests()` now reads `settings.public_feature_requests`: when true, the screen title switches to "Feature Requests", a "From" column is shown, and the empty-state copy changes; layout otherwise unchanged, no edit/delete controls are rendered in either mode
+- `refreshMyFeatureRequests()` calls `loadSettings()` first so the rendering mode reflects the current server-side toggle, even if the admin flipped it after another user logged in
+- New i18n keys: `globalSettings.featureRequestsTitle`, `globalSettings.featureRequestsHint`, `globalSettings.publicFeatureRequests`, `featureRequests.publicTitle`, `featureRequests.noPublicRequests` (EN + DE)
+- `programVersion` bumped to `0.53`
+
 ## v0.52 — 2026-05-29 — Telegram notifier catches up on multiple unposted versions
 
 - `runPost` in `cmd/notify-telegram/main.go` now walks back from the newest CHANGELOG entry to `last_posted_version` and posts each missing entry as a separate message in chronological order (oldest first), with a 1.5 s sleep between messages to stay under Telegram's ~1 msg/sec per-chat rate limit

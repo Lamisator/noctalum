@@ -614,6 +614,7 @@
         $('gs-cluster-call').value = s.cluster_call || '';
         $('gs-cluster-retention').value = s.cluster_retention_days || 7;
         currentSound = s.chat_sound || '';
+        $('gs-public-feature-requests').checked = !!s.public_feature_requests;
         if ('qrz_username' in s) {
           $('gs-qrz-user').value = s.qrz_username || '';
           $('gs-qrz-status').textContent = s.qrz_configured ? t('settings.qrzConfigured') : t('settings.qrzNotConfigured');
@@ -710,6 +711,7 @@
       chat_sound: $('gs-chat-sound').value,
       qrz_username: $('gs-qrz-user').value.trim(),
       qrz_password: $('gs-qrz-pass').value,
+      public_feature_requests: $('gs-public-feature-requests').checked,
     };
     const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
     if (!res.ok) {
@@ -719,7 +721,10 @@
     }
     $('gs-qrz-pass').value = '';
     loadGlobalClusterLog();
-    if (settings) settings.chat_sound = body.chat_sound;
+    if (settings) {
+      settings.chat_sound = body.chat_sound;
+      settings.public_feature_requests = body.public_feature_requests;
+    }
   });
 
   $('gs-chat-sound-preview').addEventListener('click', () => {
@@ -5365,6 +5370,7 @@
   }
 
   async function refreshMyFeatureRequests() {
+    await loadSettings();
     const res = await api('/api/feature-requests/mine');
     if (!res.ok) return;
     myFeatureRequests = await res.json();
@@ -5374,9 +5380,20 @@
   function renderMyFeatureRequests() {
     const tbody = $('my-fr-tbody');
     tbody.innerHTML = '';
+    const isPublic = !!(settings && settings.public_feature_requests);
+    const thFrom = $('my-fr-th-from');
+    if (thFrom) thFrom.classList.toggle('hidden', !isPublic);
+    const titleEl = $('my-fr-title');
+    if (titleEl) titleEl.textContent = isPublic
+      ? t('featureRequests.publicTitle')
+      : t('featureRequests.myTitle');
+    const colspan = isPublic ? 5 : 4;
+    const emptyMsg = isPublic
+      ? t('featureRequests.noPublicRequests')
+      : t('featureRequests.noMyRequests');
     if (!myFeatureRequests.length) {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td colspan="4" class="muted" style="text-align:center;padding:20px">${escHtml(t('featureRequests.noMyRequests'))}</td>`;
+      tr.innerHTML = `<td colspan="${colspan}" class="muted" style="text-align:center;padding:20px">${escHtml(emptyMsg)}</td>`;
       tbody.appendChild(tr);
       $('my-fr-count').textContent = '';
       return;
@@ -5386,8 +5403,10 @@
       const date = fr.created_at ? new Date(fr.created_at).toLocaleString(localeForFmt()) : '';
       const statusClass = { pending: 'open', accepted: 'admin', declined: 'disabled', implemented: 'finished' }[fr.status] || '';
       const statusLabel = t('featureRequests.status_' + fr.status) || fr.status;
+      const fromCell = isPublic ? `<td>${escHtml(fr.from || '')}</td>` : '';
       tr.innerHTML = `
         <td class="muted small">${escHtml(date)}</td>
+        ${fromCell}
         <td><span class="badge ${statusClass}">${escHtml(statusLabel)}</span></td>
         <td style="white-space:pre-wrap;max-width:480px">${escHtml(fr.text)}</td>
         <td style="max-width:300px;white-space:pre-wrap;color:var(--accent)">${fr.admin_comment ? escHtml(fr.admin_comment) : '<span class="muted">—</span>'}</td>
@@ -5517,6 +5536,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.53',
+      date: '2026-05-29',
+      en: 'Feature requests can now be made public. A new toggle in Global Settings (admin only) — "Make feature requests public to all logged-in users" — switches the My Feature Requests screen for every logged-in user from a personal list to a strictly read-only view of every submitted request (with a From column showing who sent each one). Users can still submit their own new requests, but cannot edit, delete, or comment on anyone else\'s; all status changes and admin comments remain reserved for the admin Feature Requests screen. The setting persists in the global settings table and is read by GET /api/feature-requests/mine, which now serves the full list when the toggle is on.',
+      de: 'Feature-Wünsche können jetzt öffentlich gemacht werden. Ein neuer Schalter in den globalen Einstellungen (nur für Admins) — „Feature-Wünsche für alle angemeldeten Nutzer sichtbar machen" — schaltet bei jedem angemeldeten Nutzer den Bildschirm „Meine Feature-Wünsche" von der persönlichen Liste auf eine strikt schreibgeschützte Ansicht aller eingereichten Wünsche um (mit einer Spalte „Von", die zeigt, wer den Wunsch eingereicht hat). Nutzer können weiterhin eigene neue Wünsche einreichen, aber fremde Wünsche weder bearbeiten, löschen noch kommentieren; Statusänderungen und Admin-Kommentare bleiben dem Admin-Bildschirm für Feature-Wünsche vorbehalten. Die Einstellung wird in der globalen Settings-Tabelle gespeichert und von GET /api/feature-requests/mine ausgewertet, das bei aktiviertem Schalter die vollständige Liste liefert.',
+    },
     {
       version: '0.52',
       date: '2026-05-29',
