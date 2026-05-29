@@ -33,7 +33,13 @@ If neither flag is given, pick the next version by reading the current `programV
      - `programVersion` bumped to `<version>`
      ```
      Bullet points should be technical but readable: file/function references where they help, mechanism over diff, trade-offs noted. Cover every commit landed since the previous release — none should be silently dropped.
-   - `internal/server/web/app.js` — prepend a new `{ version, date, en, de }` object to the `CHANGELOG` array (newest first). `en` and `de` are prose paragraphs (not bullet lists) aimed at the operator running the app. The German text uses the informal "du" form (per CLAUDE.md). They should convey the same substance as the `CHANGELOG.md` bullets but read like release-note copy, not a commit log.
+   - `internal/server/web/app.js` — prepend a new `{ version, date, en, de }` object to the `CHANGELOG` array (newest first). `en` and `de` are aimed at the operator running the app **and at the Telegram group** (the deploy notifier posts the DE string verbatim), so they must be **short and scannable**, not narrative paragraphs:
+     - Lead with a single one-sentence headline that names the theme of the release.
+     - Then a short bullet list — each bullet one line, ideally under ~15 words. Use a literal `- ` (hyphen + space) at the start of each line; Telegram's MarkdownV2 renders that as a visible bullet after escaping.
+     - Skip mechanism, files, function names, percentages, code identifiers — that level of detail belongs in `CHANGELOG.md`, not here. Each bullet should be one *user-visible effect*, in plain language.
+     - Aim for a total of roughly 4–8 bullets and well under 1500 characters (Telegram's hard cap is 4096; the notifier sentence-truncates beyond that, which is ugly).
+     - The German text uses the informal "du" form (per CLAUDE.md). The EN copy mirrors the structure of the DE copy so the two release notes stay in lockstep.
+     - Bundle related commits into a single bullet rather than one bullet per commit — but make sure every commit's user-visible effect is reflected somewhere.
    - `internal/server/server.go` — bump the `programVersion` constant to the new version.
 
 5. **Show the user the proposed release before writing** (unless `--dry-run`). Print:
