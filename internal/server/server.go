@@ -1087,52 +1087,58 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, "missing permission: "+PermSettingsWrite)
 			return
 		}
-		// QRZUsername/QRZPassword are pointers so the client can omit them
-		// from forms that don't manage QRZ — nil here means "preserve current",
-		// which avoids wiping credentials when an unrelated form is saved.
+		// Every settings field is a pointer so the client can omit fields it
+		// doesn't manage — nil here means "preserve current value", which
+		// prevents one form (e.g. Global Settings) from wiping fields owned
+		// by another form (e.g. Personal Settings' default mode / band).
 		var in struct {
-			DefaultMode           string  `json:"default_mode"`
-			DefaultBand           string  `json:"default_band"`
+			DefaultMode           *string `json:"default_mode"`
+			DefaultBand           *string `json:"default_band"`
 			RegenHelperToken      bool    `json:"regen_helper_token"`
 			QRZUsername           *string `json:"qrz_username"`
 			QRZPassword           *string `json:"qrz_password"`
-			ClusterCall           string  `json:"cluster_call"`
-			ClusterServer         string  `json:"cluster_server"`
-			ClusterRetentionDays  int     `json:"cluster_retention_days"`
-			ChatSound             string  `json:"chat_sound"`
-			PublicFeatureRequests bool    `json:"public_feature_requests"`
+			ClusterCall           *string `json:"cluster_call"`
+			ClusterServer         *string `json:"cluster_server"`
+			ClusterRetentionDays  *int    `json:"cluster_retention_days"`
+			ChatSound             *string `json:"chat_sound"`
+			PublicFeatureRequests *bool   `json:"public_feature_requests"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
-		retDays := in.ClusterRetentionDays
-		if retDays == 0 {
-			retDays = s.settings.ClusterRetentionDays
+		// Start from the current settings and overlay only the fields the
+		// client explicitly sent.  Helper token regen is the one truly
+		// imperative action and stays out of the overlay loop.
+		ns := s.settings
+		if in.DefaultMode != nil {
+			ns.DefaultMode = *in.DefaultMode
 		}
-		ns := store.Settings{
-			DefaultMode:           in.DefaultMode,
-			DefaultBand:           in.DefaultBand,
-			HelperToken:           s.settings.HelperToken,
-			QRZUsername:           s.settings.QRZUsername,
-			QRZPassword:           s.settings.QRZPassword,
-			ClusterCall:           s.settings.ClusterCall,
-			ClusterServer:         s.settings.ClusterServer,
-			ClusterRetentionDays:  retDays,
-			ChatSound:             in.ChatSound,
-			PublicFeatureRequests: in.PublicFeatureRequests,
+		if in.DefaultBand != nil {
+			ns.DefaultBand = *in.DefaultBand
 		}
-		if in.ClusterCall != "" {
-			ns.ClusterCall = strings.ToUpper(strings.TrimSpace(in.ClusterCall))
+		if in.ClusterCall != nil {
+			ns.ClusterCall = strings.ToUpper(strings.TrimSpace(*in.ClusterCall))
 		}
-		ns.ClusterServer = strings.TrimSpace(in.ClusterServer)
+		if in.ClusterServer != nil {
+			ns.ClusterServer = strings.TrimSpace(*in.ClusterServer)
+		}
+		if in.ClusterRetentionDays != nil && *in.ClusterRetentionDays > 0 {
+			ns.ClusterRetentionDays = *in.ClusterRetentionDays
+		}
+		if in.ChatSound != nil {
+			ns.ChatSound = *in.ChatSound
+		}
+		if in.PublicFeatureRequests != nil {
+			ns.PublicFeatureRequests = *in.PublicFeatureRequests
+		}
 		if in.RegenHelperToken {
 			ns.HelperToken = newToken()
 		}
-		// QRZ fields: only touch when explicitly present in the payload.  A
-		// blank-string username IS a valid clear-the-username intent, so we
-		// take it as-is; a blank password is treated as "no change" (the input
-		// is always rendered empty for security, so submit must not wipe).
+		// QRZ username: a blank string IS a valid clear-the-username intent,
+		// so we take any non-nil value as-is.  QRZ password: a blank submit
+		// means "no change" (the password input is always rendered empty for
+		// security, so the form would always send "").
 		if in.QRZUsername != nil {
 			ns.QRZUsername = *in.QRZUsername
 		}
@@ -1151,12 +1157,25 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		SetClusterCall(ns.ClusterCall)
 		SetClusterServer(ns.ClusterServer)
-		details := "mode: " + ns.DefaultMode + ", band: " + ns.DefaultBand
+		// Audit details only mention fields the caller actually changed.
+		details := ""
+		appendDetail := func(name, val string) {
+			if details != "" {
+				details += ", "
+			}
+			details += name + ": " + val
+		}
+		if in.DefaultMode != nil {
+			appendDetail("mode", ns.DefaultMode)
+		}
+		if in.DefaultBand != nil {
+			appendDetail("band", ns.DefaultBand)
+		}
 		if in.RegenHelperToken {
-			details += ", helper_token: regenerated"
+			appendDetail("helper_token", "regenerated")
 		}
 		if in.QRZUsername != nil && *in.QRZUsername != "" {
-			details += ", qrz_username: " + *in.QRZUsername
+			appendDetail("qrz_username", *in.QRZUsername)
 		}
 		s.audit(r, store.AuditInfo, AuditSettingsChange, sess.Username, "", details)
 		out := map[string]any{"status": "ok"}
