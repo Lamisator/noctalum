@@ -1,5 +1,14 @@
 # Noctalum Changelog
 
+## v0.52 — 2026-05-29 — Telegram notifier catches up on multiple unposted versions
+
+- `runPost` in `cmd/notify-telegram/main.go` now walks back from the newest CHANGELOG entry to `last_posted_version` and posts each missing entry as a separate message in chronological order (oldest first), with a 1.5 s sleep between messages to stay under Telegram's ~1 msg/sec per-chat rate limit
+- New helper `entriesToPost(entries, lastPosted, force) []entry` does the slice selection. Empty `last_posted_version` (first run after `--setup`) and unknown `last_posted_version` (the recorded version is no longer in the array — e.g. the entry was edited or you switched branches) both fall back to posting only the top entry so the bot can never spam 50 historical messages by accident
+- `last_posted_version` is persisted after every successful `sendMessage`, not just at the end of the batch — so a network failure mid-catch-up (e.g. v0.52 succeeds, v0.53 fails) resumes from v0.53 on the next deploy instead of replaying v0.52
+- `--force` still reposts only the top entry (the intent of `--force` is "the latest, again"), and `--version X.Y` still posts a specific entry without touching `last_posted_version`
+- `--dry-run` now shows every message that would be posted, numbered `[i/N] vX.Y — date`, instead of just the top one
+- `programVersion` bumped to `0.52`
+
 ## v0.51 — 2026-05-29 — Telegram notification after deploy
 
 - New `cmd/notify-telegram/main.go` — small Go binary that reads the top entry of the `CHANGELOG` array in `internal/server/web/app.js`, cross-checks its version against `programVersion` in `internal/server/server.go`, and posts the German body to a configured Telegram group via the Bot HTTPS API

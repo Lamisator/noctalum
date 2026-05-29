@@ -460,6 +460,44 @@ func truncateSentence(s string, max int) string {
 
 // ── Posting ───────────────────────────────────────────────────────────────
 
+// Per-chat rate limit safety margin between catch-up messages. Telegram's
+// documented limit is ~1 msg/sec to the same chat.
+const catchUpDelay = 1500 * time.Millisecond
+
+// entriesToPost picks the slice of changelog entries to announce, returned
+// in chronological order (oldest first), given the currently-known
+// last_posted_version. Empty or unknown last_posted_version falls back to
+// the top entry only, to avoid spamming the whole history.
+func entriesToPost(entries []entry, lastPosted string, force bool) []entry {
+	if len(entries) == 0 {
+		return nil
+	}
+	if force || lastPosted == "" {
+		return entries[:1]
+	}
+	foundAt := -1
+	for i, e := range entries {
+		if e.Version == lastPosted {
+			foundAt = i
+			break
+		}
+	}
+	if foundAt == -1 {
+		// last_posted_version no longer in the array (entry was edited out,
+		// or this is a version from a different branch). Post only the top.
+		return entries[:1]
+	}
+	if foundAt == 0 {
+		return nil
+	}
+	// entries is newest-first; reverse the missing slice to oldest-first.
+	missing := make([]entry, foundAt)
+	for i := 0; i < foundAt; i++ {
+		missing[i] = entries[foundAt-1-i]
+	}
+	return missing
+}
+
 func runPost(changelogPath, pickVer string, dryRun, force bool) error {
 	path, err := resolveChangelogPath(changelogPath)
 	if err != nil {
@@ -470,53 +508,71 @@ func runPost(changelogPath, pickVer string, dryRun, force bool) error {
 		return err
 	}
 
-	var chosen entry
+	// Load config first so we know last_posted_version (used for catch-up
+	// selection and dry-run preview alike). A missing config is OK in
+	// dry-run; non-dry-run prints a friendly hint and exits 0.
+	cfg, cfgErr := loadConfig()
+	cfgMissing := errors.Is(cfgErr, os.ErrNotExist)
+	if cfgErr != nil && !cfgMissing {
+		return cfgErr
+	}
+
+	// Pick the entries to post.
+	var toPost []entry
 	if pickVer != "" {
 		for _, e := range entries {
 			if e.Version == pickVer {
-				chosen = e
+				toPost = []entry{e}
 				break
 			}
 		}
-		if chosen.Version == "" {
+		if len(toPost) == 0 {
 			return fmt.Errorf("--version %s: no matching CHANGELOG entry", pickVer)
 		}
 	} else {
-		chosen = entries[0]
-	}
-
-	msg := renderMessage(chosen)
-
-	if dryRun {
-		fmt.Println("--- DRY RUN ---")
-		fmt.Println(msg)
-		fmt.Println("--- END ---")
-		return nil
-	}
-
-	cfg, err := loadConfig()
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			fmt.Fprintln(os.Stderr, "telegram notifier not configured — run 'noctalum-notify-telegram --setup' to enable")
+		lastPosted := ""
+		if cfg != nil {
+			lastPosted = cfg.LastPostedVersion
+		}
+		toPost = entriesToPost(entries, lastPosted, force)
+		if len(toPost) == 0 {
+			fmt.Fprintf(os.Stderr, "skipping: v%s already posted — use --force to repost\n", entries[0].Version)
 			return nil
 		}
-		return err
 	}
 
-	if !force && pickVer == "" && cfg.LastPostedVersion == chosen.Version {
-		fmt.Fprintf(os.Stderr, "skipping: v%s already posted — use --force to repost\n", chosen.Version)
+	if dryRun {
+		fmt.Printf("--- DRY RUN: %d message(s) ---\n", len(toPost))
+		for i, e := range toPost {
+			fmt.Printf("\n[%d/%d] v%s — %s\n", i+1, len(toPost), e.Version, e.Date)
+			fmt.Println(renderMessage(e))
+		}
+		fmt.Println("\n--- END ---")
 		return nil
 	}
 
-	if err := tgSendMessage(cfg.BotToken, cfg.ChatID, msg); err != nil {
-		return err
+	if cfgMissing {
+		fmt.Fprintln(os.Stderr, "telegram notifier not configured — run 'noctalum-notify-telegram --setup' to enable")
+		return nil
 	}
-	fmt.Fprintf(os.Stderr, "posted v%s to Telegram chat %q (%d)\n", chosen.Version, cfg.ChatTitle, cfg.ChatID)
 
-	if pickVer == "" || pickVer == entries[0].Version {
-		cfg.LastPostedVersion = chosen.Version
+	// Post each entry; update last_posted_version after each successful send
+	// so a mid-batch failure resumes cleanly on the next deploy.
+	for i, e := range toPost {
+		if i > 0 {
+			time.Sleep(catchUpDelay)
+		}
+		if err := tgSendMessage(cfg.BotToken, cfg.ChatID, renderMessage(e)); err != nil {
+			return fmt.Errorf("posting v%s: %w", e.Version, err)
+		}
+		fmt.Fprintf(os.Stderr, "posted v%s to %q (%d)\n", e.Version, cfg.ChatTitle, cfg.ChatID)
+		// --version X.Y is a one-off repost; don't move the cursor.
+		if pickVer != "" {
+			continue
+		}
+		cfg.LastPostedVersion = e.Version
 		if err := saveConfig(cfg); err != nil {
-			return fmt.Errorf("save config: %w", err)
+			return fmt.Errorf("save config after v%s: %w", e.Version, err)
 		}
 	}
 	return nil
