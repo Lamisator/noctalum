@@ -603,10 +603,16 @@
   $('global-settings-back-btn-top')?.addEventListener('click', () => showContestScreen());
   $('gs-cluster-log-refresh-btn').addEventListener('click', loadGlobalClusterLog);
 
+  // Tracks the QRZ username last loaded from the server, so the submit handler
+  // can detect "the user did not touch QRZ in this menu" and skip sending the
+  // QRZ fields entirely.  Without this, the form would round-trip an empty
+  // username on every save and wipe out credentials configured elsewhere.
+  let _gsQrzLoadedUser = '';
   async function showGlobalSettings() {
     show('global-settings-screen');
     $('global-settings-error').textContent = '';
     let currentSound = '';
+    _gsQrzLoadedUser = '';
     try {
       const res = await api('/api/settings');
       if (res.ok) {
@@ -617,7 +623,8 @@
         currentSound = s.chat_sound || '';
         $('gs-public-feature-requests').checked = !!s.public_feature_requests;
         if ('qrz_username' in s) {
-          $('gs-qrz-user').value = s.qrz_username || '';
+          _gsQrzLoadedUser = s.qrz_username || '';
+          $('gs-qrz-user').value = _gsQrzLoadedUser;
           $('gs-qrz-status').textContent = s.qrz_configured ? t('settings.qrzConfigured') : t('settings.qrzNotConfigured');
         }
       }
@@ -710,10 +717,14 @@
       cluster_call: $('gs-cluster-call').value.trim().toUpperCase(),
       cluster_retention_days: parseInt($('gs-cluster-retention').value) || 7,
       chat_sound: $('gs-chat-sound').value,
-      qrz_username: $('gs-qrz-user').value.trim(),
-      qrz_password: $('gs-qrz-pass').value,
       public_feature_requests: $('gs-public-feature-requests').checked,
     };
+    // Only include QRZ fields when the operator actually changed them in this
+    // menu — server treats missing keys as "preserve current credentials".
+    const qrzUser = $('gs-qrz-user').value.trim();
+    const qrzPass = $('gs-qrz-pass').value;
+    if (qrzUser !== _gsQrzLoadedUser) body.qrz_username = qrzUser;
+    if (qrzPass !== '') body.qrz_password = qrzPass;
     const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
@@ -3125,6 +3136,10 @@
     pill.classList.toggle('active', muted);
   }
 
+  // Same dirty-tracking trick as the global-settings page: remember the QRZ
+  // username loaded from the server, so save can skip sending the QRZ fields
+  // when the operator did not touch them.
+  let _sQrzLoadedUser = '';
   async function loadSettings() {
     const res = await api('/api/settings');
     if (!res.ok) return;
@@ -3135,7 +3150,8 @@
     $('hint-token').textContent = me?.helper_token || '...';
     $('hint-server').textContent = location.origin;
     if ('qrz_username' in settings) {
-      $('s-qrz-user').value = settings.qrz_username || '';
+      _sQrzLoadedUser = settings.qrz_username || '';
+      $('s-qrz-user').value = _sQrzLoadedUser;
       $('qrz-status').textContent = settings.qrz_configured
         ? t('settings.qrzConfigured')
         : t('settings.qrzNotConfigured');
@@ -3152,9 +3168,11 @@
     const body = {
       default_mode: $('s-mode').value,
       default_band: $('s-band').value,
-      qrz_username: $('s-qrz-user')?.value?.trim() || '',
-      qrz_password: $('s-qrz-pass')?.value || '',
     };
+    const qrzUser = $('s-qrz-user')?.value?.trim() || '';
+    const qrzPass = $('s-qrz-pass')?.value || '';
+    if (qrzUser !== _sQrzLoadedUser) body.qrz_username = qrzUser;
+    if (qrzPass !== '') body.qrz_password = qrzPass;
     const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));

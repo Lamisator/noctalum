@@ -1087,17 +1087,20 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, "missing permission: "+PermSettingsWrite)
 			return
 		}
+		// QRZUsername/QRZPassword are pointers so the client can omit them
+		// from forms that don't manage QRZ — nil here means "preserve current",
+		// which avoids wiping credentials when an unrelated form is saved.
 		var in struct {
-			DefaultMode           string `json:"default_mode"`
-			DefaultBand           string `json:"default_band"`
-			RegenHelperToken      bool   `json:"regen_helper_token"`
-			QRZUsername           string `json:"qrz_username"`
-			QRZPassword           string `json:"qrz_password"`
-			ClusterCall           string `json:"cluster_call"`
-			ClusterServer         string `json:"cluster_server"`
-			ClusterRetentionDays  int    `json:"cluster_retention_days"`
-			ChatSound             string `json:"chat_sound"`
-			PublicFeatureRequests bool   `json:"public_feature_requests"`
+			DefaultMode           string  `json:"default_mode"`
+			DefaultBand           string  `json:"default_band"`
+			RegenHelperToken      bool    `json:"regen_helper_token"`
+			QRZUsername           *string `json:"qrz_username"`
+			QRZPassword           *string `json:"qrz_password"`
+			ClusterCall           string  `json:"cluster_call"`
+			ClusterServer         string  `json:"cluster_server"`
+			ClusterRetentionDays  int     `json:"cluster_retention_days"`
+			ChatSound             string  `json:"chat_sound"`
+			PublicFeatureRequests bool    `json:"public_feature_requests"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1111,7 +1114,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			DefaultMode:           in.DefaultMode,
 			DefaultBand:           in.DefaultBand,
 			HelperToken:           s.settings.HelperToken,
-			QRZUsername:           in.QRZUsername,
+			QRZUsername:           s.settings.QRZUsername,
 			QRZPassword:           s.settings.QRZPassword,
 			ClusterCall:           s.settings.ClusterCall,
 			ClusterServer:         s.settings.ClusterServer,
@@ -1126,8 +1129,15 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		if in.RegenHelperToken {
 			ns.HelperToken = newToken()
 		}
-		if in.QRZPassword != "" {
-			ns.QRZPassword = in.QRZPassword
+		// QRZ fields: only touch when explicitly present in the payload.  A
+		// blank-string username IS a valid clear-the-username intent, so we
+		// take it as-is; a blank password is treated as "no change" (the input
+		// is always rendered empty for security, so submit must not wipe).
+		if in.QRZUsername != nil {
+			ns.QRZUsername = *in.QRZUsername
+		}
+		if in.QRZPassword != nil && *in.QRZPassword != "" {
+			ns.QRZPassword = *in.QRZPassword
 		}
 		if err := s.store.SaveSettings(ns); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -1145,8 +1155,8 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		if in.RegenHelperToken {
 			details += ", helper_token: regenerated"
 		}
-		if in.QRZUsername != "" {
-			details += ", qrz_username: " + in.QRZUsername
+		if in.QRZUsername != nil && *in.QRZUsername != "" {
+			details += ", qrz_username: " + *in.QRZUsername
 		}
 		s.audit(r, store.AuditInfo, AuditSettingsChange, sess.Username, "", details)
 		out := map[string]any{"status": "ok"}
