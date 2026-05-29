@@ -2425,6 +2425,7 @@ body.mobile-mode .mobile-bottom-nav { display: flex; }
 .qso-grid > label > input,
 .qso-grid > label > select {
   width: 100%;
+  min-width: 0; /* let datetime-local etc. shrink to the grid cell width */
   box-sizing: border-box;
 }
 
