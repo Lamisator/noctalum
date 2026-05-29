@@ -121,6 +121,31 @@ a { color: var(--accent); text-decoration: none; }
 }
 .login-card button:hover { background: var(--accent-strong); }
 
+/* Top toolbar inside the Global Settings card — keeps Back/Save reachable
+   without scrolling the long settings form. */
+.global-settings-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.global-settings-topbar h1 { margin: 0; }
+.global-settings-topbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.global-settings-topbar-actions button {
+  width: auto;
+  margin-top: 0;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
 /* ==== App shell ==== */
 .app-screen { display: flex; flex-direction: column; height: 100vh; }
 

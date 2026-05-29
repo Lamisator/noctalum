@@ -600,6 +600,7 @@
   // ----- global settings screen -----
   $('global-settings-btn').addEventListener('click', () => showGlobalSettings());
   $('global-settings-back-btn').addEventListener('click', () => showContestScreen());
+  $('global-settings-back-btn-top')?.addEventListener('click', () => showContestScreen());
   $('gs-cluster-log-refresh-btn').addEventListener('click', loadGlobalClusterLog);
 
   async function showGlobalSettings() {

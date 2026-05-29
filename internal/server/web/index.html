@@ -181,7 +181,13 @@
 <!-- Global Settings screen -->
 <div id="global-settings-screen" class="screen login-screen hidden">
   <div class="login-card wide">
-    <h1 data-i18n="globalSettings.title">Global Settings</h1>
+    <div class="global-settings-topbar">
+      <h1 data-i18n="globalSettings.title">Global Settings</h1>
+      <div class="global-settings-topbar-actions">
+        <button type="button" id="global-settings-back-btn-top" class="ghost" data-i18n="common.backToContests">&#8592; Back to contests</button>
+        <button type="submit" form="global-settings-form" class="primary" data-i18n="common.save">Save</button>
+      </div>
+    </div>
     <form id="global-settings-form">
       <fieldset>
         <legend data-i18n="globalSettings.dxClusterTitle">DX Cluster</legend>
