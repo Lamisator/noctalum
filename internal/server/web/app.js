@@ -1032,8 +1032,14 @@
     const canManageAccess = hasPerm('contest.admin') || isContestOwner;
     const canEditThis = hasPerm('contests.manage') || (hasPerm('contests.manage_private') && c.private) || isContestOwner;
     const isFullManager = hasPerm('contests.manage');
+    const canDuplicate = c.private
+      ? (hasPerm('contests.manage') || hasPerm('contests.manage_private') || hasPerm('contests.create_private'))
+      : hasPerm('contests.manage');
     const editBtn = canEditThis
       ? `<button class="contest-edit-pill" title="Edit contest" tabindex="-1">&#128295;</button>`
+      : '';
+    const duplicateBtn = canDuplicate
+      ? `<button class="contest-edit-pill contest-duplicate-pill" title="${escHtml(t('contestScreen.duplicateTitle'))}" tabindex="-1">&#128203;</button>`
       : '';
     const accessBtn = canManageAccess
       ? `<button class="contest-edit-pill contest-access-pill" title="${escHtml(t('contestScreen.accessAuthorize'))}" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
@@ -1054,13 +1060,20 @@
         <span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span>
         ${joinBtn}
         ${accessBtn}
+        ${duplicateBtn}
         ${editBtn}
       </div>
     `;
     if (canEditThis) {
-      item.querySelector('.contest-edit-pill:not(.contest-access-pill)')?.addEventListener('click', async (e) => {
+      item.querySelector('.contest-edit-pill:not(.contest-access-pill):not(.contest-duplicate-pill)')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         contestEditModal(c);
+      });
+    }
+    if (canDuplicate) {
+      item.querySelector('.contest-duplicate-pill')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        contestDuplicateModal(c);
       });
     }
     if (canManageAccess) {
@@ -1217,8 +1230,14 @@
     const canManageAccess = hasPerm('contest.admin') || isContestOwner;
     const canEditThis = hasPerm('contests.manage') || (hasPerm('contests.manage_private') && c.private) || isContestOwner;
     const isFullManager = hasPerm('contests.manage');
+    const canDuplicate = c.private
+      ? (hasPerm('contests.manage') || hasPerm('contests.manage_private') || hasPerm('contests.create_private'))
+      : hasPerm('contests.manage');
     const editBtn = canEditThis
       ? `<button class="contest-edit-pill" title="${escHtml(t('contestScreen.editTitle'))}" tabindex="-1">&#128295;</button>` : '';
+    const duplicateBtn = canDuplicate
+      ? `<button class="contest-edit-pill contest-duplicate-pill" title="${escHtml(t('contestScreen.duplicateTitle'))}" tabindex="-1">&#128203;</button>`
+      : '';
     const accessBtn = canManageAccess
       ? `<button class="contest-edit-pill contest-access-pill" title="${escHtml(t('contestScreen.accessAuthorize'))}" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
       : (c.access_restricted ? `<span class="contest-access-indicator" title="${escHtml(t('contestScreen.accessRestricted'))}">&#128274;</span>` : '');
@@ -1235,12 +1254,18 @@
       <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span></div>
       <div class="cl-col cl-date">${createdDate}</div>
       <div class="cl-col cl-activity">${actDate}</div>
-      <div class="cl-col cl-actions">${joinBtn}${accessBtn}${editBtn}</div>
+      <div class="cl-col cl-actions">${joinBtn}${accessBtn}${duplicateBtn}${editBtn}</div>
     `;
     if (canEditThis) {
-      row.querySelector('.contest-edit-pill:not(.contest-access-pill)')?.addEventListener('click', async (e) => {
+      row.querySelector('.contest-edit-pill:not(.contest-access-pill):not(.contest-duplicate-pill)')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         contestEditModal(c);
+      });
+    }
+    if (canDuplicate) {
+      row.querySelector('.contest-duplicate-pill')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        contestDuplicateModal(c);
       });
     }
     if (canManageAccess) {
@@ -3713,6 +3738,40 @@
         else alert(t('contestScreen.participantUpdateFail'));
       });
     });
+  }
+
+  // ----- Contest duplicate modal -----
+  function contestDuplicateModal(c) {
+    const suggested = (c.name || '') + t('contestScreen.duplicateSuffix');
+    showModal(`
+      <h3>${escHtml(t('contestScreen.duplicateTitle'))}</h3>
+      <form>
+        <label>${escHtml(t('contestScreen.duplicatePrompt'))}</label>
+        <input name="name" value="${escHtml(suggested)}" autocomplete="off" required />
+        <div class="modal-err error"></div>
+        <div class="modal-actions">
+          <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
+          <button type="submit" class="primary">${escHtml(t('contestScreen.duplicateTitle'))}</button>
+        </div>
+      </form>
+    `, async (form) => {
+      const name = form.name.value.trim();
+      if (!name) throw new Error(t('contestScreen.duplicatePrompt'));
+      const res = await api('/api/contests/' + c.id + '/copy', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || t('contestScreen.duplicateFail'));
+      }
+      await refreshContests();
+    });
+    // Pre-select the suggested name so typing replaces it.
+    setTimeout(() => {
+      const inp = document.querySelector('#modal-card input[name="name"]');
+      if (inp) inp.select();
+    }, 0);
   }
 
   // ----- Contest access modal -----

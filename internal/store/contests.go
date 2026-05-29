@@ -257,6 +257,34 @@ func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, b
 	return err
 }
 
+// DuplicateContest creates a new contest that copies the source contest's
+// configuration (custom fields, QSO layout, log columns, bands, etc.) but
+// starts empty — no QSOs, no access list, no participants other than the
+// new owner.  The new contest's status is always reset to "open" and
+// last_activity_at starts unset.  Station-level fields are copied as a
+// reasonable starting point; callers can edit them after creation.
+func (s *Store) DuplicateContest(srcID int64, newName string, ownerUserID int64) (*Contest, error) {
+	src, err := s.GetContest(srcID)
+	if err != nil {
+		return nil, err
+	}
+	return s.CreateContest(
+		newName,
+		src.StationCall,
+		src.QTH,
+		src.Bands,
+		src.Objective,
+		src.StationID,
+		src.Private,
+		ownerUserID,
+		src.CustomFields,
+		src.QSOLayout,
+		src.LogColumns,
+		src.NrPadded,
+		src.StashExpiryMinutes,
+	)
+}
+
 // DeleteContest removes a contest, its access list, and participants from the database.
 func (s *Store) DeleteContest(id int64) error {
 	if _, err := s.db.Exec(`DELETE FROM contest_access WHERE contest_id = ?`, id); err != nil {

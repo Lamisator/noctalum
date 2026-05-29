@@ -2451,6 +2451,84 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Copy sub-route: POST /api/contests/{id}/copy
+	// Clones the contest's configuration into a new contest with a fresh name.
+	// Requires the same permission as creating a contest (and access to the source).
+	if sub == "copy" {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "POST required")
+			return
+		}
+		src, err := s.store.GetContest(id)
+		if errors.Is(err, store.ErrContestNotFound) {
+			writeError(w, http.StatusNotFound, "contest not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		sess := sessionFor(s, r)
+		canManageCopy := HasPermission(sess.Permissions, PermContestsManage)
+		canCreatePrivateCopy := HasPermission(sess.Permissions, PermContestsCreatePrivate) || HasPermission(sess.Permissions, PermContestsManagePrivate)
+		// Source must be visible to the caller (mirrors the access checks on /select).
+		canSeeAllCopy := HasPermission(sess.Permissions, PermContestAdmin)
+		isOwnerCopy := src.OwnerUserID != 0 && src.OwnerUserID == sess.UserID
+		canSeeSrc := canSeeAllCopy || isOwnerCopy
+		if !canSeeSrc {
+			hasAccess, _ := s.store.HasContestAccess(src.ID, sess.UserID)
+			if hasAccess {
+				canSeeSrc = true
+			} else {
+				part, _ := s.store.GetContestParticipant(src.ID, sess.UserID)
+				canSeeSrc = part != nil && part.Status == "active"
+			}
+		}
+		if !canSeeSrc {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, src.Name, "copy: source contest not visible")
+			writeError(w, http.StatusForbidden, "you do not have access to the source contest")
+			return
+		}
+		// Creation permission: private contests need the create_private perm.
+		if src.Private {
+			if !canManageCopy && !canCreatePrivateCopy {
+				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsCreatePrivate, "copy private contest")
+				writeError(w, http.StatusForbidden, "missing permission: "+PermContestsCreatePrivate)
+				return
+			}
+		} else if !canManageCopy {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "copy contest")
+			writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
+			return
+		}
+		var in struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		newName := strings.TrimSpace(in.Name)
+		if newName == "" {
+			writeError(w, http.StatusBadRequest, "contest name required")
+			return
+		}
+		// Private contests are owned by the creator; public ones have no owner.
+		ownerID := int64(0)
+		if src.Private {
+			ownerID = sess.UserID
+		}
+		c, err := s.store.DuplicateContest(id, newName, ownerID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		_ = s.store.AddContestParticipant(c.ID, sess.UserID, "owner", "active")
+		s.audit(r, store.AuditInfo, AuditContestCreate, sess.Username, c.Name, "copied from: "+src.Name)
+		writeJSON(w, http.StatusCreated, c)
+		return
+	}
+
 	// PUT — update contest (contests.manage, contests.manage_private, or contest owner)
 	if r.Method == http.MethodPut {
 		sess := sessionFor(s, r)
