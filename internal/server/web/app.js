@@ -2613,6 +2613,26 @@
       body.extras = JSON.stringify(cfResult.values);
     }
 
+    // Frequency must fall inside the selected band's range.  bandFromFreqKHz()
+    // also auto-snaps the band on freq input — this catches the case where the
+    // operator typed a freq, then manually switched the band to something else,
+    // or pasted a freq that isn't on any amateur band at all.
+    const freqRaw = $('q-freq').value.trim();
+    if (freqRaw) {
+      const freqKHz = parseFloat(freqRaw);
+      if (freqKHz > 0) {
+        const derivedBand = bandFromFreqKHz(freqKHz);
+        if (!derivedBand) {
+          $('qso-error').textContent = t('qso.freqNoBand', { freq: freqRaw });
+          return;
+        }
+        if (body.band && derivedBand !== body.band) {
+          $('qso-error').textContent = t('qso.freqBandMismatch', { freq: freqRaw, band: fmtBand(body.band) });
+          return;
+        }
+      }
+    }
+
     $('qso-error').textContent = '';
 
     if (editingQsoId !== null) {
