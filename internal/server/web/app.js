@@ -2238,6 +2238,17 @@
     if (band) { $('q-band').value = band; updateDuplicateBadge(); }
   });
 
+  // Enter submits the QSO form from any field — browsers do this natively for
+  // <input type=text> but not from <select>, so band/mode would silently swallow
+  // Enter.  The form already advertises "Enter" on the Log QSO button.
+  $('qso-form').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag !== 'select') return;
+    e.preventDefault();
+    $('qso-form').requestSubmit();
+  });
+
   // ----- left panel -----
   function updateLeftPanel(callsign, hasPicture, locator) {
     if (hasPicture) {
