@@ -1,5 +1,18 @@
 # Noctalum Changelog
 
+## v0.54 — 2026-05-29 — Sortable columns on feature-request tables
+
+- `#fr-table` and `#my-fr-table` headers gain `class="sortable"` + `data-sort-key`; the checkbox column and the trailing actions column in the admin table stay unsortable
+- New per-table sort state objects (`frSort`, `myFrSort`) cycle through 3 states on repeated clicks of the same column: `asc → desc → unsorted`. Clicking a different column resets the cycle to `asc`
+- New helpers in `app.js`:
+  - `applySort(list, state)` — returns a new sorted array using a string/lex comparator (ISO date strings sort temporally too), or the original list when the state is empty
+  - `paintSortArrows(tableId, state)` — appends/refreshes a `.sort-arrow` span (▲/▼) inside each `th.sortable` and toggles a `.sort-active` class for highlighting
+  - `wireSortableTable(tableId, state, onChange)` — binds the click cycle and triggers a re-render
+- `renderFeatureRequests()` and `renderMyFeatureRequests()` now run the list through `applySort` and call `paintSortArrows` so headers stay in sync with the current state
+- If the "From" column is hidden in personal mode and the active sort is on `from`, the state is cleared on the next render so the user doesn't end up sorted on an invisible column
+- CSS: added `#fr-table th.sortable`, `#my-fr-table th.sortable`, and matching `:hover` / `.sort-active` rules mirroring the existing audit/QSO table styling
+- `programVersion` bumped to `0.54`
+
 ## v0.53 — 2026-05-29 — Public feature requests toggle
 
 - New global setting `public_feature_requests` (bool, persisted in the `settings` key/value table) — exposed in the `/api/settings` GET/PUT payload alongside the other admin-only fields

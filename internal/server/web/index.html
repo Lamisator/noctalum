@@ -844,11 +844,11 @@
         <thead>
           <tr>
             <th style="width:32px"><input type="checkbox" id="fr-select-all" title="Select all" /></th>
-            <th data-i18n="featureRequests.colFrom">From</th>
-            <th data-i18n="featureRequests.colDate">Date</th>
-            <th data-i18n="featureRequests.colStatus">Status</th>
-            <th data-i18n="featureRequests.colRequest">Request</th>
-            <th data-i18n="featureRequests.colAdminComment">Admin comment</th>
+            <th class="sortable" data-sort-key="from" data-i18n="featureRequests.colFrom">From</th>
+            <th class="sortable" data-sort-key="created_at" data-i18n="featureRequests.colDate">Date</th>
+            <th class="sortable" data-sort-key="status" data-i18n="featureRequests.colStatus">Status</th>
+            <th class="sortable" data-sort-key="text" data-i18n="featureRequests.colRequest">Request</th>
+            <th class="sortable" data-sort-key="admin_comment" data-i18n="featureRequests.colAdminComment">Admin comment</th>
             <th></th>
           </tr>
         </thead>
@@ -873,11 +873,11 @@
       <table id="my-fr-table">
         <thead>
           <tr>
-            <th data-i18n="featureRequests.colDate">Date</th>
-            <th id="my-fr-th-from" class="hidden" data-i18n="featureRequests.colFrom">From</th>
-            <th data-i18n="featureRequests.colStatus">Status</th>
-            <th data-i18n="featureRequests.colRequest">Request</th>
-            <th data-i18n="featureRequests.colAdminComment">Admin comment</th>
+            <th class="sortable" data-sort-key="created_at" data-i18n="featureRequests.colDate">Date</th>
+            <th id="my-fr-th-from" class="sortable hidden" data-sort-key="from" data-i18n="featureRequests.colFrom">From</th>
+            <th class="sortable" data-sort-key="status" data-i18n="featureRequests.colStatus">Status</th>
+            <th class="sortable" data-sort-key="text" data-i18n="featureRequests.colRequest">Request</th>
+            <th class="sortable" data-sort-key="admin_comment" data-i18n="featureRequests.colAdminComment">Admin comment</th>
           </tr>
         </thead>
         <tbody id="my-fr-tbody"></tbody>

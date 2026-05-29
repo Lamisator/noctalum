@@ -1976,6 +1976,9 @@ body.mobile-mode .mobile-bottom-nav { display: flex; }
 #qso-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
 #qso-table th.sortable:hover { color: var(--accent); }
 #qso-table th.sort-active { color: var(--accent); }
+#fr-table th.sortable, #my-fr-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+#fr-table th.sortable:hover, #my-fr-table th.sortable:hover { color: var(--accent); }
+#fr-table th.sort-active, #my-fr-table th.sort-active { color: var(--accent); }
 .sort-arrow { font-size: 10px; }
 .mono { font-family: 'JetBrains Mono', 'Fira Mono', 'Cascadia Code', monospace; }
 

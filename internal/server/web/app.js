@@ -5258,11 +5258,73 @@
   // ----- feature requests -----
   let featureRequests = [];
   let myFeatureRequests = [];
+  // sort state per table: { key: string|null, dir: 'asc'|'desc'|null }
+  // 3-state cycle on repeated clicks: asc → desc → unsorted
+  const frSort = { key: null, dir: null };
+  const myFrSort = { key: null, dir: null };
+
+  function cmpVal(a, b) {
+    const av = (a == null) ? '' : a;
+    const bv = (b == null) ? '' : b;
+    // ISO dates and strings both compare lex-correctly
+    if (av < bv) return -1;
+    if (av > bv) return 1;
+    return 0;
+  }
+
+  function applySort(list, state) {
+    if (!state.key || !state.dir) return list;
+    const sign = state.dir === 'asc' ? 1 : -1;
+    return [...list].sort((a, b) => sign * cmpVal(a[state.key], b[state.key]));
+  }
+
+  function paintSortArrows(tableId, state) {
+    const table = $(tableId);
+    if (!table) return;
+    table.querySelectorAll('thead th.sortable').forEach(th => {
+      let arrow = th.querySelector('.sort-arrow');
+      if (!arrow) {
+        arrow = document.createElement('span');
+        arrow.className = 'sort-arrow';
+        arrow.style.marginLeft = '4px';
+        th.appendChild(arrow);
+      }
+      if (th.dataset.sortKey === state.key && state.dir) {
+        arrow.textContent = state.dir === 'asc' ? '▲' : '▼';
+        th.classList.add('sort-active');
+      } else {
+        arrow.textContent = '';
+        th.classList.remove('sort-active');
+      }
+    });
+  }
+
+  function wireSortableTable(tableId, state, onChange) {
+    const table = $(tableId);
+    if (!table) return;
+    table.querySelectorAll('thead th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.sortKey;
+        if (state.key !== key) {
+          state.key = key;
+          state.dir = 'asc';
+        } else if (state.dir === 'asc') {
+          state.dir = 'desc';
+        } else {
+          state.key = null;
+          state.dir = null;
+        }
+        onChange();
+      });
+    });
+  }
 
   $('feature-request-btn').addEventListener('click', () => featureRequestSubmitModal());
   $('my-fr-submit-btn').addEventListener('click', () => {
     featureRequestSubmitModal(() => refreshMyFeatureRequests());
   });
+  wireSortableTable('fr-table', frSort, () => renderFeatureRequests());
+  wireSortableTable('my-fr-table', myFrSort, () => renderMyFeatureRequests());
 
   function featureRequestSubmitModal(afterSubmit) {
     showModal(`
@@ -5305,7 +5367,9 @@
     const tbody = $('fr-tbody');
     tbody.innerHTML = '';
     $('fr-select-all').checked = false;
-    for (const fr of featureRequests) {
+    paintSortArrows('fr-table', frSort);
+    const rows = applySort(featureRequests, frSort);
+    for (const fr of rows) {
       const tr = document.createElement('tr');
       const date = fr.created_at ? new Date(fr.created_at).toLocaleString(localeForFmt()) : '';
       const statusClass = { pending: 'open', accepted: 'admin', declined: 'disabled', implemented: 'finished' }[fr.status] || '';
@@ -5387,6 +5451,9 @@
     if (titleEl) titleEl.textContent = isPublic
       ? t('featureRequests.publicTitle')
       : t('featureRequests.myTitle');
+    // If the "From" column is hidden, clear a stale sort on it
+    if (!isPublic && myFrSort.key === 'from') { myFrSort.key = null; myFrSort.dir = null; }
+    paintSortArrows('my-fr-table', myFrSort);
     const colspan = isPublic ? 5 : 4;
     const emptyMsg = isPublic
       ? t('featureRequests.noPublicRequests')
@@ -5398,7 +5465,8 @@
       $('my-fr-count').textContent = '';
       return;
     }
-    for (const fr of myFeatureRequests) {
+    const rows = applySort(myFeatureRequests, myFrSort);
+    for (const fr of rows) {
       const tr = document.createElement('tr');
       const date = fr.created_at ? new Date(fr.created_at).toLocaleString(localeForFmt()) : '';
       const statusClass = { pending: 'open', accepted: 'admin', declined: 'disabled', implemented: 'finished' }[fr.status] || '';
@@ -5536,6 +5604,12 @@
 
   // ----- Changelog -----
   const CHANGELOG = [
+    {
+      version: '0.54',
+      date: '2026-05-29',
+      en: 'Sortable columns on the feature-requests tables. Both the admin Feature Requests screen and the (admin- or public-mode) My Feature Requests screen now let you click any column header to sort by that column. The first click sorts ascending, the second click sorts descending, and the third click clears the sort and returns the list to its original order — an arrow (▲ / ▼) next to the column title shows the current direction. Each table keeps its own sort state so flipping between the two views does not reset the other. Sorting works on the client side, so it is instant even on long lists, and the read-only public view of feature requests respects the toggle just like the admin view.',
+      de: 'Sortierbare Spalten in den Feature-Wunsch-Tabellen. Sowohl im Admin-Bildschirm „Feature-Wünsche" als auch im Bildschirm „Meine Feature-Wünsche" (im persönlichen wie im öffentlichen Modus) kannst du jetzt auf jede Spaltenüberschrift klicken, um nach dieser Spalte zu sortieren. Der erste Klick sortiert aufsteigend, der zweite absteigend, und der dritte Klick hebt die Sortierung auf und zeigt die Liste wieder in der ursprünglichen Reihenfolge — ein Pfeil (▲ / ▼) neben der Spaltenüberschrift zeigt die aktuelle Richtung. Jede Tabelle hat einen eigenen Sortierzustand, sodass ein Wechsel zwischen beiden Ansichten den anderen Zustand nicht zurücksetzt. Sortiert wird auf der Client-Seite, daher ist es auch bei langen Listen sofort sichtbar; die schreibgeschützte öffentliche Ansicht der Feature-Wünsche verhält sich dabei genauso wie die Admin-Ansicht.',
+    },
     {
       version: '0.53',
       date: '2026-05-29',
