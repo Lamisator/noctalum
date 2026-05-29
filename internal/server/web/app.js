@@ -5518,6 +5518,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.51',
+      date: '2026-05-29',
+      en: 'Deploy script now announces new versions in a Telegram group. After the production deploy finishes, a small new helper (noctalum-notify-telegram) reads the latest CHANGELOG entry, posts the German body to the configured group via the Telegram Bot API, and remembers what it posted — so a repeat redeploy at the same version does not double-post. Run the binary with --setup once to paste the bot token and let it auto-detect the group chat_id as soon as you add the bot and send a message; the config lives in ~/.config/noctalum/telegram.json (chmod 0600). The notifier never aborts a deploy: missing config or Telegram errors just print a warning and exit 0.',
+      de: 'Das Deploy-Skript kündigt neue Versionen jetzt in einer Telegram-Gruppe an. Nach erfolgreichem Produktions-Deploy liest ein neues kleines Hilfsprogramm (noctalum-notify-telegram) den neuesten CHANGELOG-Eintrag, schickt den deutschen Text über die Telegram-Bot-API in die konfigurierte Gruppe und merkt sich, was es gepostet hat — ein erneuter Deploy derselben Version wird also nicht doppelt angekündigt. Führe das Binary einmalig mit --setup aus, um den Bot-Token einzugeben; es erkennt die chat_id automatisch, sobald du den Bot in die Gruppe einlädst und dort eine Nachricht schickst. Die Konfiguration liegt in ~/.config/noctalum/telegram.json (chmod 0600). Schlägt die Benachrichtigung fehl, wird der Deploy nicht abgebrochen — du siehst nur eine Warnung.',
+    },
+    {
       version: '0.50',
       date: '2026-05-24',
       en: 'QSO entry: the "NR given" field now refreshes when another QSO is logged or deleted elsewhere. Previously the auto-filled preview was treated like a typed value, so it stayed put even when the underlying next-number changed — leaving the field showing a stale number that was already in use or just freed. A new flag tracks whether the field holds an auto-filled preview vs. a number you actually typed; only auto-filled values get overwritten on refresh.',

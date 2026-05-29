@@ -11,6 +11,7 @@
 #   ./build.sh --helper-only            # only the noctalum-helper
 #   ./build.sh --wsjtx-only             # only the noctalum-wsjtx bridge
 #   ./build.sh --gui-only               # only the noctalum-helper-gui (linux, windows)
+#   ./build.sh --notifier-only          # only the Telegram-deploy notifier
 #   ./build.sh --no-gui                 # skip the GUI helper
 #   ./build.sh --target linux/amd64     # restrict to one OS/arch
 #   ./build.sh --image golang:1.23      # use a different builder image
@@ -36,6 +37,9 @@ DEFAULT_HELPER_TARGETS=(
   "darwin/amd64" "darwin/arm64"
   "windows/amd64"
 )
+# Telegram-notifier binary runs on the operator's laptop (the machine that
+# runs deploy.sh), so we only need the common dev-machine targets here.
+DEFAULT_NOTIFIER_TARGETS=("linux/amd64" "darwin/arm64")
 
 usage() {
   sed -n '2,18p' "$0"
@@ -45,16 +49,18 @@ build_server=true
 build_helper=true
 build_wsjtx=true
 build_gui=true
+build_notifier=true
 single_target=""
 native_build=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --server-only) build_helper=false; build_wsjtx=false; build_gui=false; shift ;;
-    --helper-only) build_server=false; build_wsjtx=false; build_gui=false; shift ;;
-    --wsjtx-only)  build_server=false; build_helper=false; build_gui=false; shift ;;
-    --gui-only)    build_server=false; build_helper=false; build_wsjtx=false; build_gui=true; shift ;;
-    --no-gui)      build_gui=false; shift ;;
+    --server-only)   build_helper=false; build_wsjtx=false; build_gui=false; build_notifier=false; shift ;;
+    --helper-only)   build_server=false; build_wsjtx=false; build_gui=false; build_notifier=false; shift ;;
+    --wsjtx-only)    build_server=false; build_helper=false; build_gui=false; build_notifier=false; shift ;;
+    --gui-only)      build_server=false; build_helper=false; build_wsjtx=false; build_gui=true; build_notifier=false; shift ;;
+    --notifier-only) build_server=false; build_helper=false; build_wsjtx=false; build_gui=false; build_notifier=true; shift ;;
+    --no-gui)        build_gui=false; shift ;;
     --target)      single_target="$2"; shift 2 ;;
     --image)       GO_IMAGE="$2"; shift 2 ;;
     --native)      native_build=true; shift ;;
@@ -247,6 +253,13 @@ fi
 if $build_wsjtx; then
   for t in "${helper_targets[@]}"; do
     run_build "./cmd/wsjtx" "noctalum-wsjtx" "$t"
+  done
+fi
+if $build_notifier; then
+  notifier_targets=("${DEFAULT_NOTIFIER_TARGETS[@]}")
+  [ -n "$single_target" ] && notifier_targets=("$single_target")
+  for t in "${notifier_targets[@]}"; do
+    run_build "./cmd/notify-telegram" "noctalum-notify-telegram" "$t"
   done
 fi
 

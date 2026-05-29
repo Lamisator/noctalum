@@ -1,5 +1,15 @@
 # Noctalum Changelog
 
+## v0.51 — 2026-05-29 — Telegram notification after deploy
+
+- New `cmd/notify-telegram/main.go` — small Go binary that reads the top entry of the `CHANGELOG` array in `internal/server/web/app.js`, cross-checks its version against `programVersion` in `internal/server/server.go`, and posts the German body to a configured Telegram group via the Bot HTTPS API
+- `build.sh` cross-compiles it to `dist/noctalum-notify-telegram-<os>-<arch>` for the operator's laptop (defaults: `linux/amd64`, `darwin/arm64`). A new `--notifier-only` flag iterates on the notifier without rebuilding everything else
+- `deploy.sh` runs the notifier after the final `docker compose up -d` and selects the right host binary via `uname`. Failures are non-fatal (`|| true`) — and the notifier itself never exits non-zero outside `--setup`, so a Telegram outage cannot block a deploy
+- Configuration lives in `~/.config/noctalum/telegram.json` (chmod 0600, refuses to load if perms are wider). Override via `NOCTALUM_TELEGRAM_CONFIG`. First-time setup is interactive: `./dist/noctalum-notify-telegram-<host> --setup` prompts for the bot token (hidden via `golang.org/x/term`), validates it with `getMe`, long-polls `getUpdates` until the operator adds the bot to a group and sends a message, confirms the detected `chat_id`, posts a German test message, and persists the config
+- Duplicate-post prevention: `last_posted_version` is recorded in the config after each successful post; a normal run skips with a stderr note when the version matches. `--force` reposts, `--dry-run` previews to stdout without touching state or Telegram, `--version 0.42` picks a specific older entry
+- Messages render with Telegram MarkdownV2 (bold version header + `🌙` moon glyph + escaped German body) and truncate at the last sentence boundary at a UTF-8-safe rune boundary if a single entry exceeds Telegram's 4096-char limit
+- `programVersion` bumped to `0.51`
+
 ## v0.50 — 2026-05-24 — "NR given" form field refreshes on QSO delete/insert
 
 - The auto-fill in `updateNrPreview` (`internal/server/web/app.js:2494`) only wrote to `q-nr-sent` when the field was empty — so once filled, subsequent WS `qso`/`qso_deleted`/`qso_updated` events left the displayed number stale even though the underlying next-NR had changed. The server still assigned the correct number at log time, but the operator saw a value that was already in use or had just been freed
