@@ -595,7 +595,7 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.Seconds <= 0 {
-		body.Seconds = 15
+		body.Seconds = 60
 	}
 	s.hub.Broadcast(Event{Type: "deploy_warning", Payload: map[string]any{"seconds": body.Seconds}})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "seconds": body.Seconds})

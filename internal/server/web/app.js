@@ -5251,7 +5251,7 @@
           if (typeof onChatMessage === 'function') onChatMessage(msg.payload);
           break;
         case 'deploy_warning':
-          showDeployWarning(msg.payload?.seconds || 15);
+          showDeployWarning(msg.payload?.seconds || 60);
           break;
       }
     };
@@ -5318,6 +5318,7 @@
     $('deploy-modal').classList.add('hidden');
     _deployUpdateDisplays();
     $('deploy-ribbon').classList.remove('hidden');
+    document.body.classList.add('deploy-ribbon-active');
   });
 
   async function bootstrap() {
