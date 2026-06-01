@@ -860,6 +860,10 @@
     renderDownloads(downloads);
     renderGlobalOperators();
     show('contest-screen');
+    // Keep the WS alive on the contest picker so deploy warnings reach the user
+    // even when they haven't entered a contest yet.  enterApp() will close and
+    // reconnect if/when a contest is selected.
+    if (!ws) connectWS();
     // If the user followed a share link (?share=TOKEN), open the import flow
     // pre-filled with that token.  Strip the query so a page reload does not
     // re-open the dialog after the operator dismissed it.
