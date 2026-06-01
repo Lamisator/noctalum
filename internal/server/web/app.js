@@ -1359,6 +1359,7 @@
     if (qres.ok) qsos = await qres.json();
     if (ores.ok) operators = await ores.json();
     if (rres.ok) rigs = await rres.json();
+    applyDefaults();
     renderQsos();
     renderOperators();
     renderRigSelect();
