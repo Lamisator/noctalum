@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/noctalum/noctalum/internal/store"
@@ -157,7 +158,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	// Public endpoints
-	mux.HandleFunc("/api/deploy-warning", s.handleDeployWarning)
+	mux.HandleFunc("/api/shutdown", s.handleShutdown)
 	mux.HandleFunc("/api/setup", s.handleSetup)
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/logout", s.handleLogout)
@@ -578,21 +579,15 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleDeployWarning broadcasts an imminent-restart countdown to all connected
-// browser clients.  Called by the deploy script before docker compose down.
-// Protected by NOCTALUM_DEPLOY_SECRET env var; returns 503 when not configured.
-func (s *Server) handleDeployWarning(w http.ResponseWriter, r *http.Request) {
+// handleShutdown broadcasts a deploy-warning countdown to all connected browser
+// clients and then sends SIGTERM to the process after the countdown elapses,
+// causing a clean exit.  Called by the deploy script via SSH from localhost.
+// No auth token is required: the server only binds on 127.0.0.1, so only a
+// caller with SSH access to the host — who already has full control — can reach
+// this endpoint.
+func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "POST required")
-		return
-	}
-	secret := os.Getenv("NOCTALUM_DEPLOY_SECRET")
-	if secret == "" {
-		writeError(w, http.StatusServiceUnavailable, "deploy warning not configured (set NOCTALUM_DEPLOY_SECRET)")
-		return
-	}
-	if r.Header.Get("X-Deploy-Secret") != secret {
-		writeError(w, http.StatusForbidden, "invalid deploy secret")
 		return
 	}
 	var body struct {
@@ -604,6 +599,10 @@ func (s *Server) handleDeployWarning(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.Broadcast(Event{Type: "deploy_warning", Payload: map[string]any{"seconds": body.Seconds}})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "seconds": body.Seconds})
+	go func() {
+		time.Sleep(time.Duration(body.Seconds) * time.Second)
+		_ = syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	}()
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {

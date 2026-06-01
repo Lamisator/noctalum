@@ -2,8 +2,6 @@ services:
   noctalum:
     image: debian:bookworm-slim
     command: /app/noctalum-server -addr :8675 -db /data/noctalum.db -downloads-dir /downloads
-    environment:
-      - NOCTALUM_DEPLOY_SECRET
     volumes:
       - ./app/noctalum-server:/app/noctalum-server:ro
       - ./app/downloads:/downloads:ro
