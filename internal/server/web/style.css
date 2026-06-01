@@ -776,13 +776,21 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
 
 .login-card.wide { width: 680px; }
 #contest-screen .login-card { flex: 1; width: auto; min-width: 400px; }
-/* Contest-action buttons: uniform compact height regardless of primary/ghost class */
+/* Contest-action buttons: uniform size regardless of primary/ghost class */
+#contest-create-section,
+#contest-list-create-section,
+#contest-list-create-private-section {
+  display: flex;
+  gap: 8px;
+}
 #contest-create-section button,
 #private-contest-create-section button,
 #contest-list-create-section button,
 #contest-list-create-private-section button {
   padding: 5px 12px;
   font-size: 12px;
+  flex: 1;
+  justify-content: center;
 }
 #global-settings-screen {
   align-items: flex-start;
