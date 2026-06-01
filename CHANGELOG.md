@@ -1,5 +1,24 @@
 # Noctalum Changelog
 
+## v0.56 — 2026-06-01 — Contest-aware band selector and out-of-band frequency warning
+
+- Band dropdown in the New QSO form now lists only the bands configured for the
+  active contest. `applyDefaults()` in `app.js` passes `contestBands()` to
+  `fillSelect` for `q-band` instead of the global `BANDS` constant; falls back
+  to the full list when no contest bands are configured
+- New "NOT A CONTEST BAND" / "KEIN CONTEST-BAND" amber warning pill sits next to
+  the duplicate badge and fires whenever the typed (or rig/spot/stash-supplied)
+  frequency maps to a valid amateur band that is not in the contest's band list.
+  `updateOobBadge()` is wired into `q-freq` input, cluster-spot load, stash
+  recall, QSO edit load, cancel-edit, post-submit clear, and
+  `applySelectedRigToForm()`. CSS class `.oob-band` in `style.css`; i18n key
+  `qso.outOfBand` in EN ("NOT A CONTEST BAND") and DE ("KEIN CONTEST-BAND")
+- Internal: `/release` skill instruction tightened — in-app `CHANGELOG` `en`/`de`
+  strings must now be short scannable bullets (one user-visible effect per line,
+  under ~15 words each, no code identifiers). The Telegram notifier posts the DE
+  string verbatim; the previous prose-essay format was unreadable in a group chat
+- `programVersion` bumped to `0.56`
+
 ## v0.55 — 2026-05-29 — Contest config reuse, QSO entry polish, and settings-save preservation
 
 ### QSO entry mask
