@@ -663,6 +663,8 @@
         body: 'Finish your work and stand-by for server restart.',
         countdown: 'Server restarting in {n} s…',
         restarting: 'Restarting now…',
+        checkingAvailability: 'Checking availability…',
+        stillWaiting: 'Still waiting… ({n} s)',
       },
     },
     de: {
@@ -1291,6 +1293,8 @@
         body: 'Bitte schließe deine Arbeit ab und warte auf den Serverneustart.',
         countdown: 'Server startet neu in {n} s…',
         restarting: 'Neustart läuft…',
+        checkingAvailability: 'Verfügbarkeit wird geprüft…',
+        stillWaiting: 'Noch am Warten… ({n} s)',
       },
       dok: {
         title: 'DOK-Datenbank',

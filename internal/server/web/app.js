@@ -5284,22 +5284,76 @@
   }
 
   // ----- Deploy warning -----
+  // Phase progression: 'countdown' → 'restarting' → 'polling'
   let _deployCountdown = 0;
   let _deployInterval = null;
+  let _deployPhase = 'countdown'; // 'countdown' | 'restarting' | 'polling'
+  let _deployWentDown = false;    // true once we confirm the server stopped responding
+  let _deployPollStart = 0;       // Date.now() when polling began
+  let _deployPollTimer = null;    // setInterval for poll ticks
 
-  function _deployUpdateDisplays() {
-    const countText = _deployCountdown > 0
-      ? t('deploy.countdown', { n: _deployCountdown })
-      : t('deploy.restarting');
-    const ribbonText = t('deploy.title') + ' — ' + t('deploy.body') + ' ' + countText;
+  function _deploySetText(timerText) {
+    const ribbonText = t('deploy.title') + ' — ' + t('deploy.body') + ' ' + timerText;
     const timerEl = $('deploy-modal-timer');
-    if (timerEl) timerEl.textContent = countText;
+    if (timerEl) timerEl.textContent = timerText;
     const ribbonEl = $('deploy-ribbon-text');
     if (ribbonEl) ribbonEl.textContent = ribbonText;
   }
 
+  function _deployUpdateDisplays() {
+    if (_deployPhase === 'countdown') {
+      _deploySetText(_deployCountdown > 0
+        ? t('deploy.countdown', { n: _deployCountdown })
+        : t('deploy.restarting'));
+    } else if (_deployPhase === 'restarting') {
+      _deploySetText(t('deploy.restarting'));
+    } else if (_deployPhase === 'polling') {
+      const elapsed = Math.floor((Date.now() - _deployPollStart) / 1000);
+      _deploySetText(elapsed < 5
+        ? t('deploy.checkingAvailability')
+        : t('deploy.stillWaiting', { n: elapsed }));
+    }
+  }
+
+  async function _deployPollServer() {
+    try {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 3000);
+      const res = await fetch('/api/me', { signal: ctrl.signal });
+      clearTimeout(tid);
+      // Any HTTP response means the server is back up.
+      if (_deployWentDown) {
+        window.location.reload();
+        return;
+      }
+      // Server still up — not yet gone down, keep waiting.
+    } catch (_) {
+      // Network error / timeout means server is down or unreachable.
+      _deployWentDown = true;
+    }
+    _deployUpdateDisplays();
+  }
+
+  function _startDeployPolling() {
+    _deployPhase = 'polling';
+    _deployWentDown = false;
+    _deployPollStart = Date.now();
+    _deployUpdateDisplays();
+    if (_deployPollTimer) clearInterval(_deployPollTimer);
+    // Update elapsed counter every second; poll server every 5 s.
+    let _pollTick = 0;
+    _deployPollTimer = setInterval(() => {
+      _pollTick++;
+      _deployUpdateDisplays();
+      if (_pollTick % 5 === 0) _deployPollServer();
+    }, 1000);
+    // Kick off first poll immediately (don't wait 5 s).
+    _deployPollServer();
+  }
+
   function showDeployWarning(seconds) {
     _deployCountdown = seconds;
+    _deployPhase = 'countdown';
     const titleEl = $('deploy-modal-title');
     if (titleEl) titleEl.textContent = t('deploy.title');
     const bodyEl = $('deploy-modal-body');
@@ -5308,9 +5362,20 @@
     $('deploy-modal').classList.remove('hidden');
     if (_deployInterval) clearInterval(_deployInterval);
     _deployInterval = setInterval(() => {
-      if (_deployCountdown > 0) _deployCountdown--;
-      _deployUpdateDisplays();
-      if (_deployCountdown === 0) { clearInterval(_deployInterval); _deployInterval = null; }
+      if (_deployCountdown > 0) {
+        _deployCountdown--;
+        _deployUpdateDisplays();
+      }
+      if (_deployCountdown === 0) {
+        clearInterval(_deployInterval);
+        _deployInterval = null;
+        _deployPhase = 'restarting';
+        _deployUpdateDisplays();
+        // Ensure ribbon is visible even if user never clicked OK.
+        $('deploy-ribbon').classList.remove('hidden');
+        document.body.classList.add('deploy-ribbon-active');
+        _startDeployPolling();
+      }
     }, 1000);
   }
 

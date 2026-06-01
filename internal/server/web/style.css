@@ -2836,7 +2836,7 @@ body.mobile-mode .mobile-bottom-nav { display: flex; }
 /* ==== Deploy warning ==== */
 @keyframes deploy-flash {
   0%, 100% { opacity: 1; }
-  50%       { opacity: 0.2; }
+  50%       { opacity: 0.55; }
 }
 
 .deploy-modal-card {
