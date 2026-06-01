@@ -5323,7 +5323,7 @@
       clearTimeout(tid);
       // Any HTTP response means the server is back up.
       if (_deployWentDown) {
-        sessionStorage.removeItem('noctalum.deployDeadline');
+        try { sessionStorage.removeItem('noctalum.deployDeadline'); } catch {}
         window.location.reload();
         return;
       }
@@ -5355,13 +5355,14 @@
   function showDeployWarning(seconds) {
     _deployCountdown = seconds;
     _deployPhase = 'countdown';
-    sessionStorage.setItem('noctalum.deployDeadline', String(Date.now() + seconds * 1000));
     const titleEl = $('deploy-modal-title');
     if (titleEl) titleEl.textContent = t('deploy.title');
     const bodyEl = $('deploy-modal-body');
     if (bodyEl) bodyEl.textContent = t('deploy.body');
     _deployUpdateDisplays();
     $('deploy-modal').classList.remove('hidden');
+    // Save deadline AFTER showing the modal so a storage error can't prevent display.
+    try { sessionStorage.setItem('noctalum.deployDeadline', String(Date.now() + seconds * 1000)); } catch {}
     if (_deployInterval) clearInterval(_deployInterval);
     _deployInterval = setInterval(() => {
       if (_deployCountdown > 0) {
@@ -6679,7 +6680,8 @@
   // Initial route.
   (async () => {
     // Restore deploy warning ribbon if the page was refreshed during a countdown.
-    const _storedDeadline = parseInt(sessionStorage.getItem('noctalum.deployDeadline') || '0', 10);
+    let _storedDeadline = 0;
+    try { _storedDeadline = parseInt(sessionStorage.getItem('noctalum.deployDeadline') || '0', 10); } catch {}
     if (_storedDeadline) {
       const _remaining = Math.round((_storedDeadline - Date.now()) / 1000);
       $('deploy-ribbon').classList.remove('hidden');
