@@ -5323,6 +5323,7 @@
       clearTimeout(tid);
       // Any HTTP response means the server is back up.
       if (_deployWentDown) {
+        sessionStorage.removeItem('noctalum.deployDeadline');
         window.location.reload();
         return;
       }
@@ -5354,6 +5355,7 @@
   function showDeployWarning(seconds) {
     _deployCountdown = seconds;
     _deployPhase = 'countdown';
+    sessionStorage.setItem('noctalum.deployDeadline', String(Date.now() + seconds * 1000));
     const titleEl = $('deploy-modal-title');
     if (titleEl) titleEl.textContent = t('deploy.title');
     const bodyEl = $('deploy-modal-body');
@@ -6676,6 +6678,23 @@
 
   // Initial route.
   (async () => {
+    // Restore deploy warning ribbon if the page was refreshed during a countdown.
+    const _storedDeadline = parseInt(sessionStorage.getItem('noctalum.deployDeadline') || '0', 10);
+    if (_storedDeadline) {
+      const _remaining = Math.round((_storedDeadline - Date.now()) / 1000);
+      $('deploy-ribbon').classList.remove('hidden');
+      document.body.classList.add('deploy-ribbon-active');
+      if (_remaining > 0) {
+        // Countdown still in progress — show ribbon only (skip re-showing the modal).
+        showDeployWarning(_remaining);
+        $('deploy-modal').classList.add('hidden');
+      } else {
+        // Deadline already passed — jump straight to polling.
+        _deployWentDown = true; // treat as gone-down so first response triggers reload
+        _startDeployPolling();
+      }
+    }
+
     const res = await fetch('/api/me', { credentials: 'same-origin' });
     if (res.ok) {
       const j = await res.json();
