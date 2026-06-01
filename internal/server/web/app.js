@@ -5250,6 +5250,9 @@
         case 'chat':
           if (typeof onChatMessage === 'function') onChatMessage(msg.payload);
           break;
+        case 'deploy_warning':
+          showDeployWarning(msg.payload?.seconds || 15);
+          break;
       }
     };
     ws.onclose = () => {
@@ -5279,6 +5282,43 @@
     $('contest-current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
     return true;
   }
+
+  // ----- Deploy warning -----
+  let _deployCountdown = 0;
+  let _deployInterval = null;
+
+  function _deployUpdateDisplays() {
+    const countText = _deployCountdown > 0
+      ? t('deploy.countdown', { n: _deployCountdown })
+      : t('deploy.restarting');
+    const ribbonText = t('deploy.title') + ' — ' + t('deploy.body') + ' ' + countText;
+    const timerEl = $('deploy-modal-timer');
+    if (timerEl) timerEl.textContent = countText;
+    const ribbonEl = $('deploy-ribbon-text');
+    if (ribbonEl) ribbonEl.textContent = ribbonText;
+  }
+
+  function showDeployWarning(seconds) {
+    _deployCountdown = seconds;
+    const titleEl = $('deploy-modal-title');
+    if (titleEl) titleEl.textContent = t('deploy.title');
+    const bodyEl = $('deploy-modal-body');
+    if (bodyEl) bodyEl.textContent = t('deploy.body');
+    _deployUpdateDisplays();
+    $('deploy-modal').classList.remove('hidden');
+    if (_deployInterval) clearInterval(_deployInterval);
+    _deployInterval = setInterval(() => {
+      if (_deployCountdown > 0) _deployCountdown--;
+      _deployUpdateDisplays();
+      if (_deployCountdown === 0) { clearInterval(_deployInterval); _deployInterval = null; }
+    }, 1000);
+  }
+
+  $('deploy-modal-ok').addEventListener('click', () => {
+    $('deploy-modal').classList.add('hidden');
+    _deployUpdateDisplays();
+    $('deploy-ribbon').classList.remove('hidden');
+  });
 
   async function bootstrap() {
     const ok = await refreshMe();

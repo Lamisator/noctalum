@@ -1001,6 +1001,21 @@
   <div class="modal-card" id="modal-card"></div>
 </div>
 
+<!-- Deploy warning ribbon (shown after modal is dismissed) -->
+<div id="deploy-ribbon" class="deploy-ribbon hidden">
+  <div class="deploy-ribbon-inner" id="deploy-ribbon-text"></div>
+</div>
+
+<!-- Deploy warning modal -->
+<div id="deploy-modal" class="modal-root hidden" style="z-index:500">
+  <div class="deploy-modal-card">
+    <div class="deploy-modal-title" id="deploy-modal-title"></div>
+    <div class="deploy-modal-body" id="deploy-modal-body"></div>
+    <div class="deploy-modal-timer" id="deploy-modal-timer"></div>
+    <button class="deploy-modal-ok" id="deploy-modal-ok" data-i18n="common.ok">OK</button>
+  </div>
+</div>
+
 <!-- Confirm dialog -->
 <div id="confirm-root" class="modal-root hidden" style="z-index:200">
   <div class="modal-card confirm-card">

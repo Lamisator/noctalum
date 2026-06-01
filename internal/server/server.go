@@ -157,6 +157,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	// Public endpoints
+	mux.HandleFunc("/api/deploy-warning", s.handleDeployWarning)
 	mux.HandleFunc("/api/setup", s.handleSetup)
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/logout", s.handleLogout)
@@ -575,6 +576,34 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.sessions.Delete(c.Value)
 	ClearSessionCookie(w)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDeployWarning broadcasts an imminent-restart countdown to all connected
+// browser clients.  Called by the deploy script before docker compose down.
+// Protected by NOCTALUM_DEPLOY_SECRET env var; returns 503 when not configured.
+func (s *Server) handleDeployWarning(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "POST required")
+		return
+	}
+	secret := os.Getenv("NOCTALUM_DEPLOY_SECRET")
+	if secret == "" {
+		writeError(w, http.StatusServiceUnavailable, "deploy warning not configured (set NOCTALUM_DEPLOY_SECRET)")
+		return
+	}
+	if r.Header.Get("X-Deploy-Secret") != secret {
+		writeError(w, http.StatusForbidden, "invalid deploy secret")
+		return
+	}
+	var body struct {
+		Seconds int `json:"seconds"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.Seconds <= 0 {
+		body.Seconds = 15
+	}
+	s.hub.Broadcast(Event{Type: "deploy_warning", Payload: map[string]any{"seconds": body.Seconds}})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "seconds": body.Seconds})
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {

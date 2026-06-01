@@ -658,6 +658,12 @@
         deleteConfirm: 'Delete DOK entry for {call}?',
         importedN: 'Imported {n} entries.',
       },
+      deploy: {
+        title: '⚠ NEW DEPLOYMENT IMMINENT',
+        body: 'Finish your work and stand-by for server restart.',
+        countdown: 'Server restarting in {n} s…',
+        restarting: 'Restarting now…',
+      },
     },
     de: {
       common: {
@@ -1279,6 +1285,12 @@
         noFiles: 'Keine Downloads verfügbar.',
         recommended: 'Empfohlen',
         appImage: 'AppImage',
+      },
+      deploy: {
+        title: '⚠ NEUES DEPLOYMENT STEHT UNMITTELBAR BEVOR',
+        body: 'Bitte schließe deine Arbeit ab und warte auf den Serverneustart.',
+        countdown: 'Server startet neu in {n} s…',
+        restarting: 'Neustart läuft…',
       },
       dok: {
         title: 'DOK-Datenbank',
