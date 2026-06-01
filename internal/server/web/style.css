@@ -2065,6 +2065,10 @@ body.mobile-mode .mobile-bottom-nav { display: flex; }
   background: var(--warn);
   color: #111;
 }
+.oob-band {
+  background: var(--warn);
+  color: #111;
+}
 
 /* ==== QRZ profile pill (next to Callsign label) ==== */
 .qrz-pill {

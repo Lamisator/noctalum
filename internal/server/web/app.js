@@ -1875,6 +1875,7 @@
     }
     applyRSTDefaults($('q-mode').value);
     updateDuplicateBadge();
+    updateOobBadge();
     // Tune the selected TRX to the stashed frequency.
     if (me?.selected_rig && stash.freq_hz > 0) {
       api('/api/rigs/set_freq', {
@@ -2136,6 +2137,7 @@
     $('q-rst-rcvd').value = '';
     applyRSTDefaults($('q-mode').value);
     updateDuplicateBadge();
+    updateOobBadge();
     updateCallCountry($('q-call').value.trim().toUpperCase());
     updateNrPreview();
     // tune the selected rig if one is connected
@@ -2239,7 +2241,8 @@
   }
   function applyDefaults() {
     fillSelect($('q-mode'), MODES, settings?.default_mode || 'SSB');
-    fillSelect($('q-band'), BANDS, settings?.default_band || '20m', fmtBand);
+    const cBands = contestBands();
+    fillSelect($('q-band'), cBands.length ? cBands : BANDS, settings?.default_band || '20m', fmtBand);
     fillSelect($('s-mode'), MODES, settings?.default_mode || 'SSB');
     fillSelect($('s-band'), BANDS, settings?.default_band || '20m', fmtBand);
     applyRSTDefaults($('q-mode').value);
@@ -2308,6 +2311,7 @@
   $('q-freq').addEventListener('input', () => {
     const band = bandFromFreqKHz($('q-freq').value);
     if (band) { $('q-band').value = band; updateDuplicateBadge(); }
+    updateOobBadge();
   });
 
   // Enter submits the QSO form from any field — browsers do this natively for
@@ -2450,6 +2454,17 @@
       badge.textContent = t('qso.workedOther');
     }
     renderBandPills();
+  }
+
+  function updateOobBadge() {
+    const badge = $('oob-badge');
+    if (!badge) return;
+    const cBands = contestBands();
+    if (!cBands.length) { badge.className = 'dup-badge hidden'; return; }
+    const band = bandFromFreqKHz($('q-freq').value);
+    if (!band || cBands.includes(band)) { badge.className = 'dup-badge hidden'; return; }
+    badge.className = 'dup-badge oob-band';
+    badge.textContent = t('qso.outOfBand');
   }
 
   function contestBands() {
@@ -2625,6 +2640,7 @@
     callsignFilter = null;
     renderQsos();
     updateDuplicateBadge();
+    updateOobBadge();
     updateCallCountry(q.callsign);
     currentTargetLocator = q.locator || null;
     updateMap();
@@ -2640,6 +2656,7 @@
     currentTargetLocator = null;
     callsignFilter = null;
     updateDuplicateBadge();
+    updateOobBadge();
     renderQsos();
     updateNrPreview();
     $('log-qso-btn').textContent = t('qso.logQSO');
@@ -2755,6 +2772,7 @@
     currentTargetLocator = null;
     callsignFilter = null;
     updateDuplicateBadge();
+    updateOobBadge();
     renderQsos();
     updateNrPreview();
     $('q-call').focus();
@@ -2766,6 +2784,7 @@
     if (r && r.connected) {
       $('q-freq').value = (r.freq_hz / 1000).toFixed(2);
       if (r.band) $('q-band').value = r.band;
+      updateOobBadge();
     }
   }
   function renderRigSelect() {
