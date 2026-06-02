@@ -338,6 +338,38 @@ a { color: var(--accent); text-decoration: none; }
 #tab-log { padding: 14px; overflow: hidden; }
 #tab-log.active { display: flex; flex-direction: column; }
 
+/* Map tab — fills the available space; legend left, map right */
+#tab-map { padding: 0; overflow: hidden; }
+#tab-map.active { display: flex; }
+.contest-map-legend {
+  width: 180px;
+  flex-shrink: 0;
+  padding: 16px 14px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.contest-map-legend h3 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.cmap-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.cmap-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+  border: 1.5px solid rgba(0,0,0,0.35);
+}
+.cmap-legend-sep { height: 10px; }
+.contest-map-canvas { flex: 1; min-width: 0; }
+
 .layout-outer {
   flex: 1;
   min-height: 0;

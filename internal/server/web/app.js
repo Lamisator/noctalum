@@ -12,6 +12,13 @@
 
   const MODES = ['CW', 'SSB', 'USB', 'LSB', 'FM', 'AM', 'RTTY', 'FT8', 'FT4', 'PSK31', 'PSK63', 'JT65', 'DIGI'];
   const BANDS = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m', '4m', '2m', '70cm', '23cm', '13cm', '3cm'];
+  const BAND_COLORS = {
+    '160m': '#ef5350', '80m': '#ff7043', '60m': '#ffa000', '40m': '#fdd835',
+    '30m': '#c0ca33', '20m': '#26c6da', '17m': '#29b6f6', '15m': '#7e57c2',
+    '12m': '#ec407a', '10m': '#66bb6a', '6m':  '#ffee58', '4m':  '#aed581',
+    '2m':  '#42a5f5', '70cm': '#ab47bc', '23cm': '#26a69a', '13cm': '#8d6e63', '3cm': '#78909c',
+  };
+  function bandColor(b) { return BAND_COLORS[b] || '#9e9e9e'; }
 
   // ----- Mobile mode detection -----
   // Activation order: URL flag (?mode=mobile|desktop) > Settings override
@@ -476,10 +483,14 @@
     return segs;
   }
 
-  // ----- Leaflet map -----
+  // ----- Leaflet map (QSO bearing panel) -----
   let leafletMap = null;
   let qthMarker = null, tgtMarker = null;
   let pathLines = [];
+
+  // ----- Contest map (Map tab) -----
+  let contestMap = null;
+  let contestMapMarkers = [];
 
   function initLeafletMap() {
     const el = $('map-canvas');
@@ -1521,6 +1532,7 @@
       }
       if (tab.dataset.tab === 'settings') { loadPasskeys(); }
       if (tab.dataset.tab === 'statistics') renderStatistics();
+      if (tab.dataset.tab === 'map') renderContestMap();
       if (tab.dataset.tab === 'export') renderExportColumns();
     });
   });
@@ -1692,6 +1704,89 @@
       card(t('stats.qsoPerMode'), _statsSvgPie(modes, palette)) +
       card(t('stats.qsoPerHourUTC'), _statsSvgBars(hours, '#59a14f')) +
       card(t('stats.topCountries'), _statsSvgBars(countries, '#f28e2c'));
+  }
+
+  // ----- Contest map tab -----
+  function initContestMap() {
+    if (contestMap || typeof L === 'undefined') return;
+    const el = $('contest-map-canvas');
+    if (!el) return;
+    try {
+      contestMap = L.map(el, { zoomControl: true, attributionControl: true, scrollWheelZoom: true })
+        .setView([20, 10], 2);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '© <a href="https://www.openstreetmap.org/">OSM</a> © <a href="https://carto.com/">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 18,
+      }).addTo(contestMap);
+    } catch (e) { contestMap = null; }
+  }
+
+  function renderContestMap() {
+    initContestMap();
+    if (!contestMap) return;
+
+    contestMapMarkers.forEach(m => m.remove());
+    contestMapMarkers = [];
+
+    const legend = $('contest-map-legend');
+    const myLocStr = me?.contest_qth || null;
+    const myPos = myLocStr ? locatorToLatLon(myLocStr) : null;
+    const qsosWithLoc = qsos.filter(q => q.locator && q.locator.length >= 4);
+
+    // Unique bands in QSOs with locators, sorted by BANDS order
+    const bandsInUse = [...new Set(qsosWithLoc.map(q => q.band).filter(Boolean))]
+      .sort((a, b) => BANDS.indexOf(a) - BANDS.indexOf(b));
+
+    // Build legend
+    let legendHtml = `<h3>${escHtml(t('map.legend'))}</h3>`;
+    if (myPos) {
+      legendHtml += `<div class="cmap-legend-item"><span class="cmap-dot" style="background:#66bb6a;border-color:#fff"></span>${escHtml(t('map.myQTH'))}</div>`;
+    } else {
+      legendHtml += `<p class="muted small" style="margin:0 0 8px">${escHtml(t('map.noQTH'))}</p>`;
+    }
+    if (bandsInUse.length) {
+      legendHtml += '<div class="cmap-legend-sep"></div>';
+      for (const b of bandsInUse) {
+        const col = bandColor(b);
+        legendHtml += `<div class="cmap-legend-item"><span class="cmap-dot" style="background:${col}"></span>${escHtml(fmtBand(b))}</div>`;
+      }
+    }
+    if (!qsosWithLoc.length) {
+      legendHtml += `<p class="muted small" style="margin-top:12px">${escHtml(t('map.noData'))}</p>`;
+    }
+    legend.innerHTML = legendHtml;
+
+    // Own QTH marker
+    if (myPos) {
+      const label = t('map.myQTH') + (me?.contest_call ? ` · ${me.contest_call}` : '') + (myLocStr ? ` · ${myLocStr}` : '');
+      contestMapMarkers.push(
+        L.circleMarker([myPos.lat, myPos.lon], {
+          radius: 8, fillColor: '#66bb6a', color: '#fff', weight: 2, fillOpacity: 1,
+        }).bindTooltip(label).addTo(contestMap)
+      );
+    }
+
+    // Worked station markers — one per QSO with a locator
+    for (const q of qsosWithLoc) {
+      const pos = locatorToLatLon(q.locator);
+      if (!pos) continue;
+      const col = bandColor(q.band);
+      const label = `${q.callsign} · ${fmtBand(q.band)} · ${q.locator}`;
+      contestMapMarkers.push(
+        L.circleMarker([pos.lat, pos.lon], {
+          radius: 5, fillColor: col, color: 'rgba(0,0,0,0.4)', weight: 1, fillOpacity: 0.85,
+        }).bindTooltip(label).addTo(contestMap)
+      );
+    }
+
+    // Fit map to all markers; fall back to world view when nothing plotted
+    requestAnimationFrame(() => {
+      contestMap.invalidateSize();
+      if (contestMapMarkers.length) {
+        contestMap.fitBounds(L.featureGroup(contestMapMarkers).getBounds().pad(0.15), { maxZoom: 10 });
+      }
+    });
   }
 
   // ----- ops panel tabs -----

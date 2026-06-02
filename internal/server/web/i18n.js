@@ -252,6 +252,7 @@
         stationIdTitle: 'Contest station identifier',
         tabLog: 'Logging',
         tabStatistics: 'Statistics',
+        tabMap: 'Map',
         tabSettings: 'Settings',
         tabExport: 'Export',
         rigTitle: 'Selected transceiver',
@@ -445,6 +446,13 @@
         qsoPerMode: 'QSOs per mode',
         qsoPerHourUTC: 'QSOs per hour (UTC)',
         topCountries: 'Top countries',
+      },
+      map: {
+        title: 'Worked Stations Map',
+        legend: 'Bands',
+        myQTH: 'My QTH',
+        noData: 'No QSOs with locator data logged yet.',
+        noQTH: 'No QTH locator set for this contest.',
       },
       export: {
         title: 'Export log',
@@ -899,6 +907,7 @@
         stationIdTitle: 'Contest-Stationskennung',
         tabLog: 'Loggen',
         tabStatistics: 'Statistik',
+        tabMap: 'Karte',
         tabSettings: 'Einstellungen',
         tabExport: 'Export',
         rigTitle: 'Ausgewählter Transceiver',
@@ -1092,6 +1101,13 @@
         qsoPerMode: 'QSOs pro Mode',
         qsoPerHourUTC: 'QSOs pro Stunde (UTC)',
         topCountries: 'Top-Länder',
+      },
+      map: {
+        title: 'Karte der gearbeiteten Stationen',
+        legend: 'Bänder',
+        myQTH: 'Mein QTH',
+        noData: 'Noch keine QSOs mit Locator-Daten geloggt.',
+        noQTH: 'Für diesen Contest ist kein QTH-Locator eingetragen.',
       },
       export: {
         title: 'Log exportieren',
