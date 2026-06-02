@@ -490,7 +490,11 @@
 
   // ----- Contest map (Map tab) -----
   let contestMap = null;
-  let contestMapMarkers = [];
+  let contestMapQthMarker = null;
+  // [{ band, marker: L.circleMarker, paths: [L.polyline, ...] }]
+  let contestMapItems = [];
+  // { enabledBands: Set, knownBands: Set, showPaths: bool, contestId }
+  let contestMapState = null;
 
   function initLeafletMap() {
     const el = $('map-canvas');
@@ -1722,70 +1726,143 @@
     } catch (e) { contestMap = null; }
   }
 
+  function applyContestMapFilters() {
+    if (!contestMap || !contestMapState) return;
+    for (const { band, marker, paths } of contestMapItems) {
+      const on = contestMapState.enabledBands.has(band);
+      if (on) { if (!contestMap.hasLayer(marker)) marker.addTo(contestMap); }
+      else    { if (contestMap.hasLayer(marker))  marker.remove(); }
+      for (const line of paths) {
+        if (on && contestMapState.showPaths) { if (!contestMap.hasLayer(line)) line.addTo(contestMap); }
+        else                                 { if (contestMap.hasLayer(line))  line.remove(); }
+      }
+    }
+  }
+
   function renderContestMap() {
     initContestMap();
     if (!contestMap) return;
 
-    contestMapMarkers.forEach(m => m.remove());
-    contestMapMarkers = [];
+    // Clear previous layers
+    if (contestMapQthMarker) { contestMapQthMarker.remove(); contestMapQthMarker = null; }
+    contestMapItems.forEach(({ marker, paths }) => { marker.remove(); paths.forEach(p => p.remove()); });
+    contestMapItems = [];
 
-    const legend = $('contest-map-legend');
     const myLocStr = me?.contest_qth || null;
     const myPos = myLocStr ? locatorToLatLon(myLocStr) : null;
     const qsosWithLoc = qsos.filter(q => q.locator && q.locator.length >= 4);
 
-    // Unique bands in QSOs with locators, sorted by BANDS order
     const bandsInUse = [...new Set(qsosWithLoc.map(q => q.band).filter(Boolean))]
       .sort((a, b) => BANDS.indexOf(a) - BANDS.indexOf(b));
 
-    // Build legend
-    let legendHtml = `<h3>${escHtml(t('map.legend'))}</h3>`;
-    if (myPos) {
-      legendHtml += `<div class="cmap-legend-item"><span class="cmap-dot" style="background:#66bb6a;border-color:#fff"></span>${escHtml(t('map.myQTH'))}</div>`;
+    // Initialise filter state; reset when the contest changes
+    if (!contestMapState || contestMapState.contestId !== me?.contest_id) {
+      contestMapState = {
+        enabledBands: new Set(bandsInUse),
+        knownBands:   new Set(bandsInUse),
+        showPaths:    true,
+        contestId:    me?.contest_id,
+      };
     } else {
-      legendHtml += `<p class="muted small" style="margin:0 0 8px">${escHtml(t('map.noQTH'))}</p>`;
-    }
-    if (bandsInUse.length) {
-      legendHtml += '<div class="cmap-legend-sep"></div>';
+      // Enable any newly-seen bands automatically
       for (const b of bandsInUse) {
-        const col = bandColor(b);
-        legendHtml += `<div class="cmap-legend-item"><span class="cmap-dot" style="background:${col}"></span>${escHtml(fmtBand(b))}</div>`;
+        if (!contestMapState.knownBands.has(b)) {
+          contestMapState.enabledBands.add(b);
+          contestMapState.knownBands.add(b);
+        }
       }
     }
-    if (!qsosWithLoc.length) {
-      legendHtml += `<p class="muted small" style="margin-top:12px">${escHtml(t('map.noData'))}</p>`;
-    }
-    legend.innerHTML = legendHtml;
 
-    // Own QTH marker
+    // ----- Legend -----
+    const legend = $('contest-map-legend');
+    let html = `<h3>${escHtml(t('map.legend'))}</h3>`;
+
     if (myPos) {
-      const label = t('map.myQTH') + (me?.contest_call ? ` · ${me.contest_call}` : '') + (myLocStr ? ` · ${myLocStr}` : '');
-      contestMapMarkers.push(
-        L.circleMarker([myPos.lat, myPos.lon], {
-          radius: 8, fillColor: '#66bb6a', color: '#fff', weight: 2, fillOpacity: 1,
-        }).bindTooltip(label).addTo(contestMap)
-      );
+      html += `<div class="cmap-legend-item"><span class="cmap-dot" style="background:#66bb6a;border-color:#fff"></span>${escHtml(t('map.myQTH'))}</div>`;
+    } else {
+      html += `<p class="muted small" style="margin:0 0 6px">${escHtml(t('map.noQTH'))}</p>`;
     }
 
-    // Worked station markers — one per QSO with a locator
+    html += `<div class="cmap-legend-sep"></div>
+      <label class="cmap-toggle">
+        <input type="checkbox" id="cmap-show-paths" ${contestMapState.showPaths ? 'checked' : ''}>
+        <span>${escHtml(t('map.showPaths'))}</span>
+      </label>`;
+
+    if (bandsInUse.length) {
+      html += `<div class="cmap-legend-sep"></div>`;
+      for (const b of bandsInUse) {
+        const col = bandColor(b);
+        const chk = contestMapState.enabledBands.has(b) ? 'checked' : '';
+        html += `<label class="cmap-toggle cmap-band-toggle" data-band="${escHtml(b)}">
+          <input type="checkbox" ${chk}>
+          <span class="cmap-dot" style="background:${col}"></span>
+          <span>${escHtml(fmtBand(b))}</span>
+        </label>`;
+      }
+    }
+
+    if (!qsosWithLoc.length) {
+      html += `<p class="muted small" style="margin-top:10px">${escHtml(t('map.noData'))}</p>`;
+    }
+    legend.innerHTML = html;
+
+    $('cmap-show-paths').addEventListener('change', e => {
+      contestMapState.showPaths = e.target.checked;
+      applyContestMapFilters();
+    });
+    legend.querySelectorAll('.cmap-band-toggle').forEach(lbl => {
+      lbl.querySelector('input').addEventListener('change', e => {
+        const b = lbl.dataset.band;
+        if (e.target.checked) contestMapState.enabledBands.add(b);
+        else contestMapState.enabledBands.delete(b);
+        applyContestMapFilters();
+      });
+    });
+
+    // ----- Own QTH marker (always shown) -----
+    if (myPos) {
+      const tip = t('map.myQTH') + (me?.contest_call ? ` · ${me.contest_call}` : '') + (myLocStr ? ` · ${myLocStr}` : '');
+      contestMapQthMarker = L.circleMarker([myPos.lat, myPos.lon], {
+        radius: 8, fillColor: '#66bb6a', color: '#fff', weight: 2, fillOpacity: 1,
+      }).bindTooltip(tip).addTo(contestMap);
+    }
+
+    // ----- QSO layers (paths first so dots render on top) -----
     for (const q of qsosWithLoc) {
       const pos = locatorToLatLon(q.locator);
       if (!pos) continue;
       const col = bandColor(q.band);
-      const label = `${q.callsign} · ${fmtBand(q.band)} · ${q.locator}`;
-      contestMapMarkers.push(
-        L.circleMarker([pos.lat, pos.lon], {
-          radius: 5, fillColor: col, color: 'rgba(0,0,0,0.4)', weight: 1, fillOpacity: 0.85,
-        }).bindTooltip(label).addTo(contestMap)
-      );
+      const on  = contestMapState.enabledBands.has(q.band);
+
+      // Great-circle path
+      const paths = [];
+      if (myPos) {
+        const gcPts = greatCirclePoints(myPos.lat, myPos.lon, pos.lat, pos.lon, 60);
+        for (const seg of splitAtAntimeridian(gcPts)) {
+          const line = L.polyline(seg, { color: col, weight: 1.5, opacity: 0.55, dashArray: '5 5' });
+          if (on && contestMapState.showPaths) line.addTo(contestMap);
+          paths.push(line);
+        }
+      }
+
+      // Station dot
+      const marker = L.circleMarker([pos.lat, pos.lon], {
+        radius: 5, fillColor: col, color: 'rgba(0,0,0,0.4)', weight: 1, fillOpacity: 0.85,
+      }).bindTooltip(`${q.callsign} · ${fmtBand(q.band)} · ${q.locator}`);
+      if (on) marker.addTo(contestMap);
+
+      contestMapItems.push({ band: q.band, marker, paths });
     }
 
-    // Fit map to all markers; fall back to world view when nothing plotted
+    // Fit to visible markers (QTH + enabled stations)
     requestAnimationFrame(() => {
       contestMap.invalidateSize();
-      if (contestMapMarkers.length) {
-        contestMap.fitBounds(L.featureGroup(contestMapMarkers).getBounds().pad(0.15), { maxZoom: 10 });
-      }
+      const pts = contestMapItems
+        .filter(it => contestMapState.enabledBands.has(it.band))
+        .map(it => it.marker);
+      if (contestMapQthMarker) pts.push(contestMapQthMarker);
+      if (pts.length) contestMap.fitBounds(L.featureGroup(pts).getBounds().pad(0.15), { maxZoom: 10 });
     });
   }
 

@@ -368,6 +368,16 @@ a { color: var(--accent); text-decoration: none; }
   border: 1.5px solid rgba(0,0,0,0.35);
 }
 .cmap-legend-sep { height: 10px; }
+.cmap-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.cmap-toggle input[type="checkbox"] { margin: 0; cursor: pointer; accent-color: var(--primary); }
 .contest-map-canvas { flex: 1; min-width: 0; }
 
 .layout-outer {

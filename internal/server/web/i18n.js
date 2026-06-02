@@ -449,8 +449,9 @@
       },
       map: {
         title: 'Worked Stations Map',
-        legend: 'Bands',
+        legend: 'Legend',
         myQTH: 'My QTH',
+        showPaths: 'Show paths',
         noData: 'No QSOs with locator data logged yet.',
         noQTH: 'No QTH locator set for this contest.',
       },
@@ -1104,8 +1105,9 @@
       },
       map: {
         title: 'Karte der gearbeiteten Stationen',
-        legend: 'Bänder',
+        legend: 'Legende',
         myQTH: 'Mein QTH',
+        showPaths: 'Pfade anzeigen',
         noData: 'Noch keine QSOs mit Locator-Daten geloggt.',
         noQTH: 'Für diesen Contest ist kein QTH-Locator eingetragen.',
       },
