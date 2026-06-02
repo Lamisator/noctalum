@@ -390,6 +390,59 @@
     return dirs[Math.round(deg / 22.5) % 16];
   }
 
+  function distanceTo(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth radius in km
+    const toRad = Math.PI / 180;
+    const dLat = (lat2 - lat1) * toRad;
+    const dLon = (lon2 - lon1) * toRad;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*toRad) * Math.cos(lat2*toRad) * Math.sin(dLon/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+
+  function contestFreqUnit() {
+    return me?.contest_freq_unit || 'kHz';
+  }
+
+  // Convert stored Hz to the contest's display unit (returns a string).
+  function hzToDisplay(hz) {
+    if (!hz) return '';
+    switch (contestFreqUnit()) {
+      case 'Hz':  return String(Math.round(hz));
+      case 'MHz': return (hz / 1_000_000).toFixed(6);
+      case 'GHz': return (hz / 1_000_000_000).toFixed(9);
+      default:    return (hz / 1_000).toFixed(3); // kHz
+    }
+  }
+
+  // Convert the display unit input value back to Hz for storage.
+  function displayToHz(val) {
+    const f = parseFloat(val);
+    if (!f) return 0;
+    switch (contestFreqUnit()) {
+      case 'Hz':  return Math.round(f);
+      case 'MHz': return Math.round(f * 1_000_000);
+      case 'GHz': return Math.round(f * 1_000_000_000);
+      default:    return Math.round(f * 1_000); // kHz
+    }
+  }
+
+  // Convert display unit input value to kHz (for bandFromFreqKHz).
+  function displayToKHz(val) {
+    return displayToHz(val) / 1_000;
+  }
+
+  // Update the freq input label to reflect the current unit (overrides i18n text node).
+  function updateFreqLabel() {
+    const el = document.querySelector('label[data-qso-field="freq"]');
+    if (!el) return;
+    for (const node of el.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        node.nodeValue = t('qso.frequency') + ' (' + contestFreqUnit() + ')\n';
+        break;
+      }
+    }
+  }
+
   function greatCirclePoints(lat1, lon1, lat2, lon2, n) {
     const R = Math.PI / 180;
     const φ1 = lat1*R, λ1 = lon1*R, φ2 = lat2*R, λ2 = lon2*R;
@@ -1165,6 +1218,7 @@
       me.contest_private = j.contest_private || false;
       me.contest_owner_user_id = j.contest_owner_user_id || 0;
       me.contest_nr_padded = j.contest_nr_padded !== false;
+      me.contest_freq_unit = j.contest_freq_unit || 'kHz';
     }
     await enterApp();
   }
@@ -1352,6 +1406,7 @@
     document.querySelectorAll('.tab-pane').forEach(x => x.classList.remove('active'));
     $('tab-log').classList.add('active');
     updateContestDisplay();
+    updateFreqLabel();
     applyContestReadonly();
     clearChat();
     qsos = [];
@@ -1477,6 +1532,7 @@
   }
   function exportColLabel(col) {
     if (col.isCustom) return col.label || col.key;
+    if (col.key === 'freq') return t('qso.colFreq') + ' (' + contestFreqUnit() + ')';
     return col.labelKey ? t(col.labelKey) : col.key;
   }
   function renderExportColumns() {
@@ -1724,7 +1780,7 @@
       nr_sent: parseInt($('q-nr-sent').value || '0', 10) || 0,
       mode: $('q-mode').value,
       band: $('q-band').value,
-      freq_hz: Math.round(parseFloat($('q-freq').value || '0') * 1000),
+      freq_hz: displayToHz($('q-freq').value || '0'),
       rst_sent: $('q-rst-sent').value.trim(),
       rst_received: $('q-rst-rcvd').value.trim(),
       dok: $('q-dok').value.trim().toUpperCase(),
@@ -1815,14 +1871,14 @@
       const li = document.createElement('li');
       li.className = 'stash-item';
       li.title = t_safe('stash.recallTitle', null, 'Tune TRX and reload form');
-      const freqKHz = (st.freq_hz / 1000).toFixed(2);
+      const freqDisplay = st.freq_hz ? hzToDisplay(st.freq_hz) + ' ' + contestFreqUnit() : '';
       const bandLabel = (typeof fmtBand === 'function') ? fmtBand(st.band || '') : (st.band || '');
       const main = document.createElement('div');
       main.className = 'stash-main';
       main.innerHTML = `
         <div class="stash-line1">
           <strong>${escHtml(st.callsign || '')}</strong>
-          <span class="stash-freq">${escHtml(freqKHz)} kHz</span>
+          <span class="stash-freq">${escHtml(freqDisplay)}</span>
           <span class="stash-band">${escHtml(bandLabel)}</span>
           <span class="stash-mode">${escHtml(st.mode || '')}</span>
         </div>
@@ -1864,7 +1920,7 @@
     $('q-nr-sent').value = '';
     if (stash.mode) $('q-mode').value = stash.mode;
     if (stash.band) $('q-band').value = stash.band;
-    $('q-freq').value = stash.freq_hz ? (stash.freq_hz / 1000).toFixed(2) : '';
+    $('q-freq').value = stash.freq_hz ? hzToDisplay(stash.freq_hz) : '';
     $('q-rst-sent').value = stash.rst_sent || '';
     $('q-rst-rcvd').value = stash.rst_received || '';
     $('q-dok').value = stash.dok || '';
@@ -2133,7 +2189,7 @@
       callsignFilter = spot.dx;
       renderQsos();
     }
-    if (spot.freq) $('q-freq').value = spot.freq;
+    if (spot.freq) $('q-freq').value = hzToDisplay(Math.round(parseFloat(spot.freq) * 1000));
     if (spot.band) $('q-band').value = spot.band;
     const inferredMode = (spot.mode && MODES.includes(spot.mode)) ? spot.mode : modeFromFreqKHz(spot.freq);
     if (inferredMode) $('q-mode').value = inferredMode;
@@ -2314,7 +2370,7 @@
   $('q-mode').addEventListener('change', () => { applyRSTDefaults($('q-mode').value); updateDuplicateBadge(); });
   $('q-band').addEventListener('change', () => updateDuplicateBadge());
   $('q-freq').addEventListener('input', () => {
-    const band = bandFromFreqKHz($('q-freq').value);
+    const band = bandFromFreqKHz(displayToKHz($('q-freq').value));
     if (band) { $('q-band').value = band; updateDuplicateBadge(); }
     updateOobBadge();
   });
@@ -2419,12 +2475,18 @@
 
       const b = bearingTo(my.lat, my.lon, tgt.lat, tgt.lon);
       $('bearing-value').textContent = Math.round(b) + '° ' + bearingCompass(b);
+      const dist = distanceTo(my.lat, my.lon, tgt.lat, tgt.lon);
+      $('distance-value').textContent = dist >= 1000
+        ? (dist / 1000).toFixed(1) + ' Mm'
+        : Math.round(dist) + ' km';
     } else if (my) {
       leafletMap.setView([my.lat, my.lon], 3);
       $('bearing-value').textContent = '—';
+      $('distance-value').textContent = '—';
     } else {
       leafletMap.setView([20, 0], 1);
       $('bearing-value').textContent = '—';
+      $('distance-value').textContent = '—';
     }
     } catch (e) { console.warn('updateMap error:', e); }
   }
@@ -2466,7 +2528,7 @@
     if (!badge) return;
     const cBands = contestBands();
     if (!cBands.length) { badge.className = 'dup-badge hidden'; return; }
-    const band = bandFromFreqKHz($('q-freq').value);
+    const band = bandFromFreqKHz(displayToKHz($('q-freq').value));
     if (!band || cBands.includes(band)) { badge.className = 'dup-badge hidden'; return; }
     badge.className = 'dup-badge oob-band';
     badge.textContent = t('qso.outOfBand');
@@ -2549,6 +2611,8 @@
     try {
       const res = await api('/api/lookup?callsign=' + encodeURIComponent(callsign));
       if (!res.ok) return;
+      // Guard: discard the result if the user has since changed the callsign.
+      if ($('q-call').value.trim().toUpperCase() !== callsign) return;
       const j = await res.json();
       if (j.name && !$('q-name').value) $('q-name').value = j.name;
       if (j.locator && !$('q-loc').value) $('q-loc').value = j.locator.toUpperCase();
@@ -2597,6 +2661,16 @@
     updateNrPreview();
   });
 
+  // On blur, cancel any pending debounced lookup and fire one immediately for the
+  // final callsign value so a quick-typed call that wasn't yet looked up gets resolved.
+  $('q-call').addEventListener('blur', () => {
+    const call = $('q-call').value.trim().toUpperCase();
+    if (!call || call.length < 3) return;
+    clearTimeout(qrzLookupTimer);
+    qrzLookupTimer = null;
+    triggerQRZLookup(call);
+  });
+
   // Show the next expected NR as a read-only hint in the nr-sent field for new QSOs.
   // Actual assignment happens server-side at log time — no number is consumed here.
   function updateNrPreview() {
@@ -2625,7 +2699,7 @@
     $('q-nr-sent').value = q.nr_sent || '';
     $('q-mode').value = q.mode;
     $('q-band').value = q.band;
-    $('q-freq').value = q.freq_hz ? (q.freq_hz / 1000).toFixed(2) : '';
+    $('q-freq').value = q.freq_hz ? hzToDisplay(q.freq_hz) : '';
     $('q-rst-sent').value = q.rst_sent || '';
     $('q-rst-rcvd').value = q.rst_received || '';
     $('q-dok').value = q.dok || '';
@@ -2693,7 +2767,7 @@
       nr_sent: editingQsoId !== null ? (parseInt($('q-nr-sent').value || '0', 10) || 0) : 0,
       mode: $('q-mode').value,
       band: $('q-band').value,
-      freq_hz: Math.round(parseFloat($('q-freq').value || '0') * 1000),
+      freq_hz: displayToHz($('q-freq').value || '0'),
       rst_sent: $('q-rst-sent').value.trim() || $('q-rst-sent').placeholder,
       rst_received: $('q-rst-rcvd').value.trim() || $('q-rst-rcvd').placeholder,
       dok: $('q-dok').value.trim().toUpperCase(),
@@ -2724,15 +2798,15 @@
     // or pasted a freq that isn't on any amateur band at all.
     const freqRaw = $('q-freq').value.trim();
     if (freqRaw) {
-      const freqKHz = parseFloat(freqRaw);
+      const freqKHz = displayToKHz(freqRaw);
       if (freqKHz > 0) {
         const derivedBand = bandFromFreqKHz(freqKHz);
         if (!derivedBand) {
-          $('qso-error').textContent = t('qso.freqNoBand', { freq: freqRaw });
+          $('qso-error').textContent = t('qso.freqNoBand', { freq: freqRaw, unit: contestFreqUnit() });
           return;
         }
         if (body.band && derivedBand !== body.band) {
-          $('qso-error').textContent = t('qso.freqBandMismatch', { freq: freqRaw, band: fmtBand(body.band) });
+          $('qso-error').textContent = t('qso.freqBandMismatch', { freq: freqRaw, unit: contestFreqUnit(), band: fmtBand(body.band) });
           return;
         }
       }
@@ -2787,7 +2861,7 @@
   function applySelectedRigToForm() {
     const r = rigs.find(x => x.name === me?.selected_rig);
     if (r && r.connected) {
-      $('q-freq').value = (r.freq_hz / 1000).toFixed(2);
+      $('q-freq').value = hzToDisplay(r.freq_hz);
       if (r.band) $('q-band').value = r.band;
       updateOobBadge();
     }
@@ -3030,7 +3104,7 @@
       case 'time':         return escHtml(new Date(q.time).toISOString().substring(0,19).replace('T',' '));
       case 'callsign':     return `<strong>${escHtml(fmtCall(q.callsign))}</strong>`;
       case 'band':         return escHtml(fmtBand(q.band || ''));
-      case 'freq':         return escHtml(q.freq_hz ? (q.freq_hz/1_000_000).toFixed(4) : '');
+      case 'freq':         return escHtml(q.freq_hz ? hzToDisplay(q.freq_hz) : '');
       case 'mode':         return escHtml(q.mode || '');
       case 'rst_sent':     return escHtml(q.rst_sent || '');
       case 'rst_received': return escHtml(q.rst_received || '');
@@ -3052,7 +3126,8 @@
     const tr = document.querySelector('#qso-table thead tr');
     if (!tr) return;
     tr.innerHTML = cols.map(col => {
-      const label = col.isCustom ? escHtml(col.label || col.key) : escHtml(t(col.labelKey));
+      let label = col.isCustom ? escHtml(col.label || col.key) : escHtml(t(col.labelKey));
+      if (col.key === 'freq') label = escHtml(t('qso.colFreq') + ' (' + contestFreqUnit() + ')');
       const sortKey = col.sortKey || col.key;
       return `<th class="sortable" data-col="${escHtml(sortKey)}"><span>${label}</span> <span class="sort-arrow"></span></th>`;
     }).join('') + '<th></th>';
@@ -3625,6 +3700,11 @@
         <input name="qth" value="${escHtml(c.qth || '')}" placeholder="${escHtml(t('contestScreen.qthPlaceholder'))}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase"${d} />
         ${buildBandSelectHTML(c.bands || [])}
         <label style="margin-top:10px"><input type="checkbox" name="nr_padded" ${c.nr_padded !== false ? 'checked' : ''}${d} /> ${escHtml(t('contestScreen.nrPadded'))}</label>
+        <label style="margin-top:10px">${escHtml(t('contestScreen.freqUnit'))}
+          <select name="freq_unit"${d}>
+            ${['Hz','kHz','MHz','GHz'].map(u => `<option value="${u}"${(c.freq_unit || 'kHz') === u ? ' selected' : ''}>${escHtml(u)}</option>`).join('')}
+          </select>
+        </label>
         <label style="margin-top:10px">${escHtml(t('contestScreen.stashExpiryMinutes'))}
           <input type="number" name="stash_expiry_minutes" min="1" max="10080" value="${escHtml(String(c.stash_expiry_minutes && c.stash_expiry_minutes > 0 ? c.stash_expiry_minutes : 60))}"${d} style="width:120px" />
           <span class="muted small">${escHtml(t('contestScreen.stashExpiryHint'))}</span>
@@ -3660,6 +3740,7 @@
           log_columns: serializeLogColumnsEditor(),
           nr_padded: form.nr_padded.checked,
           stash_expiry_minutes: Math.max(1, parseInt(form.stash_expiry_minutes?.value || '60', 10) || 60),
+          freq_unit: form.freq_unit?.value || 'kHz',
         }),
       });
       if (!res.ok) {
@@ -5233,6 +5314,7 @@
             if ('qso_layout' in msg.payload) me.contest_qso_layout = msg.payload.qso_layout;
             if ('log_columns' in msg.payload) { me.contest_log_columns = msg.payload.log_columns; renderQsos(); }
             if ('nr_padded' in msg.payload) me.contest_nr_padded = msg.payload.nr_padded !== false;
+            if ('freq_unit' in msg.payload) { me.contest_freq_unit = msg.payload.freq_unit || 'kHz'; updateFreqLabel(); renderQsos(); }
             updateContestDisplay();
             applyContestReadonly();
             updateMap();
@@ -6662,6 +6744,7 @@
       try { renderDownloads(window.__downloadsCache || []); } catch {}
       try { renderGlobalOperators(); } catch {}
       try { updateContestDisplay(); } catch {}
+      try { updateFreqLabel(); } catch {}
       try {
         const lo = document.getElementById('layout-outer');
         if (lo) {

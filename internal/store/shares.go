@@ -36,6 +36,7 @@ type SharePayload struct {
 	Objective          string   `json:"objective"`
 	NrPadded           bool     `json:"nr_padded"`
 	StashExpiryMinutes int64    `json:"stash_expiry_minutes"`
+	FreqUnit           string   `json:"freq_unit"`
 }
 
 func (s *Store) migrateShares() error {
@@ -82,6 +83,7 @@ func BuildSharePayload(c *Contest) (string, error) {
 		Objective:          c.Objective,
 		NrPadded:           c.NrPadded,
 		StashExpiryMinutes: c.StashExpiryMinutes,
+		FreqUnit:           c.FreqUnit,
 	}
 	raw, err := json.Marshal(p)
 	if err != nil {

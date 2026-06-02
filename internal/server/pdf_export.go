@@ -38,7 +38,7 @@ const pdfDefaultColWidth = 18.0
 //
 // cols is the ordered list of columns to render. logoPNG, when non-nil, is
 // rendered as the small logo on the top-left of the header.
-func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, stationCall, qth string, logoPNG []byte, programVersion string) error {
+func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, stationCall, qth string, logoPNG []byte, programVersion, freqUnit string) error {
 	pdf := gofpdf.New("L", "mm", "A4", "")
 	pdf.SetMargins(10, 10, 10)
 	pdf.SetAutoPageBreak(true, 14)
@@ -168,7 +168,7 @@ func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, sta
 		cellLines := make([][]string, len(cols))
 		maxLines := 1
 		for j, c := range cols {
-			translated := s(qsoColValuePDF(q, c.Key, extras))
+			translated := s(qsoColValuePDF(q, c.Key, extras, freqUnit))
 			if translated == "" {
 				cellLines[j] = []string{""}
 				continue
@@ -237,7 +237,7 @@ func alignFor(key string) string {
 	return "L"
 }
 
-func qsoColValuePDF(q store.QSO, key string, extras map[string]string) string {
+func qsoColValuePDF(q store.QSO, key string, extras map[string]string, freqUnit string) string {
 	switch key {
 	case "nr_sent":
 		if q.NrSent > 0 {
@@ -257,7 +257,16 @@ func qsoColValuePDF(q store.QSO, key string, extras map[string]string) string {
 		return formatBand(q.Band)
 	case "freq":
 		if q.FreqHz > 0 {
-			return fmt.Sprintf("%.4f", float64(q.FreqHz)/1_000_000.0)
+			switch freqUnit {
+			case "Hz":
+				return fmt.Sprintf("%d", q.FreqHz)
+			case "MHz":
+				return fmt.Sprintf("%.6f", float64(q.FreqHz)/1_000_000.0)
+			case "GHz":
+				return fmt.Sprintf("%.9f", float64(q.FreqHz)/1_000_000_000.0)
+			default: // kHz
+				return fmt.Sprintf("%.3f", float64(q.FreqHz)/1_000.0)
+			}
 		}
 		return ""
 	case "mode":

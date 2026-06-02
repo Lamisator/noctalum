@@ -697,6 +697,7 @@ func sessionInfo(sess *Session) map[string]any {
 		"contest_qso_layout":    sess.ContestQSOLayout(),
 		"contest_log_columns":   sess.ContestLogColumns(),
 		"contest_nr_padded":     sess.ContestNrPadded(),
+		"contest_freq_unit":     sess.ContestFreqUnit(),
 	}
 }
 
@@ -2014,6 +2015,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			LogColumns         string   `json:"log_columns"`
 			NrPadded           *bool    `json:"nr_padded"`
 			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
+			FreqUnit           string   `json:"freq_unit"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -2059,7 +2061,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		if in.Private {
 			ownerID = sess.UserID
 		}
-		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, in.Private, ownerID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedCreate, stashExpiryCreate)
+		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, in.Private, ownerID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedCreate, stashExpiryCreate, in.FreqUnit)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2127,7 +2129,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		bandsStr := strings.Join(c.Bands, ",")
-		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective, c.StationID, c.Private, c.OwnerUserID, c.CustomFields, c.QSOLayout, c.LogColumns, c.NrPadded)
+		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective, c.StationID, c.Private, c.OwnerUserID, c.CustomFields, c.QSOLayout, c.LogColumns, c.NrPadded, c.FreqUnit)
 		s.audit(r, store.AuditInfo, AuditContestSelect, sess.Username, c.Name, "call: "+c.StationCall)
 		// Refresh operator panels: previous contest now lacks this user, new contest gains them.
 		s.broadcastOperators()
@@ -2146,6 +2148,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"contest_qso_layout":    c.QSOLayout,
 			"contest_log_columns":   c.LogColumns,
 			"contest_nr_padded":     c.NrPadded,
+			"contest_freq_unit":     c.FreqUnit,
 		})
 		return
 	}
@@ -2639,6 +2642,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			LogColumns         string   `json:"log_columns"`
 			NrPadded           *bool    `json:"nr_padded"`
 			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
+			FreqUnit           string   `json:"freq_unit"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -2672,7 +2676,14 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid QTH locator")
 			return
 		}
-		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut, stashExpiryPut); err != nil {
+		putFreqUnit := in.FreqUnit
+		if putFreqUnit == "" {
+			putFreqUnit = existing.FreqUnit
+		}
+		if putFreqUnit == "" {
+			putFreqUnit = "kHz"
+		}
+		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut, stashExpiryPut, putFreqUnit); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -2681,7 +2692,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"status: "+in.Status+", call: "+strings.ToUpper(in.StationCall))
 		bandsStrUpd := strings.Join(in.Bands, ",")
 		// Propagate to any sessions that have this contest selected.
-		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH, bandsStrUpd, in.Objective, in.StationID, existing.Private, existing.OwnerUserID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut)
+		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH, bandsStrUpd, in.Objective, in.StationID, existing.Private, existing.OwnerUserID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut, putFreqUnit)
 		s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
 			"id":                   id,
 			"name":                 in.Name,
@@ -2696,6 +2707,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"log_columns":          in.LogColumns,
 			"nr_padded":            nrPaddedPut,
 			"stash_expiry_minutes": stashExpiryPut,
+			"freq_unit":            putFreqUnit,
 		}})
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -2868,11 +2880,22 @@ func (s *Server) handleExportPDF(w http.ResponseWriter, r *http.Request) {
 		// Default: columns currently visible in Past QSOs.
 		cols = ResolveLogColumns(c.LogColumns, c.CustomFields, lang, true)
 	}
+	// Override freq column label to reflect the contest's chosen unit.
+	freqUnit := c.FreqUnit
+	if freqUnit == "" {
+		freqUnit = "kHz"
+	}
+	for i, col := range cols {
+		if col.Key == "freq" {
+			cols[i].Label = "Freq (" + freqUnit + ")"
+			break
+		}
+	}
 	logoPNG, _ := webFS.ReadFile("web/noctalum.png")
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: PDF")
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "pdf")+`"`)
-	if err := ExportPDF(w, qsos, cols, contestName, contestCall, sess.ContestQTH(), logoPNG, programVersion); err != nil {
+	if err := ExportPDF(w, qsos, cols, contestName, contestCall, sess.ContestQTH(), logoPNG, programVersion, freqUnit); err != nil {
 		log.Printf("PDF export error: %v", err)
 	}
 }
