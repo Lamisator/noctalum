@@ -5337,6 +5337,14 @@
           if (typeof onChatMessage === 'function') onChatMessage(msg.payload);
           break;
         case 'deploy_warning':
+          // Snapshot the current startup_id before the restart so we can
+          // detect a fast restart that completes before we see a network error.
+          fetch('/api/ping').then(r => r.ok ? r.json() : null).then(j => {
+            if (j?.startup_id) {
+              _deployStartupId = j.startup_id;
+              try { sessionStorage.setItem('noctalum.deployStartupId', j.startup_id); } catch {}
+            }
+          }).catch(() => {});
           showDeployWarning(msg.payload?.seconds || 60);
           break;
       }
@@ -5377,6 +5385,7 @@
   let _deployWentDown = false;    // true once we confirm the server stopped responding
   let _deployPollStart = 0;       // Date.now() when polling began
   let _deployPollTimer = null;    // setInterval for poll ticks
+  let _deployStartupId = null;    // startup_id recorded before the restart
 
   function _deploySetText(timerText) {
     const ribbonText = t('deploy.title') + ' — ' + t('deploy.body') + ' ' + timerText;
@@ -5405,17 +5414,24 @@
     try {
       const ctrl = new AbortController();
       const tid = setTimeout(() => ctrl.abort(), 3000);
-      const res = await fetch('/api/me', { signal: ctrl.signal });
+      const res = await fetch('/api/ping', { signal: ctrl.signal });
       clearTimeout(tid);
-      // Any HTTP response means the server is back up.
-      if (_deployWentDown) {
-        try { sessionStorage.removeItem('noctalum.deployDeadline'); } catch {}
-        window.location.reload();
-        return;
+      if (res.ok) {
+        const j = await res.json().catch(() => ({}));
+        const sid = j.startup_id || null;
+        // Reload when the server confirms it has restarted: either we saw it
+        // go down first, or the startup token changed (covers fast restarts
+        // that complete before the first poll fires a network error).
+        if (_deployWentDown || (sid && _deployStartupId && sid !== _deployStartupId)) {
+          try { sessionStorage.removeItem('noctalum.deployDeadline'); } catch {}
+          try { sessionStorage.removeItem('noctalum.deployStartupId'); } catch {}
+          window.location.reload();
+          return;
+        }
+        // Server still appears to be the same process — keep waiting.
       }
-      // Server still up — not yet gone down, keep waiting.
     } catch (_) {
-      // Network error / timeout means server is down or unreachable.
+      // Network error / timeout — server is down or unreachable.
       _deployWentDown = true;
     }
     _deployUpdateDisplays();
@@ -6769,6 +6785,7 @@
     // Restore deploy warning ribbon if the page was refreshed during a countdown.
     let _storedDeadline = 0;
     try { _storedDeadline = parseInt(sessionStorage.getItem('noctalum.deployDeadline') || '0', 10); } catch {}
+    try { const sid = sessionStorage.getItem('noctalum.deployStartupId'); if (sid) _deployStartupId = sid; } catch {}
     if (_storedDeadline) {
       const _remaining = Math.round((_storedDeadline - Date.now()) / 1000);
       $('deploy-ribbon').classList.remove('hidden');

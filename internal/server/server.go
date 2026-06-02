@@ -37,6 +37,17 @@ const (
 	dupWindow      = 10 * time.Minute
 )
 
+// startupID is a random token generated once per process start.  The /api/ping
+// endpoint exposes it so clients can detect a server restart without relying on
+// seeing a network error — the token changes on every fresh process.
+var startupID = func() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
+}()
+
 //go:embed web/*
 var webFS embed.FS
 
@@ -158,6 +169,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	// Public endpoints
+	mux.HandleFunc("/api/ping", s.handlePing)
 	mux.HandleFunc("/api/shutdown", s.handleShutdown)
 	mux.HandleFunc("/api/setup", s.handleSetup)
 	mux.HandleFunc("/api/login", s.handleLogin)
@@ -585,6 +597,13 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // No auth token is required: the server only binds on 127.0.0.1, so only a
 // caller with SSH access to the host — who already has full control — can reach
 // this endpoint.
+// handlePing is a lightweight, unauthenticated liveness check.  It returns the
+// process-unique startupID so clients can detect a server restart by comparing
+// successive responses — the token changes on every fresh process start.
+func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "startup_id": startupID})
+}
+
 func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "POST required")
