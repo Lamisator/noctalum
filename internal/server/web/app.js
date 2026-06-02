@@ -6204,6 +6204,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.57',
+      date: '2026-06-02',
+      en: 'New in v0.57: deploy-warning system, per-contest frequency unit, and bearing-panel distance.\n- Deploy countdown modal appears before server restarts; ribbon persists across page refresh\n- After countdown, app polls and auto-reloads once the server is back up\n- Contest settings now include an Hz/kHz/MHz/GHz frequency unit selector\n- Chosen unit applies everywhere: QSO form, log, PDF exports, and band error messages\n- Bearing panel now shows great-circle distance to target in km\n- QRZ lookups no longer race: stale responses from previous callsigns are discarded\n- Band dropdown correctly rebuilds when switching contests from the picker',
+      de: 'Neu in v0.57: Deploy-Warnsystem, Frequenzeinheit pro Contest und Entfernung im Bearing-Panel.\n- Vor Server-Neustarts erscheint ein Countdown-Modal; das Ribbon bleibt auch nach Seitenaktualisierung\n- Nach dem Countdown prüft die App die Verfügbarkeit und lädt automatisch neu\n- In den Contest-Einstellungen gibt es jetzt eine Frequenzeinheit (Hz/kHz/MHz/GHz)\n- Die gewählte Einheit gilt im QSO-Formular, Log, PDF-Exporten und Band-Fehlermeldungen\n- Das Bearing-Panel zeigt jetzt die Großkreis-Entfernung zum Ziel in km an\n- QRZ-Suchen überschreiben sich nicht mehr: Antworten für veraltete Rufzeichen werden verworfen\n- Das Band-Dropdown aktualisiert sich jetzt korrekt beim Contestwechsel im Picker',
+    },
+    {
       version: '0.56',
       date: '2026-06-01',
       en: 'Band selector in the QSO form is now limited to contest bands, and a warning pill flags off-contest frequencies.\n- Band dropdown lists only the bands configured for the active contest.\n- New amber "NOT A CONTEST BAND" pill appears when rig, spot, or typed frequency is outside contest bands.\n- Pill sits next to the existing Duplicate / Worked Other badge.',

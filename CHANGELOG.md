@@ -1,5 +1,33 @@
 # Noctalum Changelog
 
+## v0.57 — 2026-06-02 — Deploy warning system, frequency unit selector, and distance display
+
+- **Deploy warning system**: `POST /api/shutdown` (localhost-only, no secret required) broadcasts
+  a 60-second countdown to all connected browsers before the server restarts. The modal dismisses
+  to a persistent caution-stripe ribbon that survives page refreshes (sessionStorage). After the
+  countdown the client polls the new unauthenticated `GET /api/ping` endpoint, which returns a
+  per-process `startup_id`; as soon as the ID changes (or a network error followed by recovery),
+  the page reloads automatically — covering both slow and fast restarts. WS connection is now also
+  established on the contest-picker screen so the warning reaches users who have not yet joined a
+  contest.
+- **Per-contest frequency unit**: contest settings have a new Hz / kHz / MHz / GHz selector stored
+  in a new `freq_unit` DB column (SQL migration, default `kHz`). The selected unit is propagated
+  everywhere: QSO form label, log column header, log display, stash, rig auto-fill, spot clicks,
+  band-mismatch validation messages, and PDF exports. Duplicating a contest inherits the source
+  unit; shared contests carry the unit in the share payload.
+- **Distance to target**: the left bearing panel now shows the great-circle distance to the target
+  locator (haversine formula) in km, or Mm for distances over 1 000 km. Resets to "—" when no
+  target locator is set.
+- **QRZ callsign race condition fixed**: if a slow QRZ HTTP response arrives after the operator
+  has already moved to a different callsign, the stale result is silently discarded. A blur
+  listener on the callsign field also fires a final definitive lookup when the field loses focus.
+- **Band dropdown repopulation fix**: `applyDefaults()` is now called at the top of `enterApp()`
+  so the band dropdown is always rebuilt from the current contest's allowed bands, even when
+  entering via the contest picker rather than a page load.
+- **Contest screen layout polish**: action buttons given equal width via `flex:1`; contest footer
+  anchored to viewport bottom; ribbon height and pill padding reduced for a tighter layout.
+- `programVersion` bumped to `0.57`
+
 ## v0.56 — 2026-06-01 — Contest-aware band selector and out-of-band frequency warning
 
 - Band dropdown in the New QSO form now lists only the bands configured for the
