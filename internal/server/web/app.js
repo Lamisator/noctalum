@@ -2494,10 +2494,14 @@
   // ----- QRZ lookup -----
   let qrzLookupTimer = null;
   let renderQsosTimer = null;
+  // Tracks which field values were auto-populated by the last successful lookup
+  // so we can reverse them when the final callsign has no entry.
+  let _qrzAutoFilled = null; // { name?, locator?, dok? }
 
   function clearQRZInfo() {
     $('q-name').value = '';
     $('q-loc').value = '';
+    _qrzAutoFilled = null;
     clearLeftPanel();
     renderBandPills();
     updateCallCountry('');
@@ -2614,9 +2618,26 @@
       // Guard: discard the result if the user has since changed the callsign.
       if ($('q-call').value.trim().toUpperCase() !== callsign) return;
       const j = await res.json();
-      if (j.name && !$('q-name').value) $('q-name').value = j.name;
-      if (j.locator && !$('q-loc').value) $('q-loc').value = j.locator.toUpperCase();
-      if (j.cached_dok && !$('q-dok').value) $('q-dok').value = j.cached_dok;
+      // No QRZ entry for this callsign — wipe any name/locator that were
+      // auto-filled by an intermediate partial-callsign lookup.
+      if (!j.found && _qrzAutoFilled) {
+        if (_qrzAutoFilled.name && $('q-name').value === _qrzAutoFilled.name) $('q-name').value = '';
+        if (_qrzAutoFilled.locator && $('q-loc').value === _qrzAutoFilled.locator) $('q-loc').value = '';
+        _qrzAutoFilled = _qrzAutoFilled.dok ? { dok: _qrzAutoFilled.dok } : null;
+        clearLeftPanel();
+        $('qrz-pill').classList.add('hidden');
+      }
+      // No cached DOK for this callsign — wipe any DOK that was auto-filled earlier.
+      if (!j.cached_dok && _qrzAutoFilled?.dok && $('q-dok').value === _qrzAutoFilled.dok) {
+        $('q-dok').value = '';
+        if (_qrzAutoFilled) delete _qrzAutoFilled.dok;
+      }
+      // Fill fields from the fresh lookup result and record what was auto-populated.
+      const filled = {};
+      if (j.name && !$('q-name').value) { $('q-name').value = j.name; filled.name = j.name; }
+      if (j.locator && !$('q-loc').value) { $('q-loc').value = j.locator.toUpperCase(); filled.locator = j.locator.toUpperCase(); }
+      if (j.cached_dok && !$('q-dok').value) { $('q-dok').value = j.cached_dok; filled.dok = j.cached_dok; }
+      if (Object.keys(filled).length) _qrzAutoFilled = { ..._qrzAutoFilled, ...filled };
       const loc = j.locator ? j.locator.toUpperCase() : ($('q-loc').value.trim().toUpperCase() || null);
       updateLeftPanel(callsign, !!j.has_picture, loc);
       if (j.found) {
