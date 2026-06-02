@@ -1,5 +1,28 @@
 # Noctalum Changelog
 
+## v0.58 — 2026-06-02 — QRZ autofill accuracy and bearing distance polish
+
+- **QRZ autofill — immediate wipe on callsign change**: when the operator edits
+  the callsign field (≥ 3 chars), any previously auto-filled name, locator, and
+  DOK are now cleared immediately before the new debounced lookup fires. The old
+  wipe-on-not-found path in `triggerQRZLookup` only fired when the new callsign
+  had no QRZ entry; if the intermediate callsign also had an entry the stale data
+  from the previous lookup persisted indefinitely. Fix is in the `q-call` input
+  handler in `app.js`.
+- **QRZ autofill — wipe on final callsign with no entry**: introduced
+  `_qrzAutoFilled`, a variable tracking which field values (name, locator, DOK)
+  were auto-populated by the last successful lookup and what those values were.
+  When the lookup returns `j.found = false`, the name and locator fields are
+  cleared only if they still hold the auto-filled value (user-modified values are
+  never touched). When `j.cached_dok` is absent the DOK field is cleared the same
+  way. The QRZ pill and left panel are also hidden. This covers the case where a
+  partial callsign (e.g. "DL1") produced a hit but the full callsign ("DL1XYZ")
+  has no entry.
+- **Bearing panel distance always in km**: the panel previously switched to
+  Megameters (Mm) for distances ≥ 1000 km. Mm is not a standard amateur-radio
+  unit; the display now unconditionally uses `Math.round(dist) + ' km'`.
+- `programVersion` bumped to `0.58`
+
 ## v0.57 — 2026-06-02 — Deploy warning system, frequency unit selector, and distance display
 
 - **Deploy warning system**: `POST /api/shutdown` (localhost-only, no secret required) broadcasts

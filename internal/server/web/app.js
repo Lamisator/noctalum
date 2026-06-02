@@ -6232,6 +6232,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.58',
+      date: '2026-06-02',
+      en: 'v0.58: QRZ autofill clears reliably when you edit the callsign.\n- Autofilled name, locator and DOK are wiped the moment you change the callsign\n- Stale autofill no longer stays when the final callsign has no QRZ entry\n- Bearing panel distance is always shown in km (Mm abbreviation removed)',
+      de: 'v0.58: QRZ-Autofill wird zuverlässig geleert, wenn du das Rufzeichen änderst.\n- Automatisch gefüllte Name, Locator und DOK werden sofort gelöscht, wenn du das Rufzeichen änderst\n- Veraltete Autofill-Daten bleiben nicht stehen, wenn das endgültige Rufzeichen keinen QRZ-Eintrag hat\n- Entfernung im Bearing-Panel wird immer in km angezeigt (Mm-Kürzel entfernt)',
+    },
+    {
       version: '0.57',
       date: '2026-06-02',
       en: 'New in v0.57: deploy-warning system, per-contest frequency unit, and bearing-panel distance.\n- Deploy countdown modal appears before server restarts; ribbon persists across page refresh\n- After countdown, app polls and auto-reloads once the server is back up\n- Contest settings now include an Hz/kHz/MHz/GHz frequency unit selector\n- Chosen unit applies everywhere: QSO form, log, PDF exports, and band error messages\n- Bearing panel now shows great-circle distance to target in km\n- QRZ lookups no longer race: stale responses from previous callsigns are discarded\n- Band dropdown correctly rebuilds when switching contests from the picker',
