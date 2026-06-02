@@ -2672,6 +2672,15 @@
     updateDuplicateBadge();
     updateCallCountry(call);
     if (call.length >= 3) {
+      // Wipe stale autofill immediately so old data never lingers while the
+      // new lookup is in-flight, even if the new callsign also has a QRZ entry.
+      if (_qrzAutoFilled) {
+        if (_qrzAutoFilled.name && $('q-name').value === _qrzAutoFilled.name) $('q-name').value = '';
+        if (_qrzAutoFilled.locator && $('q-loc').value === _qrzAutoFilled.locator) $('q-loc').value = '';
+        if (_qrzAutoFilled.dok && $('q-dok').value === _qrzAutoFilled.dok) $('q-dok').value = '';
+        _qrzAutoFilled = null;
+        $('qrz-pill').classList.add('hidden');
+      }
       qrzLookupTimer = setTimeout(() => triggerQRZLookup(call), 600);
     } else {
       clearQRZInfo();
