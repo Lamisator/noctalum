@@ -292,6 +292,7 @@ func (s *Store) DuplicateContest(srcID int64, newName string, ownerUserID int64)
 		src.LogColumns,
 		src.NrPadded,
 		src.StashExpiryMinutes,
+		src.FreqUnit,
 	)
 }
 
