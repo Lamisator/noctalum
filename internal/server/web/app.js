@@ -2476,9 +2476,7 @@
       const b = bearingTo(my.lat, my.lon, tgt.lat, tgt.lon);
       $('bearing-value').textContent = Math.round(b) + '° ' + bearingCompass(b);
       const dist = distanceTo(my.lat, my.lon, tgt.lat, tgt.lon);
-      $('distance-value').textContent = dist >= 1000
-        ? (dist / 1000).toFixed(1) + ' Mm'
-        : Math.round(dist) + ' km';
+      $('distance-value').textContent = Math.round(dist) + ' km';
     } else if (my) {
       leafletMap.setView([my.lat, my.lon], 3);
       $('bearing-value').textContent = '—';
