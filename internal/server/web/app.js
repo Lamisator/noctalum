@@ -20,6 +20,64 @@
   };
   function bandColor(b) { return BAND_COLORS[b] || '#9e9e9e'; }
 
+  // Returns an array of unique color strings from an array of {color} objects,
+  // preserving first-seen order.
+  function _uniqueColors(entries) {
+    const seen = new Set(), out = [];
+    for (const e of entries) { if (!seen.has(e.color)) { seen.add(e.color); out.push(e.color); } }
+    return out;
+  }
+
+  // Draws a pie-chart filled circle on a 2D canvas context.  Each color in
+  // `colors` gets an equal angular sector; sectors start at the top (12 o'clock)
+  // and proceed clockwise.  Single-color: plain filled circle.
+  function _drawPie(ctx, cx, cy, r, colors) {
+    const n = colors.length;
+    if (!n) return;
+    if (n === 1) {
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = colors[0]; ctx.fill();
+    } else {
+      const step = (2 * Math.PI) / n;
+      for (let i = 0; i < n; i++) {
+        const a1 = -Math.PI / 2 + i * step, a2 = a1 + step;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, a1, a2); ctx.closePath();
+        ctx.fillStyle = colors[i]; ctx.fill();
+      }
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  // Returns an SVG string for a pie-chart circle of radius r.
+  function _pieSvg(colors, r) {
+    const n = colors.length, d = r * 2;
+    if (!n) return '';
+    if (n === 1) return `<svg xmlns="http://www.w3.org/2000/svg" width="${d}" height="${d}"><circle cx="${r}" cy="${r}" r="${r-0.5}" fill="${colors[0]}" stroke="rgba(0,0,0,0.4)" stroke-width="1"/></svg>`;
+    const step = (2 * Math.PI) / n;
+    let s = `<svg xmlns="http://www.w3.org/2000/svg" width="${d}" height="${d}">`;
+    for (let i = 0; i < n; i++) {
+      const a1 = -Math.PI / 2 + i * step, a2 = a1 + step;
+      const x1 = (r + r * Math.cos(a1)).toFixed(3), y1 = (r + r * Math.sin(a1)).toFixed(3);
+      const x2 = (r + r * Math.cos(a2)).toFixed(3), y2 = (r + r * Math.sin(a2)).toFixed(3);
+      s += `<path d="M${r},${r} L${x1},${y1} A${r},${r},0,0,1,${x2},${y2} Z" fill="${colors[i]}"/>`;
+    }
+    s += `<circle cx="${r}" cy="${r}" r="${r-0.5}" fill="none" stroke="rgba(0,0,0,0.4)" stroke-width="1"/></svg>`;
+    return s;
+  }
+
+  // Creates a Leaflet DivIcon containing the pie-chart SVG, centered on the anchor.
+  function _pieDivIcon(colors, r) {
+    return L.divIcon({
+      html: _pieSvg(colors, r),
+      className: '',
+      iconSize: [r * 2, r * 2],
+      iconAnchor: [r, r],
+      tooltipAnchor: [r, 0],
+      popupAnchor: [0, -r],
+    });
+  }
+
   // ----- Mobile mode detection -----
   // Activation order: URL flag (?mode=mobile|desktop) > Settings override
   // (localStorage 'noctalum.displayMode' = 'mobile'|'desktop'|'auto') > UA hint
@@ -491,7 +549,7 @@
   // ----- Contest map (Map tab) -----
   let contestMap = null;
   let contestMapQthMarker = null;
-  // [{ band, marker: L.circleMarker, paths: [L.polyline, ...] }]
+  // [{ locKey, entries:[{q,band,color,paths:[]}], marker }]  — one per unique locator
   let contestMapItems = [];
   // { enabledBands: Set, knownBands: Set, showPaths: bool, contestId }
   let contestMapState = null;
@@ -1755,21 +1813,9 @@
         }
       }
 
-      // QSO markers.
-      for (const q of qsosWithLoc) {
-        const pos = locatorToLatLon(q.locator);
-        if (!pos) continue;
-        L.circleMarker([pos.lat, pos.lon], {
-          radius: 5, fillColor: bandColor(q.band), color: 'rgba(0,0,0,0.4)', weight: 1, fillOpacity: 0.85,
-        }).addTo(tmpMap);
-      }
-
-      // Own QTH marker on top.
-      if (myPos) {
-        L.circleMarker([myPos.lat, myPos.lon], {
-          radius: 8, fillColor: '#66bb6a', color: '#fff', weight: 2, fillOpacity: 1,
-        }).addTo(tmpMap);
-      }
+      // QSO markers and own-QTH are NOT added to the Leaflet map here; they are
+      // drawn directly on the output canvas after compositing so that grouping
+      // and pie rendering work independently of the tile/vector pipeline.
 
       tmpMap.fitBounds(L.latLngBounds(allLatLngs).pad(0.1), { maxZoom: 10 });
 
@@ -1807,6 +1853,31 @@
           try { ctx.drawImage(vecCanvas, 0, 0); } catch (_) {}
         }
 
+        ctx.restore();
+
+        // Draw QSO dots as grouped pie markers, clipped to the map area.
+        ctx.save();
+        ctx.beginPath(); ctx.rect(0, 0, W, MAP_H); ctx.clip();
+        const _pdfGrp = new Map();
+        for (const q of qsosWithLoc) {
+          const pos = locatorToLatLon(q.locator);
+          if (!pos) continue;
+          const key = q.locator.toUpperCase().slice(0, 6);
+          if (!_pdfGrp.has(key)) _pdfGrp.set(key, { pos, colors: [] });
+          const grp = _pdfGrp.get(key);
+          const col = bandColor(q.band);
+          if (!grp.colors.includes(col)) grp.colors.push(col);
+        }
+        for (const { pos, colors } of _pdfGrp.values()) {
+          const pt = tmpMap.latLngToContainerPoint([pos.lat, pos.lon]);
+          _drawPie(ctx, pt.x, pt.y, 5, colors);
+        }
+        // Own QTH on top.
+        if (myPos) {
+          const pt = tmpMap.latLngToContainerPoint([myPos.lat, myPos.lon]);
+          ctx.fillStyle = '#66bb6a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(pt.x, pt.y, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        }
         ctx.restore();
 
         // Legend strip.
@@ -2037,13 +2108,22 @@
       return;
     }
     if (!contestMap) return;
-    for (const { band, marker, paths } of contestMapItems) {
-      const on = contestMapState.enabledBands.has(band);
-      if (on) { if (!contestMap.hasLayer(marker)) marker.addTo(contestMap); }
-      else    { if (contestMap.hasLayer(marker))  marker.remove(); }
-      for (const line of paths) {
-        if (on && contestMapState.showPaths) { if (!contestMap.hasLayer(line)) line.addTo(contestMap); }
-        else                                 { if (contestMap.hasLayer(line))  line.remove(); }
+    for (const { entries, marker } of contestMapItems) {
+      const activeCols = _uniqueColors(entries.filter(e => contestMapState.enabledBands.has(e.band)));
+      if (activeCols.length === 0) {
+        if (marker && contestMap.hasLayer(marker)) marker.remove();
+      } else {
+        if (marker) {
+          marker.setIcon(_pieDivIcon(activeCols, 5));
+          if (!contestMap.hasLayer(marker)) marker.addTo(contestMap);
+        }
+      }
+      for (const e of entries) {
+        const on = contestMapState.enabledBands.has(e.band);
+        for (const line of e.paths) {
+          if (on && contestMapState.showPaths) { if (!contestMap.hasLayer(line)) line.addTo(contestMap); }
+          else                                 { if (contestMap.hasLayer(line))  line.remove(); }
+        }
       }
     }
   }
@@ -2095,7 +2175,10 @@
 
     // Clear previous 2D layers
     if (contestMapQthMarker) { contestMapQthMarker.remove(); contestMapQthMarker = null; }
-    contestMapItems.forEach(({ marker, paths }) => { marker.remove(); paths.forEach(p => p.remove()); });
+    contestMapItems.forEach(({ marker, entries }) => {
+      if (marker) marker.remove();
+      entries.forEach(e => e.paths.forEach(p => p.remove()));
+    });
     contestMapItems = [];
 
     const myLocStr = me?.contest_qth || null;
@@ -2189,6 +2272,10 @@
     }
 
     // ----- QSO layers -----
+    // Paths and 3D data are kept per-QSO; dots are grouped by locator so that
+    // multiple QSOs at the same grid square render as a single pie-chart marker.
+    const _locGrp = new Map(); // locKey → { pos, entries:[{q,band,color,paths}] }
+
     for (const q of qsosWithLoc) {
       const pos = locatorToLatLon(q.locator);
       if (!pos) continue;
@@ -2204,7 +2291,7 @@
         contestGlobeGcPaths.push({ band: q.band, color: col, points: gcPts.map(p => ({ lat: p[0], lon: p[1] })) });
       }
 
-      // 2D path
+      // 2D path (per-QSO)
       const paths = [];
       if (myPos && contestMap) {
         const gcPts = greatCirclePoints(myPos.lat, myPos.lon, pos.lat, pos.lon, 60);
@@ -2215,15 +2302,28 @@
         }
       }
 
-      // 2D dot with hover tooltip + click popup
+      // Accumulate per-location entry for grouped pie marker
       if (contestMap) {
-        const marker = L.circleMarker([pos.lat, pos.lon], {
-          radius: 5, fillColor: col, color: 'rgba(0,0,0,0.4)', weight: 1, fillOpacity: 0.85,
-        }).bindTooltip(`${q.callsign} · ${fmtBand(q.band)}`)
-          .bindPopup(buildQsoPopupHTML(q), { maxWidth: 240 });
-        if (on) marker.addTo(contestMap);
-        contestMapItems.push({ band: q.band, marker, paths });
+        const locKey = q.locator.toUpperCase().slice(0, 6);
+        if (!_locGrp.has(locKey)) _locGrp.set(locKey, { pos, entries: [] });
+        _locGrp.get(locKey).entries.push({ q, band: q.band, color: col, paths });
       }
+    }
+
+    // One Leaflet marker per unique location, with a pie-chart icon.
+    for (const [locKey, { pos, entries }] of _locGrp) {
+      const activeCols = _uniqueColors(entries.filter(e => contestMapState.enabledBands.has(e.band)));
+      const allCols    = _uniqueColors(entries);
+      const tip = entries.length === 1
+        ? `${entries[0].q.callsign} · ${fmtBand(entries[0].q.band)}`
+        : `${entries.length} QSOs · ${locKey}`;
+      const popup = entries.map(e => buildQsoPopupHTML(e.q))
+        .join('<hr style="margin:6px 0;border-color:rgba(255,255,255,0.1)">');
+      const marker = L.marker([pos.lat, pos.lon], {
+        icon: _pieDivIcon(activeCols.length ? activeCols : allCols, 5),
+      }).bindTooltip(tip).bindPopup(popup, { maxWidth: 240 });
+      if (activeCols.length) marker.addTo(contestMap);
+      contestMapItems.push({ locKey, entries, marker });
     }
 
     // ----- Switch canvas visibility -----
@@ -2244,7 +2344,7 @@
         requestAnimationFrame(() => {
           contestMap.invalidateSize();
           const pts = contestMapItems
-            .filter(it => contestMapState.enabledBands.has(it.band))
+            .filter(it => it.entries.some(e => contestMapState.enabledBands.has(e.band)))
             .map(it => it.marker);
           if (contestMapQthMarker) pts.push(contestMapQthMarker);
           if (pts.length) contestMap.fitBounds(L.featureGroup(pts).getBounds().pad(0.15), { maxZoom: 10 });
@@ -2471,17 +2571,22 @@
       ctx.setLineDash([]);
     }
 
-    // QSO dots — sort back-to-front
+    // QSO dots — sort back-to-front, then group by locator for pie rendering
     const visItems = contestGlobeQsoItems
       .filter(it => contestMapState?.enabledBands.has(it.band))
       .map(it => ({ ...it, proj: proj(it.lat, it.lon) }))
       .filter(it => it.proj.visible);
     visItems.sort((a, b) => a.proj.z - b.proj.z);
+    // Group items at the same locator, preserving back-to-front order of first occurrence.
+    const _globeGrp = new Map(); // locKey → { sx, sy, colors:[] }
     for (const it of visItems) {
-      const { sx, sy } = it.proj;
-      ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI * 2);
-      ctx.fillStyle = it.color; ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1; ctx.stroke();
+      const key = it.q?.locator?.toUpperCase().slice(0, 6) ?? `${it.lat.toFixed(4)},${it.lon.toFixed(4)}`;
+      if (!_globeGrp.has(key)) _globeGrp.set(key, { sx: it.proj.sx, sy: it.proj.sy, colors: [] });
+      const grp = _globeGrp.get(key);
+      if (!grp.colors.includes(it.color)) grp.colors.push(it.color);
+    }
+    for (const { sx, sy, colors } of _globeGrp.values()) {
+      _drawPie(ctx, sx, sy, 5, colors);
     }
     contestGlobeLastVisItems = visItems;
 
