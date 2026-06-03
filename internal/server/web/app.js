@@ -1698,102 +1698,166 @@
     btn.href = '/api/export/pdf' + (keys.length ? '?cols=' + encodeURIComponent(keys.join(',')) : '');
   }
 
+  // Renders the contest map to an offscreen canvas using a temporary Leaflet
+  // map with the same CartoDB dark tiles and vector styles as the map page.
+  // Returns a Promise that resolves to a canvas (or null if no locator data).
   function renderPdfMapCanvas() {
-    const W = 1400, H = 900, LEGEND_H = 75, MAP_H = H - LEGEND_H, PAD = 22;
+    if (typeof L === 'undefined') return Promise.resolve(null);
+
+    const W = 1400, H = 875, MAP_H = 800, LEGEND_H = H - MAP_H;
+
     const myLocStr = me?.contest_qth || null;
     const myPos = myLocStr ? locatorToLatLon(myLocStr) : null;
     const qsosWithLoc = (qsos || []).filter(q => q.locator && q.locator.length >= 4);
-    const allPos = [];
-    if (myPos) allPos.push(myPos);
-    for (const q of qsosWithLoc) { const p = locatorToLatLon(q.locator); if (p) allPos.push(p); }
-    if (!allPos.length) return null;
 
-    let minLat = allPos[0].lat, maxLat = allPos[0].lat, minLon = allPos[0].lon, maxLon = allPos[0].lon;
-    for (const p of allPos) {
-      if (p.lat < minLat) minLat = p.lat; if (p.lat > maxLat) maxLat = p.lat;
-      if (p.lon < minLon) minLon = p.lon; if (p.lon > maxLon) maxLon = p.lon;
+    const allLatLngs = [];
+    if (myPos) allLatLngs.push([myPos.lat, myPos.lon]);
+    for (const q of qsosWithLoc) {
+      const p = locatorToLatLon(q.locator);
+      if (p) allLatLngs.push([p.lat, p.lon]);
     }
-    const latSpan = Math.max(maxLat - minLat, 3), lonSpan = Math.max(maxLon - minLon, 3);
-    const latMg = latSpan * 0.12, lonMg = lonSpan * 0.12;
-    minLat = Math.max(minLat - latMg, -90); maxLat = Math.min(maxLat + latMg, 90);
-    minLon = Math.max(minLon - lonMg, -180); maxLon = Math.min(maxLon + lonMg, 180);
+    if (!allLatLngs.length) return Promise.resolve(null);
 
-    const midLat = (minLat + maxLat) / 2;
-    const cosLat = Math.max(Math.cos(midLat * Math.PI / 180), 0.1);
-    const dLat = maxLat - minLat, dLon = (maxLon - minLon) / cosLat;
-    const mapAreaW = W - 2 * PAD, mapAreaH = MAP_H - 2 * PAD;
-    const scale = Math.min(mapAreaW / dLon, mapAreaH / dLat);
-    const ox = PAD + (mapAreaW - dLon * scale) / 2, oy = PAD + (mapAreaH - dLat * scale) / 2;
+    return new Promise((resolve) => {
+      // Off-screen container: position:fixed far left so Leaflet can measure
+      // the element size while remaining invisible to the user.
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = `position:fixed;left:-${W + 20}px;top:0;width:${W}px;height:${MAP_H}px`;
+      document.body.appendChild(wrapper);
 
-    function proj(lat, lon) {
-      return [ox + ((lon - minLon) / cosLat) * scale, oy + (maxLat - lat) * scale];
-    }
+      // Use L.canvas() so all vector layers land in a single <canvas> that we
+      // can read back without SVG-serialisation complexity.
+      const canvasRenderer = L.canvas({ padding: 0 });
+      const tmpMap = L.map(wrapper, {
+        zoomControl: false,
+        attributionControl: false,
+        renderer: canvasRenderer,
+      });
 
-    const canvas = document.createElement('canvas');
-    canvas.width = W; canvas.height = H;
-    const ctx = canvas.getContext('2d');
+      // crossOrigin:'anonymous' is required so we can call drawImage() on the
+      // tile <img> elements without tainting the output canvas.
+      const tl = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        subdomains: 'abcd',
+        maxZoom: 18,
+        crossOrigin: 'anonymous',
+      }).addTo(tmpMap);
 
-    ctx.fillStyle = '#1a2540'; ctx.fillRect(0, 0, W, MAP_H);
-    ctx.fillStyle = '#0d1220'; ctx.fillRect(0, MAP_H, W, LEGEND_H);
-
-    if (myPos) {
-      ctx.lineWidth = 1.2; ctx.setLineDash([4, 5]);
-      for (const q of qsosWithLoc) {
-        const pos = locatorToLatLon(q.locator); if (!pos) continue;
-        const gcPts = greatCirclePoints(myPos.lat, myPos.lon, pos.lat, pos.lon, 60);
-        ctx.strokeStyle = bandColor(q.band); ctx.globalAlpha = 0.35;
-        for (const seg of splitAtAntimeridian(gcPts)) {
-          if (seg.length < 2) continue;
-          ctx.beginPath(); let first = true;
-          for (const [plat, plon] of seg) {
-            const [px, py] = proj(plat, plon);
-            if (first) { ctx.moveTo(px, py); first = false; } else ctx.lineTo(px, py);
+      // Great-circle paths (drawn first so markers sit on top).
+      if (myPos) {
+        for (const q of qsosWithLoc) {
+          const pos = locatorToLatLon(q.locator);
+          if (!pos) continue;
+          const col = bandColor(q.band);
+          const gcPts = greatCirclePoints(myPos.lat, myPos.lon, pos.lat, pos.lon, 60);
+          for (const seg of splitAtAntimeridian(gcPts)) {
+            L.polyline(seg, { color: col, weight: 1.5, opacity: 0.55, dashArray: '5 5' }).addTo(tmpMap);
           }
-          ctx.stroke();
         }
       }
-      ctx.globalAlpha = 1; ctx.setLineDash([]);
-    }
 
-    ctx.lineWidth = 0.8;
-    for (const q of qsosWithLoc) {
-      const pos = locatorToLatLon(q.locator); if (!pos) continue;
-      const [px, py] = proj(pos.lat, pos.lon);
-      ctx.globalAlpha = 0.85; ctx.fillStyle = bandColor(q.band); ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
+      // QSO markers.
+      for (const q of qsosWithLoc) {
+        const pos = locatorToLatLon(q.locator);
+        if (!pos) continue;
+        L.circleMarker([pos.lat, pos.lon], {
+          radius: 5, fillColor: bandColor(q.band), color: 'rgba(0,0,0,0.4)', weight: 1, fillOpacity: 0.85,
+        }).addTo(tmpMap);
+      }
 
-    if (myPos) {
-      const [px, py] = proj(myPos.lat, myPos.lon);
-      ctx.fillStyle = '#66bb6a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    }
+      // Own QTH marker on top.
+      if (myPos) {
+        L.circleMarker([myPos.lat, myPos.lon], {
+          radius: 8, fillColor: '#66bb6a', color: '#fff', weight: 2, fillOpacity: 1,
+        }).addTo(tmpMap);
+      }
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1; ctx.setLineDash([]);
-    ctx.beginPath(); ctx.moveTo(0, MAP_H); ctx.lineTo(W, MAP_H); ctx.stroke();
+      tmpMap.fitBounds(L.latLngBounds(allLatLngs).pad(0.1), { maxZoom: 10 });
 
-    const bandsInUse = [...new Set(qsosWithLoc.map(q => q.band).filter(Boolean))]
-      .sort((a, b) => BANDS.indexOf(a) - BANDS.indexOf(b));
-    const LY = MAP_H + 50;
-    let lx = 22;
-    ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#bbb';
-    ctx.fillText(t('map.legend') + ':', lx, MAP_H + 22);
-    if (myPos) {
-      ctx.fillStyle = '#66bb6a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(lx + 6, LY - 4, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#ccc'; ctx.font = '13px sans-serif';
-      const qthLbl = t('map.myQTH');
-      ctx.fillText(qthLbl, lx + 16, LY); lx += 16 + Math.ceil(ctx.measureText(qthLbl).width) + 20;
-    }
-    for (const b of bandsInUse) {
-      ctx.fillStyle = bandColor(b); ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 0.8;
-      ctx.beginPath(); ctx.arc(lx + 6, LY - 4, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#ccc'; ctx.font = '13px sans-serif';
-      const bLbl = fmtBand(b);
-      ctx.fillText(bLbl, lx + 16, LY); lx += 16 + Math.ceil(ctx.measureText(bLbl).width) + 18;
-    }
-    return canvas;
+      function capture() {
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = W; outCanvas.height = H;
+        const ctx = outCanvas.getContext('2d');
+
+        // Dark fallback background (visible if tiles fail).
+        ctx.fillStyle = '#1c2535';
+        ctx.fillRect(0, 0, W, MAP_H);
+
+        const mapRect = wrapper.getBoundingClientRect();
+
+        // Clip drawing to the map area so partially-visible edge tiles don't
+        // bleed into the legend strip.
+        ctx.save();
+        ctx.beginPath(); ctx.rect(0, 0, W, MAP_H); ctx.clip();
+
+        // Draw tile images.  getBoundingClientRect() accounts for all CSS
+        // transforms Leaflet applies to the tile container, giving us the
+        // correct on-canvas position for each tile.
+        wrapper.querySelectorAll('img.leaflet-tile-loaded').forEach(img => {
+          try {
+            const r = img.getBoundingClientRect();
+            ctx.drawImage(img,
+              Math.round(r.left - mapRect.left), Math.round(r.top - mapRect.top),
+              Math.round(r.width), Math.round(r.height));
+          } catch (_) { /* skip any tile that couldn't be read (rare CORS edge case) */ }
+        });
+
+        // Draw vector canvas (paths + markers rendered by L.canvas()).
+        const vecCanvas = canvasRenderer._container;
+        if (vecCanvas) {
+          try { ctx.drawImage(vecCanvas, 0, 0); } catch (_) {}
+        }
+
+        ctx.restore();
+
+        // Legend strip.
+        ctx.fillStyle = '#0d1220';
+        ctx.fillRect(0, MAP_H, W, LEGEND_H);
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1; ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(0, MAP_H); ctx.lineTo(W, MAP_H); ctx.stroke();
+
+        const bandsInUse = [...new Set(qsosWithLoc.map(q => q.band).filter(Boolean))]
+          .sort((a, b) => BANDS.indexOf(a) - BANDS.indexOf(b));
+        const LY = MAP_H + 52;
+        let lx = 22;
+        ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#bbb';
+        ctx.fillText(t('map.legend') + ':', lx, MAP_H + 22);
+        if (myPos) {
+          ctx.fillStyle = '#66bb6a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(lx + 6, LY - 4, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = '#ccc'; ctx.font = '13px sans-serif';
+          const qthLbl = t('map.myQTH');
+          ctx.fillText(qthLbl, lx + 16, LY); lx += 16 + Math.ceil(ctx.measureText(qthLbl).width) + 20;
+        }
+        for (const b of bandsInUse) {
+          ctx.fillStyle = bandColor(b); ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 0.8;
+          ctx.beginPath(); ctx.arc(lx + 6, LY - 4, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = '#ccc'; ctx.font = '13px sans-serif';
+          const bLbl = fmtBand(b);
+          ctx.fillText(bLbl, lx + 16, LY); lx += 16 + Math.ceil(ctx.measureText(bLbl).width) + 18;
+        }
+
+        tmpMap.remove();
+        document.body.removeChild(wrapper);
+        resolve(outCanvas);
+      }
+
+      // Wait for all visible tiles to load, then allow two animation frames for
+      // the canvas renderer to finish painting before capturing.
+      let tilesReady = false;
+      tl.on('load', () => { tilesReady = true; });
+
+      const deadline = Date.now() + 8000;
+      function checkReady() {
+        if (tilesReady || Date.now() > deadline) {
+          requestAnimationFrame(() => requestAnimationFrame(capture));
+        } else {
+          setTimeout(checkReady, 150);
+        }
+      }
+      // Small initial delay so Leaflet has time to lay out the map and start
+      // loading tiles before we begin polling.
+      setTimeout(checkReady, 250);
+    });
   }
 
   function setupExportPdfMapBtn() {
@@ -1804,18 +1868,20 @@
       const mapCb = $('export-include-map');
       if (!mapCb || !mapCb.checked) return;
       e.preventDefault();
-      const canvas = renderPdfMapCanvas();
-      const sortable = $('export-cols-sortable');
-      const keys = [];
-      if (sortable) {
-        sortable.querySelectorAll('.export-col-item[data-col-key]').forEach(item => {
-          const cb = item.querySelector('input[type="checkbox"]');
-          if (cb?.checked) keys.push(item.dataset.colKey);
-        });
-      }
-      const colsParam = keys.length ? '?cols=' + encodeURIComponent(keys.join(',')) : '';
-      const body = canvas ? { mapImage: canvas.toDataURL('image/png').split(',')[1] } : {};
+
+      btn.classList.add('loading');
       try {
+        const canvas = await renderPdfMapCanvas();
+        const sortable = $('export-cols-sortable');
+        const keys = [];
+        if (sortable) {
+          sortable.querySelectorAll('.export-col-item[data-col-key]').forEach(item => {
+            const cb = item.querySelector('input[type="checkbox"]');
+            if (cb?.checked) keys.push(item.dataset.colKey);
+          });
+        }
+        const colsParam = keys.length ? '?cols=' + encodeURIComponent(keys.join(',')) : '';
+        const body = canvas ? { mapImage: canvas.toDataURL('image/png').split(',')[1] } : {};
         const resp = await fetch('/api/export/pdf' + colsParam, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
@@ -1834,6 +1900,8 @@
         URL.revokeObjectURL(url);
       } catch (err) {
         console.error('PDF map export error', err);
+      } finally {
+        btn.classList.remove('loading');
       }
     });
   }
