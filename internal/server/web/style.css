@@ -1881,6 +1881,8 @@ button.contest-edit-pill:hover {
 .export-col-label input[type="checkbox"] { margin: 0; cursor: pointer; accent-color: var(--primary); flex-shrink: 0; }
 .export-cols-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .export-cols-actions .ghost { padding: 4px 10px; font-size: 0.85em; }
+.export-map-toggle { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; cursor: pointer; }
+.export-map-toggle input[type="checkbox"] { accent-color: var(--primary); cursor: pointer; }
 
 /* ==== Passkey ==== */
 .passkey-divider {

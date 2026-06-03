@@ -1682,6 +1682,7 @@
     });
     $('export-cols-reset').addEventListener('click', renderExportColumns);
     updateExportPdfHref();
+    setupExportPdfMapBtn();
   }
   function updateExportPdfHref() {
     const btn = $('export-pdf-btn');
@@ -1695,6 +1696,146 @@
       });
     }
     btn.href = '/api/export/pdf' + (keys.length ? '?cols=' + encodeURIComponent(keys.join(',')) : '');
+  }
+
+  function renderPdfMapCanvas() {
+    const W = 1400, H = 900, LEGEND_H = 75, MAP_H = H - LEGEND_H, PAD = 22;
+    const myLocStr = me?.contest_qth || null;
+    const myPos = myLocStr ? locatorToLatLon(myLocStr) : null;
+    const qsosWithLoc = (qsos || []).filter(q => q.locator && q.locator.length >= 4);
+    const allPos = [];
+    if (myPos) allPos.push(myPos);
+    for (const q of qsosWithLoc) { const p = locatorToLatLon(q.locator); if (p) allPos.push(p); }
+    if (!allPos.length) return null;
+
+    let minLat = allPos[0].lat, maxLat = allPos[0].lat, minLon = allPos[0].lon, maxLon = allPos[0].lon;
+    for (const p of allPos) {
+      if (p.lat < minLat) minLat = p.lat; if (p.lat > maxLat) maxLat = p.lat;
+      if (p.lon < minLon) minLon = p.lon; if (p.lon > maxLon) maxLon = p.lon;
+    }
+    const latSpan = Math.max(maxLat - minLat, 3), lonSpan = Math.max(maxLon - minLon, 3);
+    const latMg = latSpan * 0.12, lonMg = lonSpan * 0.12;
+    minLat = Math.max(minLat - latMg, -90); maxLat = Math.min(maxLat + latMg, 90);
+    minLon = Math.max(minLon - lonMg, -180); maxLon = Math.min(maxLon + lonMg, 180);
+
+    const midLat = (minLat + maxLat) / 2;
+    const cosLat = Math.max(Math.cos(midLat * Math.PI / 180), 0.1);
+    const dLat = maxLat - minLat, dLon = (maxLon - minLon) / cosLat;
+    const mapAreaW = W - 2 * PAD, mapAreaH = MAP_H - 2 * PAD;
+    const scale = Math.min(mapAreaW / dLon, mapAreaH / dLat);
+    const ox = PAD + (mapAreaW - dLon * scale) / 2, oy = PAD + (mapAreaH - dLat * scale) / 2;
+
+    function proj(lat, lon) {
+      return [ox + ((lon - minLon) / cosLat) * scale, oy + (maxLat - lat) * scale];
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#1a2540'; ctx.fillRect(0, 0, W, MAP_H);
+    ctx.fillStyle = '#0d1220'; ctx.fillRect(0, MAP_H, W, LEGEND_H);
+
+    if (myPos) {
+      ctx.lineWidth = 1.2; ctx.setLineDash([4, 5]);
+      for (const q of qsosWithLoc) {
+        const pos = locatorToLatLon(q.locator); if (!pos) continue;
+        const gcPts = greatCirclePoints(myPos.lat, myPos.lon, pos.lat, pos.lon, 60);
+        ctx.strokeStyle = bandColor(q.band); ctx.globalAlpha = 0.35;
+        for (const seg of splitAtAntimeridian(gcPts)) {
+          if (seg.length < 2) continue;
+          ctx.beginPath(); let first = true;
+          for (const [plat, plon] of seg) {
+            const [px, py] = proj(plat, plon);
+            if (first) { ctx.moveTo(px, py); first = false; } else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1; ctx.setLineDash([]);
+    }
+
+    ctx.lineWidth = 0.8;
+    for (const q of qsosWithLoc) {
+      const pos = locatorToLatLon(q.locator); if (!pos) continue;
+      const [px, py] = proj(pos.lat, pos.lon);
+      ctx.globalAlpha = 0.85; ctx.fillStyle = bandColor(q.band); ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    if (myPos) {
+      const [px, py] = proj(myPos.lat, myPos.lon);
+      ctx.fillStyle = '#66bb6a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(0, MAP_H); ctx.lineTo(W, MAP_H); ctx.stroke();
+
+    const bandsInUse = [...new Set(qsosWithLoc.map(q => q.band).filter(Boolean))]
+      .sort((a, b) => BANDS.indexOf(a) - BANDS.indexOf(b));
+    const LY = MAP_H + 50;
+    let lx = 22;
+    ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#bbb';
+    ctx.fillText(t('map.legend') + ':', lx, MAP_H + 22);
+    if (myPos) {
+      ctx.fillStyle = '#66bb6a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(lx + 6, LY - 4, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ccc'; ctx.font = '13px sans-serif';
+      const qthLbl = t('map.myQTH');
+      ctx.fillText(qthLbl, lx + 16, LY); lx += 16 + Math.ceil(ctx.measureText(qthLbl).width) + 20;
+    }
+    for (const b of bandsInUse) {
+      ctx.fillStyle = bandColor(b); ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.arc(lx + 6, LY - 4, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ccc'; ctx.font = '13px sans-serif';
+      const bLbl = fmtBand(b);
+      ctx.fillText(bLbl, lx + 16, LY); lx += 16 + Math.ceil(ctx.measureText(bLbl).width) + 18;
+    }
+    return canvas;
+  }
+
+  function setupExportPdfMapBtn() {
+    const btn = $('export-pdf-btn');
+    if (!btn || btn.dataset.mapHandlerBound) return;
+    btn.dataset.mapHandlerBound = '1';
+    btn.addEventListener('click', async (e) => {
+      const mapCb = $('export-include-map');
+      if (!mapCb || !mapCb.checked) return;
+      e.preventDefault();
+      const canvas = renderPdfMapCanvas();
+      const sortable = $('export-cols-sortable');
+      const keys = [];
+      if (sortable) {
+        sortable.querySelectorAll('.export-col-item[data-col-key]').forEach(item => {
+          const cb = item.querySelector('input[type="checkbox"]');
+          if (cb?.checked) keys.push(item.dataset.colKey);
+        });
+      }
+      const colsParam = keys.length ? '?cols=' + encodeURIComponent(keys.join(',')) : '';
+      const body = canvas ? { mapImage: canvas.toDataURL('image/png').split(',')[1] } : {};
+      try {
+        const resp = await fetch('/api/export/pdf' + colsParam, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+          credentials: 'same-origin',
+          body: JSON.stringify(body),
+        });
+        if (!resp.ok) return;
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const cd = resp.headers.get('Content-Disposition');
+        const fnMatch = cd && cd.match(/filename="([^"]+)"/);
+        a.download = fnMatch ? fnMatch[1] : 'export.pdf';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('PDF map export error', err);
+      }
+    });
   }
 
   // ----- statistics -----

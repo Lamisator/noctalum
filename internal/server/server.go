@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
@@ -2941,11 +2942,27 @@ func (s *Server) handleExportPDF(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	// Optional map image: accepted via POST body so the frontend can render a
+	// canvas snapshot and include it as an extra page.
+	var mapImagePNG []byte
+	mapPageTitle := "Worked Stations Map"
+	if r.Method == http.MethodPost {
+		var body struct {
+			MapImage string `json:"mapImage"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil && body.MapImage != "" {
+			mapImagePNG, _ = decodeBase64Image(body.MapImage)
+		}
+		if lang == "de" {
+			mapPageTitle = "Karte gearbeiteter Stationen"
+		}
+	}
+
 	logoPNG, _ := webFS.ReadFile("web/noctalum.png")
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: PDF")
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "pdf")+`"`)
-	if err := ExportPDF(w, qsos, cols, contestName, contestCall, sess.ContestQTH(), logoPNG, programVersion, freqUnit); err != nil {
+	if err := ExportPDF(w, qsos, cols, contestName, contestCall, sess.ContestQTH(), logoPNG, programVersion, freqUnit, mapImagePNG, mapPageTitle); err != nil {
 		log.Printf("PDF export error: %v", err)
 	}
 }
@@ -2962,6 +2979,11 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// decodeBase64Image decodes a raw base64 string (no data-URI prefix) into bytes.
+func decodeBase64Image(raw string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(raw)
 }
 
 // ----- feature requests -----

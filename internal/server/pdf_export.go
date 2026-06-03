@@ -37,8 +37,10 @@ const pdfDefaultColWidth = 18.0
 // ExportPDF writes a styled PDF report of the contest log to w.
 //
 // cols is the ordered list of columns to render. logoPNG, when non-nil, is
-// rendered as the small logo on the top-left of the header.
-func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, stationCall, qth string, logoPNG []byte, programVersion, freqUnit string) error {
+// rendered as the small logo on the top-left of the header. mapImagePNG, when
+// non-nil, appends an extra page with a 2D map of all QSOs; mapPageTitle is
+// the heading shown on that page.
+func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, stationCall, qth string, logoPNG []byte, programVersion, freqUnit string, mapImagePNG []byte, mapPageTitle string) error {
 	pdf := gofpdf.New("L", "mm", "A4", "")
 	pdf.SetMargins(10, 10, 10)
 	pdf.SetAutoPageBreak(true, 14)
@@ -223,6 +225,42 @@ func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, sta
 	pdf.SetLineWidth(0.2)
 	y := pdf.GetY()
 	pdf.Line(leftMargin, y, pageW-rightMargin, y)
+
+	if len(mapImagePNG) > 0 {
+		// Switch to a plain header (logo + title only, no table columns) for the
+		// map page.
+		pdf.SetHeaderFunc(func() {
+			if len(logoPNG) > 0 {
+				pdf.ImageOptions(logoName, leftMargin, 8, 20, 20, false, gofpdf.ImageOptions{ImageType: "PNG"}, 0, "")
+			}
+			textX := leftMargin + 24
+			pdf.SetXY(textX, 9)
+			pdf.SetFont("Helvetica", "B", 18)
+			pdf.SetTextColor(20, 20, 30)
+			pdf.CellFormat(usableW-24, 8, "Noctalum", "", 1, "L", false, 0, "")
+			pdf.SetX(textX)
+			pdf.SetFont("Helvetica", "", 11)
+			pdf.SetTextColor(60, 60, 70)
+			pdf.CellFormat(usableW-24, 5, "Contest log report", "", 1, "L", false, 0, "")
+			pdf.SetDrawColor(40, 90, 170)
+			pdf.SetLineWidth(0.6)
+			pdf.Line(leftMargin, 32, pageW-rightMargin, 32)
+			pdf.SetLineWidth(0.2)
+			pdf.SetY(36)
+		})
+		pdf.AddPage()
+
+		pdf.SetFont("Helvetica", "B", 13)
+		pdf.SetTextColor(30, 30, 40)
+		pdf.CellFormat(usableW, 7, s(mapPageTitle), "", 1, "L", false, 0, "")
+		pdf.Ln(2)
+
+		imgY := pdf.GetY()
+		imgH := pageH - imgY - bottomMargin - 2
+		const mapImgName = "noctalum_map_image"
+		pdf.RegisterImageOptionsReader(mapImgName, gofpdf.ImageOptions{ImageType: "PNG"}, bytes.NewReader(mapImagePNG))
+		pdf.ImageOptions(mapImgName, leftMargin, imgY, usableW, imgH, false, gofpdf.ImageOptions{ImageType: "PNG"}, 0, "")
+	}
 
 	return pdf.Output(w)
 }
