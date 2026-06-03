@@ -499,7 +499,8 @@
   let contestMapActiveSubTab = '2d';
   // 3D globe state
   let contestGlobeInitialized = false;
-  let contestGlobeLandData = null; // GeoJSON features, loaded once
+  let contestGlobeLandData = null;   // GeoJSON country features, loaded once
+  let contestGlobeLabels   = null;   // [{n,d,r,lat,lon}] label data, loaded once
   let contestGlobeZoom = 1.0;
   let contestGlobeCenterLon = 10;
   let contestGlobeCenterLat = 20;
@@ -2066,6 +2067,12 @@
         .then(d => { contestGlobeLandData = d.features; renderContestGlobe(); })
         .catch(() => {});
     }
+    if (!contestGlobeLabels) {
+      fetch('/world-country-labels.json')
+        .then(r => r.json())
+        .then(d => { contestGlobeLabels = d; renderContestGlobe(); })
+        .catch(() => {});
+    }
 
     new ResizeObserver(() => {
       if (contestMapActiveSubTab === '3d') { resizeGlobeCanvas(); renderContestGlobe(); }
@@ -2172,21 +2179,19 @@
     const ctx = el.getContext('2d');
     const W = el.width, H = el.height;
     const proj = (lat, lon) => _globeProject(W, H, lat, lon);
-    const { cx, cy } = proj(0, 0);
-    // baseR is the fixed porthole radius; projected coords scale with contestGlobeZoom via _globeProject
-    const baseR = Math.min(W, H) * 0.45;
+    const { R, cx, cy } = proj(0, 0);
 
     ctx.clearRect(0, 0, W, H);
 
     // Ocean sphere
-    const grad = ctx.createRadialGradient(cx - baseR * 0.15, cy - baseR * 0.2, 0, cx, cy, baseR);
+    const grad = ctx.createRadialGradient(cx - R * 0.15, cy - R * 0.2, 0, cx, cy, R);
     grad.addColorStop(0, '#1a2a3a');
     grad.addColorStop(1, '#0a0f18');
-    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
     ctx.fillStyle = grad; ctx.fill();
 
     ctx.save();
-    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI * 2); ctx.clip();
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
 
     // Land polygons (individual countries — fill + visible border)
     if (contestGlobeLandData) {
@@ -2283,17 +2288,49 @@
       }
     }
 
+    // Country labels — LOD: more labels appear as zoom increases
+    if (contestGlobeLabels) {
+      // rank → minimum zoom to show label
+      const rankThreshold = [0, 0.5, 0.8, 1.3, 2.0, 3.2, 5.0, 7.5];
+      const fontSize = Math.min(13, Math.max(8, 8 + Math.log2(Math.max(1, contestGlobeZoom)) * 2));
+      const lang = (window.I18N && window.I18N.lang) ? window.I18N.lang() : 'en';
+      ctx.font = `${fontSize}px ${getComputedStyle(el).fontFamily || 'sans-serif'}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const placed = [];
+      for (const lbl of contestGlobeLabels) {
+        const threshold = rankThreshold[Math.min(lbl.r, rankThreshold.length - 1)];
+        if (contestGlobeZoom < threshold) continue;
+        const s = proj(lbl.lat, lbl.lon);
+        if (!s.visible) continue;
+        const text = (lang === 'de' && lbl.d) ? lbl.d : lbl.n;
+        const tw = ctx.measureText(text).width;
+        const th = fontSize * 1.5;
+        const bx = s.sx - tw / 2 - 2, by = s.sy - th / 2;
+        const bw = tw + 4, bh = th;
+        if (placed.some(p => bx < p.x + p.w && bx + bw > p.x && by < p.y + p.h && by + bh > p.y)) continue;
+        placed.push({ x: bx, y: by, w: bw, h: bh });
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillText(text, s.sx + 1, s.sy + 1);
+        ctx.fillStyle = 'rgba(225,245,215,0.92)';
+        ctx.fillText(text, s.sx, s.sy);
+      }
+      ctx.textBaseline = 'alphabetic';
+    }
+
     ctx.restore();
 
-    // Globe border
-    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1.5; ctx.stroke();
+    // Globe border — only when the full sphere is visible in the canvas
+    if (R + 4 < Math.min(W, H) / 2) {
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1.5; ctx.stroke();
 
-    // Rotate hint (bottom of globe)
-    ctx.fillStyle = 'rgba(255,255,255,0.22)';
-    ctx.font = `12px ${getComputedStyle(el).fontFamily || 'sans-serif'}`;
-    ctx.textAlign = 'center';
-    ctx.fillText(t('map.dragToRotate'), cx, cy + baseR + 16);
+      // Rotate/zoom hint below the globe
+      ctx.fillStyle = 'rgba(255,255,255,0.22)';
+      ctx.font = `12px ${getComputedStyle(el).fontFamily || 'sans-serif'}`;
+      ctx.textAlign = 'center';
+      ctx.fillText(t('map.dragToRotate'), cx, cy + R + 16);
+    }
   }
 
   // ----- ops panel tabs -----
