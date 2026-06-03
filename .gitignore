@@ -10,5 +10,8 @@
 cmd/helper/rigctld-bins/
 cmd/helper-gui/rigctld-bins/
 
+# Deployment secrets — copy .deploy.env.example → .deploy.env and fill in values
+.deploy.env
+
 # Claude Code local settings (machine-specific paths and permissions)
 .claude/settings.local.json
