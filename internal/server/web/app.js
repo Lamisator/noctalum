@@ -499,6 +499,7 @@
   let contestMapActiveSubTab = '2d';
   // 3D globe state
   let contestGlobeInitialized = false;
+  let contestGlobeLandData = null; // GeoJSON features, loaded once
   let contestGlobeCenterLon = 10;
   let contestGlobeCenterLat = 20;
   // [{ q, lat, lon, color, band }]
@@ -2058,6 +2059,13 @@
     if (!el) return;
     contestGlobeInitialized = true;
 
+    if (!contestGlobeLandData) {
+      fetch('/world-land.geojson')
+        .then(r => r.json())
+        .then(d => { contestGlobeLandData = d.features; renderContestGlobe(); })
+        .catch(() => {});
+    }
+
     new ResizeObserver(() => {
       if (contestMapActiveSubTab === '3d') { resizeGlobeCanvas(); renderContestGlobe(); }
     }).observe(el.parentElement);
@@ -2150,6 +2158,31 @@
 
     ctx.save();
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
+
+    // Land polygons
+    if (contestGlobeLandData) {
+      ctx.fillStyle = '#2a3e28';
+      ctx.strokeStyle = 'rgba(160,200,140,0.25)';
+      ctx.lineWidth = 0.5;
+      for (const feature of contestGlobeLandData) {
+        const geom = feature.geometry;
+        const polys = geom.type === 'MultiPolygon' ? geom.coordinates : [geom.coordinates];
+        for (const poly of polys) {
+          ctx.beginPath();
+          for (const ring of poly) {
+            let first = true;
+            for (const [lon, lat] of ring) {
+              const s = proj(lat, lon);
+              if (!s.visible) { first = true; continue; }
+              if (first) { ctx.moveTo(s.sx, s.sy); first = false; } else ctx.lineTo(s.sx, s.sy);
+            }
+            ctx.closePath();
+          }
+          ctx.fill('evenodd');
+          ctx.stroke();
+        }
+      }
+    }
 
     // Graticule
     ctx.strokeStyle = 'rgba(255,255,255,0.06)';
