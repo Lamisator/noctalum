@@ -674,8 +674,16 @@
     <!-- Map tab -->
     <section id="tab-map" class="tab-pane">
       <div id="contest-map-legend" class="contest-map-legend"></div>
-      <div id="contest-map-canvas" class="contest-map-canvas"></div>
+      <div class="contest-map-area">
+        <div class="cmap-subtabs">
+          <button class="cmap-subtab active" data-subtab="2d" data-i18n="map.tab2D">2D</button>
+          <button class="cmap-subtab" data-subtab="3d" data-i18n="map.tab3D">3D</button>
+        </div>
+        <div id="contest-map-canvas" class="contest-map-canvas"></div>
+        <canvas id="contest-globe-canvas" class="contest-globe-canvas"></canvas>
+      </div>
     </section>
+    <div id="cmap-qso-tip" class="cmap-qso-tip hidden"></div>
 
     <section id="tab-export" class="tab-pane">
       <div class="card">

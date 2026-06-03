@@ -495,6 +495,22 @@
   let contestMapItems = [];
   // { enabledBands: Set, knownBands: Set, showPaths: bool, contestId }
   let contestMapState = null;
+  // 2D / 3D sub-tab state
+  let contestMapActiveSubTab = '2d';
+  // 3D globe state
+  let contestGlobeInitialized = false;
+  let contestGlobeCenterLon = 10;
+  let contestGlobeCenterLat = 20;
+  // [{ q, lat, lon, color, band }]
+  let contestGlobeQsoItems = [];
+  // [{ band, color, points:[{lat,lon}] }]
+  let contestGlobeGcPaths = [];
+  let contestGlobeQthLat = null;
+  let contestGlobeQthLon = null;
+  let contestGlobeQthLabel = '';
+  // projected items from last render (for click detection)
+  let contestGlobeLastVisItems = [];
+  let contestGlobeLastQthProj = null;
 
   function initLeafletMap() {
     const el = $('map-canvas');
@@ -1541,13 +1557,58 @@
     });
   });
 
+  // ----- map 2D / 3D sub-tabs -----
+  document.querySelectorAll('.cmap-subtab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.subtab === contestMapActiveSubTab) return;
+      document.querySelectorAll('.cmap-subtab').forEach(x => x.classList.remove('active'));
+      btn.classList.add('active');
+      contestMapActiveSubTab = btn.dataset.subtab;
+      hideCmapQsoTip();
+      if (contestMapActiveSubTab === '3d') {
+        $('contest-map-canvas').style.display = 'none';
+        const canvas3d = $('contest-globe-canvas');
+        canvas3d.classList.add('active');
+        initContestGlobe();
+        requestAnimationFrame(() => { resizeGlobeCanvas(); renderContestGlobe(); });
+      } else {
+        $('contest-globe-canvas').classList.remove('active');
+        $('contest-map-canvas').style.display = '';
+        if (contestMap) requestAnimationFrame(() => contestMap.invalidateSize());
+      }
+    });
+  });
+
   // ----- export column picker (PDF) -----
   function getExportColumnDefs() {
     const customFields = parseCustomFields(me?.contest_fields);
     return getEffectiveLogCols(me?.contest_log_columns, customFields);
   }
+  const EXPORT_COL_KEY_MAP = {
+    'nr_sent':       'export.colNr',
+    'time':          'export.colTime',
+    'callsign':      'export.colCall',
+    'band':          'export.colBand',
+    'freq':          'export.colFreq',
+    'mode':          'export.colMode',
+    'rst_sent':      'export.colRstSent',
+    'rst_received':  'export.colRstRcvd',
+    'nr_received':   'export.colNrRcvd',
+    'name':          'export.colName',
+    'locator':       'export.colLoc',
+    'itu':           'export.colItuCQ',
+    'dok':           'export.colDok',
+    'lighthouse':    'export.colLighthouse',
+    'notes':         'export.colNotes',
+    'operator':      'export.colOperator',
+  };
   function exportColLabel(col) {
     if (col.isCustom) return col.label || col.key;
+    const ek = EXPORT_COL_KEY_MAP[col.key];
+    if (ek) {
+      const suffix = col.key === 'freq' ? ' (' + contestFreqUnit() + ')' : '';
+      return t(ek) + suffix;
+    }
     if (col.key === 'freq') return t('qso.colFreq') + ' (' + contestFreqUnit() + ')';
     return col.labelKey ? t(col.labelKey) : col.key;
   }
@@ -1558,12 +1619,15 @@
     if (!cols.length) { host.innerHTML = ''; updateExportPdfHref(); return; }
     host.innerHTML = `
       <div class="export-cols-hint muted small" data-i18n="export.colsHint">Columns (in the order they will appear in the PDF):</div>
-      <div class="export-cols-list">
+      <div class="export-cols-sortable" id="export-cols-sortable">
         ${cols.map(c => `
-          <label class="export-col">
-            <input type="checkbox" data-col-key="${escHtml(c.key)}"${c.on !== false ? ' checked' : ''}>
-            <span>${escHtml(exportColLabel(c))}</span>
-          </label>`).join('')}
+          <div class="export-col-item" draggable="true" data-col-key="${escHtml(c.key)}">
+            <span class="export-col-handle" aria-hidden="true">&#8942;&#8942;</span>
+            <label class="export-col-label">
+              <input type="checkbox"${c.on !== false ? ' checked' : ''}>
+              <span>${escHtml(exportColLabel(c))}</span>
+            </label>
+          </div>`).join('')}
       </div>
       <div class="export-cols-actions">
         <button type="button" class="ghost" id="export-cols-all" data-i18n="export.selectAll">Select all</button>
@@ -1571,32 +1635,60 @@
         <button type="button" class="ghost" id="export-cols-reset" data-i18n="export.resetDefault">Reset to defaults</button>
       </div>
     `;
-    host.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', updateExportPdfHref));
+    applyI18n(host);
+
+    const sortable = $('export-cols-sortable');
+    let dragSrcItem = null;
+
+    sortable.querySelectorAll('.export-col-item').forEach(item => {
+      item.addEventListener('dragstart', e => {
+        dragSrcItem = item;
+        item.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+        sortable.querySelectorAll('.export-col-item').forEach(x => x.classList.remove('drag-over'));
+        dragSrcItem = null;
+        updateExportPdfHref();
+      });
+      item.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (!dragSrcItem || dragSrcItem === item) return;
+        const rect = item.getBoundingClientRect();
+        sortable.querySelectorAll('.export-col-item').forEach(x => x.classList.remove('drag-over'));
+        item.classList.add('drag-over');
+        if (e.clientY < rect.top + rect.height / 2) {
+          sortable.insertBefore(dragSrcItem, item);
+        } else {
+          sortable.insertBefore(dragSrcItem, item.nextSibling);
+        }
+      });
+      item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+      item.querySelector('input[type="checkbox"]').addEventListener('change', updateExportPdfHref);
+    });
+
     $('export-cols-all').addEventListener('click', () => {
-      host.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+      sortable.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
       updateExportPdfHref();
     });
     $('export-cols-none').addEventListener('click', () => {
-      host.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+      sortable.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
       updateExportPdfHref();
     });
-    $('export-cols-reset').addEventListener('click', () => {
-      const defaults = new Map(getExportColumnDefs().map(c => [c.key, c.on !== false]));
-      host.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-        cb.checked = !!defaults.get(cb.dataset.colKey);
-      });
-      updateExportPdfHref();
-    });
+    $('export-cols-reset').addEventListener('click', renderExportColumns);
     updateExportPdfHref();
   }
   function updateExportPdfHref() {
     const btn = $('export-pdf-btn');
     if (!btn) return;
-    const host = $('export-cols');
+    const sortable = $('export-cols-sortable');
     const keys = [];
-    if (host) {
-      host.querySelectorAll('input[type="checkbox"][data-col-key]').forEach(cb => {
-        if (cb.checked) keys.push(cb.dataset.colKey);
+    if (sortable) {
+      sortable.querySelectorAll('.export-col-item[data-col-key]').forEach(item => {
+        const cb = item.querySelector('input[type="checkbox"]');
+        if (cb?.checked) keys.push(item.dataset.colKey);
       });
     }
     btn.href = '/api/export/pdf' + (keys.length ? '?cols=' + encodeURIComponent(keys.join(',')) : '');
@@ -1727,7 +1819,12 @@
   }
 
   function applyContestMapFilters() {
-    if (!contestMap || !contestMapState) return;
+    if (!contestMapState) return;
+    if (contestMapActiveSubTab === '3d') {
+      renderContestGlobe();
+      return;
+    }
+    if (!contestMap) return;
     for (const { band, marker, paths } of contestMapItems) {
       const on = contestMapState.enabledBands.has(band);
       if (on) { if (!contestMap.hasLayer(marker)) marker.addTo(contestMap); }
@@ -1739,17 +1836,58 @@
     }
   }
 
+  function buildQsoPopupHTML(q) {
+    const time = q.time ? new Date(q.time).toISOString().substring(0, 16).replace('T', ' ') + ' UTC' : '';
+    const bandMode = [fmtBand(q.band), q.mode].filter(Boolean).join(' · ');
+    const rstPair = (q.rst_sent || q.rst_received) ? `${q.rst_sent || '—'} / ${q.rst_received || '—'}` : '';
+    const rows = [
+      q.callsign ? `<strong>${escHtml(q.callsign)}</strong>` : '',
+      time       ? `<span class="cmap-tip-row">${escHtml(time)}</span>` : '',
+      bandMode   ? `<span class="cmap-tip-row">${escHtml(bandMode)}</span>` : '',
+      rstPair    ? `<span class="cmap-tip-row">${escHtml(rstPair)}</span>` : '',
+      q.locator  ? `<span class="cmap-tip-row">${escHtml(q.locator)}</span>` : '',
+      q.name     ? `<span class="cmap-tip-row">${escHtml(q.name)}</span>` : '',
+      q.dok      ? `<span class="cmap-tip-row">DOK ${escHtml(q.dok)}</span>` : '',
+      q.operator ? `<span class="cmap-tip-row">${escHtml(t('qso.colOp'))}: ${escHtml(q.operator)}</span>` : '',
+    ].filter(Boolean).join('');
+    return `<div class="cmap-qso-popup">${rows}</div>`;
+  }
+
+  function showCmapQsoTip(clientX, clientY, q, isQth) {
+    const tip = $('cmap-qso-tip');
+    if (!tip) return;
+    if (isQth) {
+      tip.innerHTML = `<strong>${escHtml(t('map.myQTH'))}</strong>` +
+        (me?.contest_call ? `<span class="cmap-tip-row">${escHtml(me.contest_call)}</span>` : '') +
+        (me?.contest_qth  ? `<span class="cmap-tip-row">${escHtml(me.contest_qth)}</span>` : '');
+    } else if (q) {
+      tip.innerHTML = buildQsoPopupHTML(q).replace(/^<div[^>]*>|<\/div>$/g, '');
+    }
+    tip.classList.remove('hidden');
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const tW = tip.offsetWidth || 160, tH = tip.offsetHeight || 80;
+    let tx = clientX + 14, ty = clientY + 14;
+    if (tx + tW > vw - 8) tx = clientX - tW - 14;
+    if (ty + tH > vh - 8) ty = clientY - tH - 14;
+    tip.style.left = Math.max(8, tx) + 'px';
+    tip.style.top  = Math.max(8, ty) + 'px';
+  }
+
+  function hideCmapQsoTip() {
+    const tip = $('cmap-qso-tip');
+    if (tip) tip.classList.add('hidden');
+  }
+
   function renderContestMap() {
     initContestMap();
-    if (!contestMap) return;
 
-    // Clear previous layers
+    // Clear previous 2D layers
     if (contestMapQthMarker) { contestMapQthMarker.remove(); contestMapQthMarker = null; }
     contestMapItems.forEach(({ marker, paths }) => { marker.remove(); paths.forEach(p => p.remove()); });
     contestMapItems = [];
 
     const myLocStr = me?.contest_qth || null;
-    const myPos = myLocStr ? locatorToLatLon(myLocStr) : null;
+    const myPos    = myLocStr ? locatorToLatLon(myLocStr) : null;
     const qsosWithLoc = qsos.filter(q => q.locator && q.locator.length >= 4);
 
     const bandsInUse = [...new Set(qsosWithLoc.map(q => q.band).filter(Boolean))]
@@ -1764,7 +1902,6 @@
         contestId:    me?.contest_id,
       };
     } else {
-      // Enable any newly-seen bands automatically
       for (const b of bandsInUse) {
         if (!contestMapState.knownBands.has(b)) {
           contestMapState.enabledBands.add(b);
@@ -1776,19 +1913,16 @@
     // ----- Legend -----
     const legend = $('contest-map-legend');
     let html = `<h3>${escHtml(t('map.legend'))}</h3>`;
-
     if (myPos) {
       html += `<div class="cmap-legend-item"><span class="cmap-dot" style="background:#66bb6a;border-color:#fff"></span>${escHtml(t('map.myQTH'))}</div>`;
     } else {
       html += `<p class="muted small" style="margin:0 0 6px">${escHtml(t('map.noQTH'))}</p>`;
     }
-
     html += `<div class="cmap-legend-sep"></div>
       <label class="cmap-toggle">
         <input type="checkbox" id="cmap-show-paths" ${contestMapState.showPaths ? 'checked' : ''}>
         <span>${escHtml(t('map.showPaths'))}</span>
       </label>`;
-
     if (bandsInUse.length) {
       html += `<div class="cmap-legend-sep"></div>`;
       for (const b of bandsInUse) {
@@ -1801,7 +1935,6 @@
         </label>`;
       }
     }
-
     if (!qsosWithLoc.length) {
       html += `<p class="muted small" style="margin-top:10px">${escHtml(t('map.noData'))}</p>`;
     }
@@ -1820,24 +1953,48 @@
       });
     });
 
-    // ----- Own QTH marker (always shown) -----
-    if (myPos) {
+    // ----- Build 3D globe data -----
+    contestGlobeQsoItems  = [];
+    contestGlobeGcPaths   = [];
+    contestGlobeQthLat    = myPos ? myPos.lat : null;
+    contestGlobeQthLon    = myPos ? myPos.lon : null;
+    contestGlobeQthLabel  = t('map.myQTH') +
+      (me?.contest_call ? ' · ' + me.contest_call : '') +
+      (myLocStr          ? ' · ' + myLocStr        : '');
+
+    // Center globe on own QTH if first render
+    if (myPos && contestGlobeCenterLat === 20 && contestGlobeCenterLon === 10) {
+      contestGlobeCenterLat = myPos.lat;
+      contestGlobeCenterLon = myPos.lon;
+    }
+
+    // ----- Own QTH marker (2D) -----
+    if (myPos && contestMap) {
       const tip = t('map.myQTH') + (me?.contest_call ? ` · ${me.contest_call}` : '') + (myLocStr ? ` · ${myLocStr}` : '');
       contestMapQthMarker = L.circleMarker([myPos.lat, myPos.lon], {
         radius: 8, fillColor: '#66bb6a', color: '#fff', weight: 2, fillOpacity: 1,
       }).bindTooltip(tip).addTo(contestMap);
     }
 
-    // ----- QSO layers (paths first so dots render on top) -----
+    // ----- QSO layers -----
     for (const q of qsosWithLoc) {
       const pos = locatorToLatLon(q.locator);
       if (!pos) continue;
       const col = bandColor(q.band);
       const on  = contestMapState.enabledBands.has(q.band);
 
-      // Great-circle path
-      const paths = [];
+      // 3D item
+      contestGlobeQsoItems.push({ q, lat: pos.lat, lon: pos.lon, color: col, band: q.band });
+
+      // 3D great-circle path
       if (myPos) {
+        const gcPts = greatCirclePoints(myPos.lat, myPos.lon, pos.lat, pos.lon, 60);
+        contestGlobeGcPaths.push({ band: q.band, color: col, points: gcPts.map(p => ({ lat: p[0], lon: p[1] })) });
+      }
+
+      // 2D path
+      const paths = [];
+      if (myPos && contestMap) {
         const gcPts = greatCirclePoints(myPos.lat, myPos.lon, pos.lat, pos.lon, 60);
         for (const seg of splitAtAntimeridian(gcPts)) {
           const line = L.polyline(seg, { color: col, weight: 1.5, opacity: 0.55, dashArray: '5 5' });
@@ -1846,24 +2003,235 @@
         }
       }
 
-      // Station dot
-      const marker = L.circleMarker([pos.lat, pos.lon], {
-        radius: 5, fillColor: col, color: 'rgba(0,0,0,0.4)', weight: 1, fillOpacity: 0.85,
-      }).bindTooltip(`${q.callsign} · ${fmtBand(q.band)} · ${q.locator}`);
-      if (on) marker.addTo(contestMap);
-
-      contestMapItems.push({ band: q.band, marker, paths });
+      // 2D dot with hover tooltip + click popup
+      if (contestMap) {
+        const marker = L.circleMarker([pos.lat, pos.lon], {
+          radius: 5, fillColor: col, color: 'rgba(0,0,0,0.4)', weight: 1, fillOpacity: 0.85,
+        }).bindTooltip(`${q.callsign} · ${fmtBand(q.band)}`)
+          .bindPopup(buildQsoPopupHTML(q), { maxWidth: 240 });
+        if (on) marker.addTo(contestMap);
+        contestMapItems.push({ band: q.band, marker, paths });
+      }
     }
 
-    // Fit to visible markers (QTH + enabled stations)
-    requestAnimationFrame(() => {
-      contestMap.invalidateSize();
-      const pts = contestMapItems
-        .filter(it => contestMapState.enabledBands.has(it.band))
-        .map(it => it.marker);
-      if (contestMapQthMarker) pts.push(contestMapQthMarker);
-      if (pts.length) contestMap.fitBounds(L.featureGroup(pts).getBounds().pad(0.15), { maxZoom: 10 });
+    // ----- Switch canvas visibility -----
+    const canvas2d = $('contest-map-canvas');
+    const canvas3d = $('contest-globe-canvas');
+    if (contestMapActiveSubTab === '3d') {
+      if (canvas2d) canvas2d.style.display = 'none';
+      if (canvas3d) canvas3d.classList.add('active');
+      initContestGlobe();
+      requestAnimationFrame(() => {
+        resizeGlobeCanvas();
+        renderContestGlobe();
+      });
+    } else {
+      if (canvas2d) canvas2d.style.display = '';
+      if (canvas3d) canvas3d.classList.remove('active');
+      if (contestMap) {
+        requestAnimationFrame(() => {
+          contestMap.invalidateSize();
+          const pts = contestMapItems
+            .filter(it => contestMapState.enabledBands.has(it.band))
+            .map(it => it.marker);
+          if (contestMapQthMarker) pts.push(contestMapQthMarker);
+          if (pts.length) contestMap.fitBounds(L.featureGroup(pts).getBounds().pad(0.15), { maxZoom: 10 });
+        });
+      }
+    }
+  }
+
+  // ----- 3D Globe -----
+  function resizeGlobeCanvas() {
+    const el = $('contest-globe-canvas');
+    if (!el) return;
+    const parent = el.parentElement;
+    if (!parent) return;
+    const w = parent.clientWidth;
+    const h = parent.clientHeight - (el.previousElementSibling?.offsetHeight || 0);
+    if (w > 0 && h > 0) { el.width = w; el.height = h; }
+  }
+
+  function initContestGlobe() {
+    if (contestGlobeInitialized) return;
+    const el = $('contest-globe-canvas');
+    if (!el) return;
+    contestGlobeInitialized = true;
+
+    new ResizeObserver(() => {
+      if (contestMapActiveSubTab === '3d') { resizeGlobeCanvas(); renderContestGlobe(); }
+    }).observe(el.parentElement);
+
+    let dragStart = null, dragLon = 0, dragLat = 0, didDrag = false;
+
+    function onDragStart(cx, cy) {
+      dragStart = { x: cx, y: cy };
+      dragLon   = contestGlobeCenterLon;
+      dragLat   = contestGlobeCenterLat;
+      didDrag   = false;
+    }
+    function onDragMove(cx, cy) {
+      if (!dragStart) return;
+      const dx = cx - dragStart.x, dy = cy - dragStart.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag = true;
+      const R = Math.min(el.width, el.height) * 0.45;
+      contestGlobeCenterLon = dragLon - (dx / R) * (180 / Math.PI) * 1.3;
+      contestGlobeCenterLat = Math.max(-85, Math.min(85, dragLat + (dy / R) * (180 / Math.PI) * 1.3));
+      renderContestGlobe();
+    }
+    function onDragEnd() { dragStart = null; }
+
+    el.addEventListener('mousedown',  e => onDragStart(e.clientX, e.clientY));
+    el.addEventListener('mousemove',  e => onDragMove(e.clientX, e.clientY));
+    el.addEventListener('mouseup',    onDragEnd);
+    el.addEventListener('mouseleave', onDragEnd);
+    el.addEventListener('touchstart', e => { if (e.touches.length === 1) { e.preventDefault(); onDragStart(e.touches[0].clientX, e.touches[0].clientY); } }, { passive: false });
+    el.addEventListener('touchmove',  e => { if (e.touches.length === 1) { e.preventDefault(); onDragMove(e.touches[0].clientX, e.touches[0].clientY); } }, { passive: false });
+    el.addEventListener('touchend',   onDragEnd);
+
+    el.addEventListener('click', e => {
+      if (didDrag) { didDrag = false; return; }
+      const rect = el.getBoundingClientRect();
+      const scaleX = el.width  / (rect.width  || 1);
+      const scaleY = el.height / (rect.height || 1);
+      const mx = (e.clientX - rect.left) * scaleX;
+      const my = (e.clientY - rect.top)  * scaleY;
+
+      let nearest = null, nearestD2 = 12 * 12;
+      for (const it of contestGlobeLastVisItems) {
+        const d2 = (it.proj.sx - mx) ** 2 + (it.proj.sy - my) ** 2;
+        if (d2 < nearestD2) { nearest = it; nearestD2 = d2; }
+      }
+
+      if (!nearest && contestGlobeLastQthProj?.visible) {
+        const p = contestGlobeLastQthProj;
+        if ((p.sx - mx) ** 2 + (p.sy - my) ** 2 < 15 * 15) {
+          showCmapQsoTip(e.clientX, e.clientY, null, true);
+          return;
+        }
+      }
+      if (nearest) showCmapQsoTip(e.clientX, e.clientY, nearest.q, false);
+      else hideCmapQsoTip();
     });
+  }
+
+  function _globeProject(W, H, lat, lon) {
+    const R      = Math.min(W, H) * 0.45;
+    const cx     = W / 2, cy = H / 2;
+    const phi    = lat * Math.PI / 180;
+    const phi0   = contestGlobeCenterLat * Math.PI / 180;
+    const dl     = (lon - contestGlobeCenterLon) * Math.PI / 180;
+    const cosPhi = Math.cos(phi), sinPhi = Math.sin(phi);
+    const cosPhi0 = Math.cos(phi0), sinPhi0 = Math.sin(phi0);
+    const cosDl = Math.cos(dl), sinDl = Math.sin(dl);
+    const x = cosPhi * sinDl;
+    const y = cosPhi0 * sinPhi - sinPhi0 * cosPhi * cosDl;
+    const z = sinPhi0 * sinPhi + cosPhi0 * cosPhi * cosDl;
+    return { sx: cx + x * R, sy: cy - y * R, visible: z > 0, z, R, cx, cy };
+  }
+
+  function renderContestGlobe() {
+    const el = $('contest-globe-canvas');
+    if (!el) return;
+    if (el.width < 2 || el.height < 2) { resizeGlobeCanvas(); if (el.width < 2) return; }
+    const ctx = el.getContext('2d');
+    const W = el.width, H = el.height;
+    const proj = (lat, lon) => _globeProject(W, H, lat, lon);
+    const { R, cx, cy } = proj(0, 0);
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Ocean sphere
+    const grad = ctx.createRadialGradient(cx - R * 0.15, cy - R * 0.2, 0, cx, cy, R);
+    grad.addColorStop(0, '#1a2a3a');
+    grad.addColorStop(1, '#0a0f18');
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fillStyle = grad; ctx.fill();
+
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
+
+    // Graticule
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 0.5;
+    ctx.setLineDash([]);
+    for (let lat = -60; lat <= 60; lat += 30) {
+      ctx.beginPath();
+      let first = true;
+      for (let lon = -180; lon <= 180; lon += 2) {
+        const s = proj(lat, lon);
+        if (!s.visible) { first = true; continue; }
+        if (first) { ctx.moveTo(s.sx, s.sy); first = false; } else ctx.lineTo(s.sx, s.sy);
+      }
+      ctx.stroke();
+    }
+    for (let lon = -180; lon < 180; lon += 30) {
+      ctx.beginPath();
+      let first = true;
+      for (let lat = -90; lat <= 90; lat += 2) {
+        const s = proj(lat, lon);
+        if (!s.visible) { first = true; continue; }
+        if (first) { ctx.moveTo(s.sx, s.sy); first = false; } else ctx.lineTo(s.sx, s.sy);
+      }
+      ctx.stroke();
+    }
+
+    // Great-circle paths
+    if (contestMapState?.showPaths) {
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]);
+      for (const p of contestGlobeGcPaths) {
+        if (!contestMapState.enabledBands.has(p.band)) continue;
+        ctx.strokeStyle = p.color + '8c';
+        ctx.beginPath();
+        let first = true;
+        for (const pt of p.points) {
+          const s = proj(pt.lat, pt.lon);
+          if (!s.visible) { first = true; continue; }
+          if (first) { ctx.moveTo(s.sx, s.sy); first = false; } else ctx.lineTo(s.sx, s.sy);
+        }
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+
+    // QSO dots — sort back-to-front
+    const visItems = contestGlobeQsoItems
+      .filter(it => contestMapState?.enabledBands.has(it.band))
+      .map(it => ({ ...it, proj: proj(it.lat, it.lon) }))
+      .filter(it => it.proj.visible);
+    visItems.sort((a, b) => a.proj.z - b.proj.z);
+    for (const it of visItems) {
+      const { sx, sy } = it.proj;
+      ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.fillStyle = it.color; ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1; ctx.stroke();
+    }
+    contestGlobeLastVisItems = visItems;
+
+    // Own QTH
+    contestGlobeLastQthProj = null;
+    if (contestGlobeQthLat !== null) {
+      const s = proj(contestGlobeQthLat, contestGlobeQthLon);
+      contestGlobeLastQthProj = s;
+      if (s.visible) {
+        ctx.beginPath(); ctx.arc(s.sx, s.sy, 8, 0, Math.PI * 2);
+        ctx.fillStyle = '#66bb6a'; ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+      }
+    }
+
+    ctx.restore();
+
+    // Globe border
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // Rotate hint (bottom of globe)
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.font = `12px ${getComputedStyle(el).fontFamily || 'sans-serif'}`;
+    ctx.textAlign = 'center';
+    ctx.fillText(t('map.dragToRotate'), cx, cy + R + 16);
   }
 
   // ----- ops panel tabs -----

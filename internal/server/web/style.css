@@ -378,7 +378,56 @@ a { color: var(--accent); text-decoration: none; }
   user-select: none;
 }
 .cmap-toggle input[type="checkbox"] { margin: 0; cursor: pointer; accent-color: var(--primary); }
+.contest-map-area {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cmap-subtabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+.cmap-subtab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  margin-bottom: -1px;
+  line-height: 1.4;
+}
+.cmap-subtab:hover { color: var(--fg); }
+.cmap-subtab.active { color: var(--fg); border-bottom-color: var(--primary); }
 .contest-map-canvas { flex: 1; min-width: 0; }
+.contest-globe-canvas { flex: 1; min-width: 0; width: 100%; display: none; cursor: grab; }
+.contest-globe-canvas.active { display: block; }
+.contest-globe-canvas:active { cursor: grabbing; }
+
+/* QSO detail tooltip (map 2D popup & 3D floating tip) */
+.cmap-qso-tip {
+  position: fixed;
+  background: var(--card, #1a1f2b);
+  border: 1px solid var(--border, #2e3240);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  z-index: 9999;
+  pointer-events: none;
+  min-width: 140px;
+  max-width: 240px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+  line-height: 1.5;
+}
+.cmap-qso-tip.hidden { display: none; }
+.cmap-qso-tip strong { display: block; font-size: 14px; margin-bottom: 2px; }
+.cmap-tip-row { display: block; color: var(--muted); }
+.cmap-qso-popup strong { display: block; font-size: 14px; margin-bottom: 2px; }
+.cmap-qso-popup .cmap-tip-row { display: block; color: #888; margin-top: 1px; }
 
 .layout-outer {
   flex: 1;
@@ -1792,23 +1841,45 @@ button.contest-edit-pill:hover {
 
 .export-cols { margin-top: 8px; }
 .export-cols-hint { margin-bottom: 8px; }
-.export-cols-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 6px 14px;
+.export-cols-sortable {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   margin-bottom: 10px;
+  max-width: 380px;
 }
-.export-col {
+.export-col-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  padding: 4px 6px;
+  gap: 8px;
+  padding: 5px 8px;
   border-radius: 4px;
+  border: 1px solid transparent;
+  background: rgba(255,255,255,0.03);
+  cursor: grab;
+  user-select: none;
+  transition: background 0.1s, border-color 0.1s;
 }
-.export-col:hover { background: rgba(255, 255, 255, 0.04); }
-.export-col input[type="checkbox"] { margin: 0; cursor: pointer; }
-.export-cols-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.export-col-item:hover { background: rgba(255,255,255,0.06); }
+.export-col-item.dragging { opacity: 0.4; cursor: grabbing; }
+.export-col-item.drag-over { border-color: var(--primary); background: rgba(255,255,255,0.07); }
+.export-col-handle {
+  color: var(--muted);
+  font-size: 15px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.export-col-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+.export-col-label input[type="checkbox"] { margin: 0; cursor: pointer; accent-color: var(--primary); flex-shrink: 0; }
+.export-cols-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .export-cols-actions .ghost { padding: 4px 10px; font-size: 0.85em; }
 
 /* ==== Passkey ==== */
