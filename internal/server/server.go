@@ -63,8 +63,9 @@ type Server struct {
 	nrMu           sync.Mutex
 	nrNext         map[int64]int // per-contest next serial number to assign
 	qrz            *QRZClient
-	downloadsDir   string
-	soundsDir      string
+	downloadsDir        string
+	soundsDir           string
+	shutdownTriggerPath string
 }
 
 // SetSoundsDir configures the directory where custom chat sounds are stored.
@@ -77,6 +78,17 @@ func (s *Server) SetSoundsDir(dir string) {
 
 // SetDownloadsDir configures a directory whose files are served at /downloads/.
 func (s *Server) SetDownloadsDir(dir string) { s.downloadsDir = dir }
+
+// SetShutdownTriggerPath configures the file the server polls for a
+// deployment-triggered graceful shutdown.  When the file appears its contents
+// are read as the countdown in seconds; the file is deleted; a deploy_warning
+// WebSocket event is broadcast to all connected browsers; and SIGTERM is sent
+// after the countdown elapses.  Only a caller with write access to this path
+// (i.e. SSH access to the host) can trigger a shutdown.
+func (s *Server) SetShutdownTriggerPath(path string) {
+	s.shutdownTriggerPath = path
+	go s.shutdownTriggerLoop(context.Background())
+}
 
 // New constructs and configures a Server, ensuring built-in roles + helper token.
 func New(st *store.Store) (*Server, error) {
@@ -170,7 +182,6 @@ func (s *Server) Routes() http.Handler {
 
 	// Public endpoints
 	mux.HandleFunc("/api/ping", s.handlePing)
-	mux.HandleFunc("/api/shutdown", s.handleShutdown)
 	mux.HandleFunc("/api/setup", s.handleSetup)
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/logout", s.handleLogout)
@@ -591,37 +602,11 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleShutdown broadcasts a deploy-warning countdown to all connected browser
-// clients and then sends SIGTERM to the process after the countdown elapses,
-// causing a clean exit.  Called by the deploy script via SSH from localhost.
-// No auth token is required: the server only binds on 127.0.0.1, so only a
-// caller with SSH access to the host — who already has full control — can reach
-// this endpoint.
 // handlePing is a lightweight, unauthenticated liveness check.  It returns the
 // process-unique startupID so clients can detect a server restart by comparing
 // successive responses — the token changes on every fresh process start.
 func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "startup_id": startupID})
-}
-
-func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "POST required")
-		return
-	}
-	var body struct {
-		Seconds int `json:"seconds"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	if body.Seconds <= 0 {
-		body.Seconds = 60
-	}
-	s.hub.Broadcast(Event{Type: "deploy_warning", Payload: map[string]any{"seconds": body.Seconds}})
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "seconds": body.Seconds})
-	go func() {
-		time.Sleep(time.Duration(body.Seconds) * time.Second)
-		_ = syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
-	}()
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -1485,6 +1470,52 @@ func (s *Server) clusterPruneLoop(ctx context.Context) {
 			if err := s.store.PruneClusterSpots(retention); err != nil {
 				log.Printf("cluster prune: %v", err)
 			}
+		}
+	}
+}
+
+// shutdownTriggerLoop polls every 2 seconds for the presence of a trigger file
+// (path set via SetShutdownTriggerPath).  When the file appears it reads the
+// countdown value (integer seconds), deletes the file, broadcasts a
+// deploy_warning WebSocket event to all connected browsers, and sends SIGTERM
+// after the countdown elapses.  Only a caller with filesystem write access to
+// that path — i.e. SSH access to the host — can trigger this, so no HTTP auth
+// is required.
+func (s *Server) shutdownTriggerLoop(ctx context.Context) {
+	if s.shutdownTriggerPath == "" {
+		return
+	}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			data, err := os.ReadFile(s.shutdownTriggerPath)
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					log.Printf("shutdown trigger: read error: %v", err)
+				}
+				continue
+			}
+			// Delete before acting — prevents re-triggering on the next tick
+			// if SIGTERM delivery is somehow delayed.
+			if removeErr := os.Remove(s.shutdownTriggerPath); removeErr != nil {
+				log.Printf("shutdown trigger: could not remove trigger file: %v", removeErr)
+			}
+			seconds, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
+			if parseErr != nil || seconds <= 0 {
+				log.Printf("shutdown trigger: invalid content %q — using default 60s", strings.TrimSpace(string(data)))
+				seconds = 60
+			}
+			log.Printf("shutdown trigger: broadcasting deploy_warning (%ds), SIGTERM follows", seconds)
+			s.hub.Broadcast(Event{Type: "deploy_warning", Payload: map[string]any{"seconds": seconds}})
+			go func(n int) {
+				time.Sleep(time.Duration(n) * time.Second)
+				_ = syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+			}(seconds)
+			return // process will exit shortly; no need to keep polling
 		}
 	}
 }

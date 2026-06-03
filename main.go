@@ -36,6 +36,9 @@ func main() {
 	}
 	// Derive sounds directory from db location so no extra flag is needed.
 	srv.SetSoundsDir(filepath.Join(filepath.Dir(*dbPath), "sounds"))
+	// Derive shutdown trigger path the same way — the deploy script writes
+	// the countdown value here instead of calling an unauthenticated HTTP endpoint.
+	srv.SetShutdownTriggerPath(filepath.Join(filepath.Dir(*dbPath), "shutdown_trigger"))
 
 	httpSrv := &http.Server{
 		Addr:              *addr,
