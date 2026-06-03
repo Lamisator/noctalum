@@ -500,6 +500,7 @@
   // 3D globe state
   let contestGlobeInitialized = false;
   let contestGlobeLandData = null; // GeoJSON features, loaded once
+  let contestGlobeZoom = 1.0;
   let contestGlobeCenterLon = 10;
   let contestGlobeCenterLat = 20;
   // [{ q, lat, lon, color, band }]
@@ -2060,7 +2061,7 @@
     contestGlobeInitialized = true;
 
     if (!contestGlobeLandData) {
-      fetch('/world-land.geojson')
+      fetch('/world-countries.geojson')
         .then(r => r.json())
         .then(d => { contestGlobeLandData = d.features; renderContestGlobe(); })
         .catch(() => {});
@@ -2082,20 +2083,46 @@
       if (!dragStart) return;
       const dx = cx - dragStart.x, dy = cy - dragStart.y;
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag = true;
-      const R = Math.min(el.width, el.height) * 0.45;
+      const R = Math.min(el.width, el.height) * 0.45 * contestGlobeZoom;
       contestGlobeCenterLon = dragLon - (dx / R) * (180 / Math.PI) * 1.3;
       contestGlobeCenterLat = Math.max(-85, Math.min(85, dragLat + (dy / R) * (180 / Math.PI) * 1.3));
       renderContestGlobe();
     }
     function onDragEnd() { dragStart = null; }
 
+    let pinchStartDist = 0, pinchStartZoom = 1;
+
     el.addEventListener('mousedown',  e => onDragStart(e.clientX, e.clientY));
     el.addEventListener('mousemove',  e => onDragMove(e.clientX, e.clientY));
     el.addEventListener('mouseup',    onDragEnd);
     el.addEventListener('mouseleave', onDragEnd);
-    el.addEventListener('touchstart', e => { if (e.touches.length === 1) { e.preventDefault(); onDragStart(e.touches[0].clientX, e.touches[0].clientY); } }, { passive: false });
-    el.addEventListener('touchmove',  e => { if (e.touches.length === 1) { e.preventDefault(); onDragMove(e.touches[0].clientX, e.touches[0].clientY); } }, { passive: false });
-    el.addEventListener('touchend',   onDragEnd);
+    el.addEventListener('wheel', e => {
+      e.preventDefault();
+      contestGlobeZoom = Math.max(0.5, Math.min(8, contestGlobeZoom * (e.deltaY > 0 ? 1 / 1.15 : 1.15)));
+      renderContestGlobe();
+    }, { passive: false });
+    el.addEventListener('touchstart', e => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        onDragStart(e.touches[0].clientX, e.touches[0].clientY);
+        pinchStartDist = 0;
+      } else if (e.touches.length === 2) {
+        dragStart = null;
+        pinchStartDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        pinchStartZoom = contestGlobeZoom;
+      }
+    }, { passive: false });
+    el.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (e.touches.length === 1 && !pinchStartDist) {
+        onDragMove(e.touches[0].clientX, e.touches[0].clientY);
+      } else if (e.touches.length === 2 && pinchStartDist > 0) {
+        const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        contestGlobeZoom = Math.max(0.5, Math.min(8, pinchStartZoom * dist / pinchStartDist));
+        renderContestGlobe();
+      }
+    }, { passive: false });
+    el.addEventListener('touchend', e => { if (e.touches.length === 0) { onDragEnd(); pinchStartDist = 0; } });
 
     el.addEventListener('click', e => {
       if (didDrag) { didDrag = false; return; }
@@ -2124,7 +2151,7 @@
   }
 
   function _globeProject(W, H, lat, lon) {
-    const R      = Math.min(W, H) * 0.45;
+    const R      = Math.min(W, H) * 0.45 * contestGlobeZoom;
     const cx     = W / 2, cy = H / 2;
     const phi    = lat * Math.PI / 180;
     const phi0   = contestGlobeCenterLat * Math.PI / 180;
@@ -2145,25 +2172,27 @@
     const ctx = el.getContext('2d');
     const W = el.width, H = el.height;
     const proj = (lat, lon) => _globeProject(W, H, lat, lon);
-    const { R, cx, cy } = proj(0, 0);
+    const { cx, cy } = proj(0, 0);
+    // baseR is the fixed porthole radius; projected coords scale with contestGlobeZoom via _globeProject
+    const baseR = Math.min(W, H) * 0.45;
 
     ctx.clearRect(0, 0, W, H);
 
     // Ocean sphere
-    const grad = ctx.createRadialGradient(cx - R * 0.15, cy - R * 0.2, 0, cx, cy, R);
+    const grad = ctx.createRadialGradient(cx - baseR * 0.15, cy - baseR * 0.2, 0, cx, cy, baseR);
     grad.addColorStop(0, '#1a2a3a');
     grad.addColorStop(1, '#0a0f18');
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
     ctx.fillStyle = grad; ctx.fill();
 
     ctx.save();
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.clip();
+    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI * 2); ctx.clip();
 
-    // Land polygons
+    // Land polygons (individual countries — fill + visible border)
     if (contestGlobeLandData) {
       ctx.fillStyle = '#2a3e28';
-      ctx.strokeStyle = 'rgba(160,200,140,0.25)';
-      ctx.lineWidth = 0.5;
+      ctx.strokeStyle = 'rgba(90,130,75,0.75)';
+      ctx.lineWidth = 0.7;
       for (const feature of contestGlobeLandData) {
         const geom = feature.geometry;
         const polys = geom.type === 'MultiPolygon' ? geom.coordinates : [geom.coordinates];
@@ -2257,14 +2286,14 @@
     ctx.restore();
 
     // Globe border
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1.5; ctx.stroke();
 
     // Rotate hint (bottom of globe)
     ctx.fillStyle = 'rgba(255,255,255,0.22)';
     ctx.font = `12px ${getComputedStyle(el).fontFamily || 'sans-serif'}`;
     ctx.textAlign = 'center';
-    ctx.fillText(t('map.dragToRotate'), cx, cy + R + 16);
+    ctx.fillText(t('map.dragToRotate'), cx, cy + baseR + 16);
   }
 
   // ----- ops panel tabs -----
