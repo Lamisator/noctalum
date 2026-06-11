@@ -51,7 +51,11 @@ echo "Preparing remote directories..."
 ssh -i "$SSH_KEY" "$SSH_HOST" "mkdir -p $REMOTE_APP_DIR/downloads $REMOTE_WORK_DIR/data"
 
 echo "Copying docker-compose.yml..."
-scp -i "$SSH_KEY" "$ROOT/docker-compose.yml" "$SSH_HOST:$REMOTE_WORK_DIR/"
+# Push the production compose file (Traefik labels, external proxy network,
+# fixed container_name) — NOT the repo-root docker-compose.yml, which is the
+# dev-flavored variant used for local runs and would knock the live container
+# off Traefik if deployed.
+scp -i "$SSH_KEY" "$ROOT/docker-compose.prod.yml" "$SSH_HOST:$REMOTE_WORK_DIR/docker-compose.yml"
 
 # Trigger a graceful shutdown: write the countdown (in seconds) to the trigger
 # file that the server polls every 2 s.  The server broadcasts a deploy_warning

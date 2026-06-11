@@ -1,0 +1,24 @@
+services:
+  noctalum:
+    image: debian:bookworm-slim
+    container_name: noctalum
+    restart: unless-stopped
+    command: /app/noctalum-server -addr :8675 -db /data/noctalum.db -downloads-dir /downloads
+    volumes:
+      - ./app/noctalum-server:/app/noctalum-server:ro
+      - ./app/downloads:/downloads:ro
+      - ./data:/data
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.noctalum.rule=Host(`log.dm2lap.com`)
+      - traefik.http.routers.noctalum.entrypoints=websecure
+      - traefik.http.routers.noctalum.tls=true
+      - traefik.http.services.noctalum.loadbalancer.server.port=8675
+
+networks:
+  proxy:
+    external: true
