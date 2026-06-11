@@ -4343,10 +4343,36 @@
     const s = await res.json();
     fillSelect($('ms-mode'), MODES, s.default_mode || 'SSB');
     fillSelect($('ms-band'), BANDS, s.default_band || '20m', fmtBand);
+    const tokenInput = $('ms-token');
+    if (tokenInput) tokenInput.value = me?.helper_token || '';
+    const tokenHint = $('ms-hint-token');
+    if (tokenHint) tokenHint.textContent = me?.helper_token || '...';
+    const serverHint = $('ms-hint-server');
+    if (serverHint) serverHint.textContent = location.origin;
     updateMsChatMutePill();
     applyPermissionsToUI();
     loadMyPasskeys();
   }
+  $('ms-regen-token')?.addEventListener('click', async () => {
+    if (!await showConfirm(t('settings.regenConfirm'), { ok: t('settings.regenButton') })) return;
+    const res = await api('/api/me/helper-token', { method: 'POST' });
+    if (!res.ok) return;
+    const j = await res.json();
+    if (!j.helper_token) return;
+    if (me) me.helper_token = j.helper_token;
+    $('ms-token').value = j.helper_token;
+    $('ms-hint-token').textContent = j.helper_token;
+    // Keep the legacy tab-settings inputs in sync for any code path that still reads them.
+    if ($('s-token')) $('s-token').value = j.helper_token;
+    if ($('hint-token')) $('hint-token').textContent = j.helper_token;
+  });
+  $('ms-copy-token')?.addEventListener('click', () => {
+    const input = $('ms-token');
+    if (!input || !input.value) return;
+    input.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    if (navigator.clipboard) navigator.clipboard.writeText(input.value).catch(() => {});
+  });
   $('ms-settings-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     $('ms-settings-error').textContent = '';

@@ -943,6 +943,24 @@
       </form>
     </div>
     <div class="card settings-card" style="margin-top:14px">
+      <h2 data-i18n="settings.helperToken">My helper token</h2>
+      <p class="muted small">
+        <span data-i18n="settings.helperHintPre">Use this personal token with the</span>
+        <code>noctalum-helper</code>
+        <span data-i18n="settings.helperHintPost">binary to connect your transceiver to this station.</span>
+      </p>
+      <div class="row">
+        <input id="ms-token" type="text" readonly />
+        <button type="button" id="ms-copy-token" class="ghost" data-i18n="settings.copy">Copy</button>
+        <button type="button" id="ms-regen-token" class="ghost" data-i18n="settings.regen">Regenerate</button>
+      </div>
+      <pre class="snippet">noctalum-helper \
+  -server <span id="ms-hint-server">http://this-server:8080</span> \
+  -name "IC-7300" \
+  -token <span id="ms-hint-token">...</span></pre>
+    </div>
+
+    <div class="card settings-card" style="margin-top:14px">
       <h2 data-i18n="settings.changePwd">Change own password</h2>
       <form id="ms-pwd-form">
         <label><span data-i18n="settings.currentPassword">Current password</span>
