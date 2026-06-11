@@ -7219,6 +7219,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.59',
+      date: '2026-06-11',
+      en: 'v0.59: World map and 3D globe views in every contest, plus an optional map page in PDF exports.\n- New Map tab: 2D world map with band-coloured QSO dots, own-QTH marker and great-circle paths\n- 3D globe sub-tab: Google Earth-style zoom, country borders and labels that appear as you zoom in\n- Click a QSO dot (2D or 3D) to see its full QSO info; "Show paths" and per-band toggles in the legend\n- QSOs from the same locator across multiple bands now show as a multi-colour pie dot on every map\n- PDF export gets an optional map page, now rendered on a clean white background for print\n- PDF column picker is drag-and-drop — the order you set is the order in the PDF\n- Helper token is back in Personal Settings (Copy + Regenerate, with the noctalum-helper snippet)\n- ADIF and CSV exports now carry the contest\'s custom fields (Cabrillo/EDI unchanged on purpose)\n- Internal: the unauthenticated /api/shutdown endpoint is gone, replaced by a file-based trigger',
+      de: 'v0.59: Karten- und 3D-Globus-Ansicht in jedem Contest und eine optionale Kartenseite im PDF-Export.\n- Neuer Karten-Tab: 2D-Weltkarte mit nach Band gefärbten QSO-Punkten, eigenem QTH und Großkreis-Pfaden\n- 3D-Globus als Unteransicht: Google-Earth-artiges Zoomen, Ländergrenzen und Labels je nach Zoomstufe\n- Klick auf einen QSO-Punkt (2D oder 3D) zeigt die vollen QSO-Daten; „Pfade anzeigen" und Band-Filter in der Legende\n- QSOs aus demselben Locator über mehrere Bänder erscheinen jetzt als mehrfarbiger Tortenpunkt auf allen Karten\n- PDF-Export bekommt eine optionale Kartenseite, jetzt mit sauberem weißem Hintergrund für den Druck\n- Spaltenauswahl im PDF-Export ist Drag-and-Drop — die Reihenfolge im PDF folgt deiner\n- Helper-Token ist zurück in den persönlichen Einstellungen (Kopieren + Neu generieren, mit dem noctalum-helper-Snippet)\n- ADIF- und CSV-Exporte enthalten jetzt die Custom Fields des Contests (Cabrillo/EDI bewusst unverändert)\n- Intern: der nicht-authentifizierte /api/shutdown-Endpoint ist weg, ersetzt durch einen dateibasierten Trigger',
+    },
+    {
       version: '0.58',
       date: '2026-06-02',
       en: 'v0.58: QRZ autofill clears reliably when you edit the callsign.\n- Autofilled name, locator and DOK are wiped the moment you change the callsign\n- Stale autofill no longer stays when the final callsign has no QRZ entry\n- Bearing panel distance is always shown in km (Mm abbreviation removed)',

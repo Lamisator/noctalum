@@ -1,5 +1,97 @@
 # Noctalum Changelog
 
+## v0.59 — 2026-06-11 — Map tab, 3D globe, PDF map page, helper-token restored
+
+- **Map tab (2D)**: new contest-view tab between Statistics and Export. Renders
+  a full-screen Leaflet/CartoDB dark world map with the operator's own QTH
+  (green pin, derived from `me.contest_qth`) and one band-coloured dot per
+  QSO that has a locator (`BAND_COLORS` lookup over the 17 `BANDS` entries).
+  Dashed great-circle paths from own QTH to each worked station are drawn
+  below the dots using the existing `greatCirclePoints()` /
+  `splitAtAntimeridian()` helpers. The fixed-width legend panel includes a
+  "Show paths" toggle plus one per-band checkbox; filter state lives in
+  `contestMapState`, persists across tab switches, and resets when joining
+  a different contest. Path/dot toggling adds/removes Leaflet layers in
+  place rather than rebuilding the map.
+- **3D globe sub-tab**: new "2D" / "3D" buttons above the map canvas.
+  The 3D view is a pure JS/Canvas orthographic globe — no extra library —
+  drawing the ocean gradient, lat/lon graticule, Natural Earth 110m land
+  polygons + per-country borders (`world-countries.geojson`, 177 features,
+  geometry-only), band-coloured dashed great-circle paths, and band-coloured
+  QSO dots sorted back-to-front. Mouse drag rotates longitude/latitude;
+  mouse wheel and pinch zoom (range 0.5×–8×) grow R (sphere radius) so the
+  globe behaves like Google Earth — the sphere extends beyond the canvas
+  edge once zoomed in. Country labels (`world-country-labels.json`) appear
+  progressively per `LABELRANK` with logarithmic font scaling and greedy
+  anti-overlap; `NAME_DE` is used when the app runs in German.
+- **Click tooltips on map dots**: 2D map dots gain both a hover tooltip
+  (callsign + band) and a click popup (callsign, time UTC, band/mode, RST,
+  locator, name, DOK, op). 3D dots show the same detail in a fixed
+  floating tooltip (`#cmap-qso-tip`); clicking the QTH dot shows own
+  callsign and locator. Drag does not trigger the click handler.
+- **Multi-band pie-chart dots**: when two or more QSOs share the same
+  Maidenhead grid square, their dot is now a pie chart with one equal
+  sector per distinct band colour, drawn clockwise from 12 o'clock.
+  Implemented consistently across all three rendering paths: 2D Leaflet
+  (per-location `L.divIcon` with inline SVG via `_pieSvg`/`_pieDivIcon`),
+  3D globe (`_drawPie` after back-to-front sort), and the PDF map
+  (`tmpMap.latLngToContainerPoint()` + `_drawPie` on the output canvas).
+  `applyContestMapFilters()` updates the icon live when a band is toggled.
+- **PDF export — optional map page**: new "Include map (extra page)"
+  checkbox in the export card. When checked, the download intercepts the
+  click, builds an off-screen Leaflet map at 1400 × 800 with the same
+  CartoDB tiles + vector paths + pie-chart dots as the live map, captures
+  it to a canvas, and POSTs `{mapImage: <base64 PNG>}` to
+  `/api/export/pdf`. The Go side decodes the image via
+  `decodeBase64Image()` and appends a final page with a simplified header
+  (logo + "Noctalum", no column row) and the translated page title
+  ("Worked Stations Map" / "Karte gearbeiteter Stationen").
+- **PDF map — print-friendly white theme**: the map page now uses
+  CartoDB's `light_all` basemap instead of `dark_all`; fallback fill,
+  legend strip, divider stroke, legend text, and the on-map QTH marker
+  all switch to a light theme so the printed page stays clean. The
+  in-app live map is unchanged.
+- **PDF export — drag-and-drop column picker**: the export column picker
+  is now a vertically-sorted draggable list (HTML5 DnD). Initial order
+  comes from the contest's `log_columns`, the `?cols=…` URL param
+  reflects the drag order, and a "Reset to defaults" button re-renders
+  from scratch. New `export.col*` i18n keys give the German labels full
+  names (Rufzeichen, Gesendetes RST, Empfangenes RST, Locator, Frequenz,
+  Betriebsart, Operator) — the QSO history table abbreviations are
+  untouched.
+- **Helper token restored to Personal Settings**: the "My helper token"
+  panel was orphaned in `#tab-settings` when that tab's nav button was
+  removed in 8ae1065. It is now re-exposed as its own card in
+  `#my-settings-screen` (reachable via the contest-picker nav pill) with
+  `ms-`-prefixed IDs so it coexists with the still-present legacy block;
+  `loadMySettings()` populates the input from cached `me.helper_token`
+  and Regenerate keeps the legacy `s-token` / `hint-token` in sync.
+- **ADIF + CSV exports — custom fields included**: per-QSO custom field
+  values defined on the contest now ride along in `/api/export/adif`
+  (emitted as `APP_NOCTALUM_<NAME>` application-defined fields, with
+  non-`[A-Z0-9_]` characters replaced by underscore) and `/api/export/csv`
+  (one extra column per defined field, header named after the field's
+  stable `name`). Cabrillo and EDI are deliberately left alone — their
+  fixed-column layouts are sponsor-defined. New `parseCustomFieldDefs`
+  helper in `log_columns.go` is shared by the column resolver, ADIF, and
+  CSV paths.
+- **Security: shutdown endpoint replaced with file-based trigger**: the
+  unauthenticated `POST /api/shutdown` endpoint relied on Docker's
+  host-side port binding for safety — one mis-mapped port and a remote
+  caller could kill the server. It is removed. Instead the server polls
+  `<data-dir>/shutdown_trigger` every 2 seconds; the file's first line is
+  the countdown in seconds. Behaviour is preserved exactly (deploy
+  warning WebSocket broadcast, modal countdown, SIGTERM after countdown).
+  `deploy.sh` now writes the file via SSH instead of `curl`. Triggering
+  shutdown now requires SSH access to the host — already a deploy
+  prerequisite.
+- **Chore: deploy.sh re-added with secrets in `.deploy.env`**: `deploy.sh`
+  was removed in 7b246cf because it baked in `SSH_KEY`, `SSH_HOST`, and
+  `REMOTE_WORK_DIR`. It is back, with those three values sourced from a
+  gitignored `.deploy.env` next to the script; `.deploy.env.example` is
+  committed as the template. No functional change to deploy logic.
+- `programVersion` bumped to `0.59`
+
 ## v0.58 — 2026-06-02 — QRZ autofill accuracy and bearing distance polish
 
 - **QRZ autofill — immediate wipe on callsign change**: when the operator edits
