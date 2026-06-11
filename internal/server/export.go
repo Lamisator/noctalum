@@ -11,8 +11,34 @@ import (
 	"github.com/noctalum/noctalum/internal/store"
 )
 
-// ExportADIF writes the QSO list to w in ADIF 3.x format.
-func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion string) error {
+// adifFieldName normalises a custom-field name into a safe ADIF
+// application-defined tag: uppercase, with anything outside A–Z/0–9/underscore
+// replaced by underscore. The result is suffixed onto APP_<PROGRAMID>_.
+func adifFieldName(name string) string {
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r - 32)
+		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	out := b.String()
+	if out == "" {
+		out = "FIELD"
+	}
+	return out
+}
+
+// ExportADIF writes the QSO list to w in ADIF 3.x format. customFieldsJSON, when
+// non-empty, lists the contest's per-QSO custom fields; their values are
+// emitted as application-defined fields (APP_<PROGRAMID>_<NAME>) so the data
+// round-trips through ADIF-aware tools without colliding with standard tags.
+func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, customFieldsJSON string) error {
 	header := fmt.Sprintf("ADIF export from %s %s\n", programID, programVersion)
 	if _, err := io.WriteString(w, header); err != nil {
 		return err
@@ -24,6 +50,8 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion string)
 	if _, err := io.WriteString(w, "<EOH>\n\n"); err != nil {
 		return err
 	}
+	customFields := parseCustomFieldDefs(customFieldsJSON)
+	appPrefix := "APP_" + strings.ToUpper(adifFieldName(programID)) + "_"
 	for _, q := range qsos {
 		writeField(w, "CALL", q.Callsign)
 		if q.Name != "" {
@@ -59,6 +87,19 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion string)
 		if q.Notes != "" {
 			writeField(w, "COMMENT", q.Notes)
 		}
+		if len(customFields) > 0 {
+			extras := parseExtras(q.Extras)
+			for _, cf := range customFields {
+				if cf.Name == "" {
+					continue
+				}
+				val := extras[cf.Name]
+				if val == "" {
+					continue
+				}
+				writeField(w, appPrefix+adifFieldName(cf.Name), val)
+			}
+		}
 		if _, err := io.WriteString(w, "<EOR>\n\n"); err != nil {
 			return err
 		}
@@ -73,32 +114,55 @@ func writeField(w io.Writer, name, value string) {
 	fmt.Fprintf(w, "<%s:%d>%s ", name, len(value), value)
 }
 
-// ExportCSV writes the QSO list to w as CSV.
+// ExportCSV writes the QSO list to w as CSV. customFieldsJSON, when non-empty,
+// lists the contest's per-QSO custom fields; one extra column per custom field
+// is appended after the standard columns so spreadsheet tools see them as
+// first-class data.
 //
 // A UTF-8 BOM is emitted up front so Excel detects the encoding instead of
 // falling back to the local code page (which mangles umlauts and other
 // non-ASCII characters).
-func ExportCSV(w io.Writer, qsos []store.QSO) error {
+func ExportCSV(w io.Writer, qsos []store.QSO, customFieldsJSON string) error {
 	if _, err := w.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
 		return err
 	}
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
-	if err := cw.Write([]string{
+	customFields := parseCustomFieldDefs(customFieldsJSON)
+	header := []string{
 		"id", "time_utc", "callsign", "name", "band", "freq_hz", "mode",
 		"rst_sent", "rst_received", "locator", "itu_zone", "cq_zone",
 		"lighthouse", "operator", "station_call", "contest_name", "notes",
-	}); err != nil {
+	}
+	for _, cf := range customFields {
+		if cf.Name == "" {
+			continue
+		}
+		// Use the original (case-preserved) field name as the column header so
+		// operators recognise it; the row values are looked up by the same key.
+		header = append(header, cf.Name)
+	}
+	if err := cw.Write(header); err != nil {
 		return err
 	}
 	for _, q := range qsos {
-		if err := cw.Write([]string{
+		row := []string{
 			strconv.FormatInt(q.ID, 10),
 			q.Time.UTC().Format(time.RFC3339),
 			q.Callsign, q.Name, q.Band, strconv.FormatInt(q.FreqHz, 10), q.Mode,
 			q.RSTSent, q.RSTReceived, q.Locator, q.ITUZone, q.CQZone,
 			q.Lighthouse, q.Operator, q.StationCall, q.ContestName, q.Notes,
-		}); err != nil {
+		}
+		if len(customFields) > 0 {
+			extras := parseExtras(q.Extras)
+			for _, cf := range customFields {
+				if cf.Name == "" {
+					continue
+				}
+				row = append(row, extras[cf.Name])
+			}
+		}
+		if err := cw.Write(row); err != nil {
 			return err
 		}
 	}

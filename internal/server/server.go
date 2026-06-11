@@ -2831,10 +2831,17 @@ func (s *Server) handleExportADIF(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Custom fields are best-effort: a contest fetch failure must not block the
+	// core export, but when available the per-QSO extras get round-tripped as
+	// APP_NOCTALUM_* fields.
+	customFieldsJSON := ""
+	if c, err := s.store.GetContest(contestID); err == nil {
+		customFieldsJSON = c.CustomFields
+	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: ADIF")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "adi")+`"`)
-	if err := ExportADIF(w, qsos, programID, programVersion); err != nil {
+	if err := ExportADIF(w, qsos, programID, programVersion, customFieldsJSON); err != nil {
 		log.Printf("ADIF export error: %v", err)
 	}
 }
@@ -2871,10 +2878,14 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	customFieldsJSON := ""
+	if c, err := s.store.GetContest(contestID); err == nil {
+		customFieldsJSON = c.CustomFields
+	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: CSV")
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "csv")+`"`)
-	if err := ExportCSV(w, qsos); err != nil {
+	if err := ExportCSV(w, qsos, customFieldsJSON); err != nil {
 		log.Printf("CSV export error: %v", err)
 	}
 }

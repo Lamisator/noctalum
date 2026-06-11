@@ -44,6 +44,19 @@ type customFieldDef struct {
 	Label string `json:"label"`
 }
 
+// parseCustomFieldDefs decodes a contest's custom_fields JSON into the
+// ordered list of field definitions. It is tolerant of empty / malformed input
+// and never returns nil — exports rely on the slice length to know whether
+// any extra columns should be emitted.
+func parseCustomFieldDefs(raw string) []customFieldDef {
+	out := []customFieldDef{}
+	if strings.TrimSpace(raw) == "" {
+		return out
+	}
+	_ = json.Unmarshal([]byte(raw), &out)
+	return out
+}
+
 type savedLogColEntry struct {
 	Key string `json:"key"`
 	On  bool   `json:"on"`
