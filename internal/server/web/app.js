@@ -1794,7 +1794,10 @@
 
       // crossOrigin:'anonymous' is required so we can call drawImage() on the
       // tile <img> elements without tainting the output canvas.
-      const tl = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      // Use CartoDB's "light_all" basemap so the printed PDF map has a clean
+      // white background and dark land/label ink — much friendlier to paper
+      // and toner than the dark theme used in the in-app live map.
+      const tl = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         subdomains: 'abcd',
         maxZoom: 18,
         crossOrigin: 'anonymous',
@@ -1824,8 +1827,10 @@
         outCanvas.width = W; outCanvas.height = H;
         const ctx = outCanvas.getContext('2d');
 
-        // Dark fallback background (visible if tiles fail).
-        ctx.fillStyle = '#1c2535';
+        // White fallback background (visible if tiles fail) — matches the
+        // light_all tile theme so the printed page stays clean even when the
+        // tile fetch is offline or blocked.
+        ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, W, MAP_H);
 
         const mapRect = wrapper.getBoundingClientRect();
@@ -1872,37 +1877,40 @@
           const pt = tmpMap.latLngToContainerPoint([pos.lat, pos.lon]);
           _drawPie(ctx, pt.x, pt.y, 5, colors);
         }
-        // Own QTH on top.
+        // Own QTH on top — darker green + dark outline so it stays prominent
+        // against the light tile basemap.
         if (myPos) {
           const pt = tmpMap.latLngToContainerPoint([myPos.lat, myPos.lon]);
-          ctx.fillStyle = '#66bb6a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+          ctx.fillStyle = '#2e7d32'; ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
           ctx.beginPath(); ctx.arc(pt.x, pt.y, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
         }
         ctx.restore();
 
-        // Legend strip.
-        ctx.fillStyle = '#0d1220';
+        // Legend strip — white to match the light map theme so the swatch
+        // colours and labels read correctly when printed.
+        ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, MAP_H, W, LEGEND_H);
-        ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1; ctx.setLineDash([]);
+        ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.lineWidth = 1; ctx.setLineDash([]);
         ctx.beginPath(); ctx.moveTo(0, MAP_H); ctx.lineTo(W, MAP_H); ctx.stroke();
 
         const bandsInUse = [...new Set(qsosWithLoc.map(q => q.band).filter(Boolean))]
           .sort((a, b) => BANDS.indexOf(a) - BANDS.indexOf(b));
         const LY = MAP_H + 52;
         let lx = 22;
-        ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#bbb';
+        ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#333';
         ctx.fillText(t('map.legend') + ':', lx, MAP_H + 22);
         if (myPos) {
-          ctx.fillStyle = '#66bb6a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+          // QTH marker keeps a dark outline on light bg so the dot stays visible.
+          ctx.fillStyle = '#2e7d32'; ctx.strokeStyle = '#222'; ctx.lineWidth = 1.5;
           ctx.beginPath(); ctx.arc(lx + 6, LY - 4, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-          ctx.fillStyle = '#ccc'; ctx.font = '13px sans-serif';
+          ctx.fillStyle = '#222'; ctx.font = '13px sans-serif';
           const qthLbl = t('map.myQTH');
           ctx.fillText(qthLbl, lx + 16, LY); lx += 16 + Math.ceil(ctx.measureText(qthLbl).width) + 20;
         }
         for (const b of bandsInUse) {
-          ctx.fillStyle = bandColor(b); ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 0.8;
+          ctx.fillStyle = bandColor(b); ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 0.8;
           ctx.beginPath(); ctx.arc(lx + 6, LY - 4, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-          ctx.fillStyle = '#ccc'; ctx.font = '13px sans-serif';
+          ctx.fillStyle = '#222'; ctx.font = '13px sans-serif';
           const bLbl = fmtBand(b);
           ctx.fillText(bLbl, lx + 16, LY); lx += 16 + Math.ceil(ctx.measureText(bLbl).width) + 18;
         }
