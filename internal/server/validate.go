@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 )
@@ -144,6 +145,68 @@ func ValidReport(report, mode string) bool {
 	}
 	// Unknown mode: accept anything 1-10 chars
 	return len(r) <= 10
+}
+
+// LocatorToLatLon decodes a Maidenhead grid square (4 or 6 characters) into
+// its centre lat/lon in degrees. Returns ok=false for malformed input. Used
+// by the QSO history "Distance" column and by the PDF export to compute
+// per-QSO great-circle distance from the contest's station QTH.
+func LocatorToLatLon(loc string) (lat, lon float64, ok bool) {
+	loc = strings.ToUpper(strings.TrimSpace(loc))
+	if len(loc) < 4 {
+		return 0, 0, false
+	}
+	c0 := int(loc[0]) - 'A'
+	c1 := int(loc[1]) - 'A'
+	if c0 < 0 || c0 > 17 || c1 < 0 || c1 > 17 {
+		return 0, 0, false
+	}
+	d2 := int(loc[2]) - '0'
+	d3 := int(loc[3]) - '0'
+	if d2 < 0 || d2 > 9 || d3 < 0 || d3 > 9 {
+		return 0, 0, false
+	}
+	lon = float64(c0)*20 - 180 + float64(d2)*2
+	lat = float64(c1)*10 - 90 + float64(d3)
+	if len(loc) >= 6 {
+		s4 := int(loc[4]) - 'A'
+		s5 := int(loc[5]) - 'A'
+		if s4 >= 0 && s4 < 24 && s5 >= 0 && s5 < 24 {
+			lon += float64(s4)/12 + 1.0/24
+			lat += float64(s5)/24 + 1.0/48
+			return lat, lon, true
+		}
+	}
+	// Centre of the 2°×1° square.
+	lon += 1
+	lat += 0.5
+	return lat, lon, true
+}
+
+// DistanceKm returns the great-circle distance in kilometres between two
+// (lat, lon) points using the haversine formula. Earth's mean radius is
+// 6371 km, matching the locatorToLatLon / distanceTo pair on the frontend
+// so the same QSO produces the same km value in the browser and the PDF.
+func DistanceKm(lat1, lon1, lat2, lon2 float64) float64 {
+	const R = 6371.0
+	const toRad = math.Pi / 180
+	dLat := (lat2 - lat1) * toRad
+	dLon := (lon2 - lon1) * toRad
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1*toRad)*math.Cos(lat2*toRad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 2 * R * math.Asin(math.Sqrt(a))
+}
+
+// LocatorDistanceKm composes LocatorToLatLon + DistanceKm: returns the
+// great-circle km from fromLocator to toLocator. Returns ok=false if
+// either grid square is malformed.
+func LocatorDistanceKm(fromLocator, toLocator string) (km float64, ok bool) {
+	lat1, lon1, ok1 := LocatorToLatLon(fromLocator)
+	lat2, lon2, ok2 := LocatorToLatLon(toLocator)
+	if !ok1 || !ok2 {
+		return 0, false
+	}
+	return DistanceKm(lat1, lon1, lat2, lon2), true
 }
 
 // BandFromHz returns the standard band label (e.g. "40m") for a frequency in Hz.

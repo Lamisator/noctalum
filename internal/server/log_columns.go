@@ -32,6 +32,7 @@ var builtinLogColumns = []logColDef{
 	{"nr_received", "Nr rcvd", "Nr empf.", false},
 	{"name", "Name", "Name", false},
 	{"locator", "Loc", "Loc", true},
+	{"distance", "km", "km", false},
 	{"itu", "ITU/CQ", "ITU/CQ", true},
 	{"dok", "DOK", "DOK", false},
 	{"lighthouse", "Lighthouse", "Leuchtturm", false},

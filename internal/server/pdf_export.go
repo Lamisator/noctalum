@@ -25,6 +25,7 @@ var pdfColWidth = map[string]float64{
 	"rst_received": 11,
 	"name":         22,
 	"locator":      14,
+	"distance":     14,
 	"itu":          14,
 	"dok":          12,
 	"lighthouse":   20,
@@ -170,7 +171,7 @@ func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, sta
 		cellLines := make([][]string, len(cols))
 		maxLines := 1
 		for j, c := range cols {
-			translated := s(qsoColValuePDF(q, c.Key, extras, freqUnit))
+			translated := s(qsoColValuePDF(q, c.Key, extras, freqUnit, qth))
 			if translated == "" {
 				cellLines[j] = []string{""}
 				continue
@@ -267,7 +268,7 @@ func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, sta
 
 func alignFor(key string) string {
 	switch key {
-	case "nr_sent", "nr_received", "freq", "rst_sent", "rst_received":
+	case "nr_sent", "nr_received", "freq", "rst_sent", "rst_received", "distance":
 		return "R"
 	case "band", "mode", "itu":
 		return "C"
@@ -275,7 +276,7 @@ func alignFor(key string) string {
 	return "L"
 }
 
-func qsoColValuePDF(q store.QSO, key string, extras map[string]string, freqUnit string) string {
+func qsoColValuePDF(q store.QSO, key string, extras map[string]string, freqUnit, stationQTH string) string {
 	switch key {
 	case "nr_sent":
 		if q.NrSent > 0 {
@@ -317,6 +318,18 @@ func qsoColValuePDF(q store.QSO, key string, extras map[string]string, freqUnit 
 		return q.Name
 	case "locator":
 		return strings.ToUpper(q.Locator)
+	case "distance":
+		// Great-circle km from the contest's station QTH to the QSO's
+		// locator. Empty when either side lacks a usable locator —
+		// matches the web UI's qsoColValue() handling of the same case.
+		if q.Locator == "" || stationQTH == "" {
+			return ""
+		}
+		km, ok := LocatorDistanceKm(stationQTH, q.Locator)
+		if !ok {
+			return ""
+		}
+		return fmt.Sprintf("%d km", int(km+0.5))
 	case "itu":
 		if q.ITUZone == "" && q.CQZone == "" {
 			return ""

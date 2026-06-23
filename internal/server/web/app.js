@@ -4143,6 +4143,7 @@
     { key: 'nr_received',  labelKey: 'qso.nrReceived',  sortKey: 'nr_received',  defaultOn: false },
     { key: 'name',         labelKey: 'qso.name',        sortKey: 'name',         defaultOn: false },
     { key: 'locator',      labelKey: 'qso.colLoc',      sortKey: 'locator',      defaultOn: true  },
+    { key: 'distance',     labelKey: 'qso.colDistance', sortKey: 'locator',      defaultOn: false },
     { key: 'itu',          labelKey: 'qso.colItuCQ',    sortKey: 'itu_zone',     defaultOn: true  },
     { key: 'dok',          labelKey: 'qso.dok',         sortKey: 'dok',          defaultOn: false },
     { key: 'lighthouse',   labelKey: 'qso.lighthouse',  sortKey: 'lighthouse',   defaultOn: false },
@@ -4185,6 +4186,19 @@
       case 'nr_received':  return escHtml(q.nr_received ? String(q.nr_received) : '');
       case 'name':         return escHtml(q.name || '');
       case 'locator':      return escHtml(q.locator || '');
+      case 'distance': {
+        // Great-circle km from the station QTH to the QSO's locator,
+        // shown as a per-row column (FR #60c). Empty when either side
+        // lacks a usable locator — the bearing panel already handles
+        // the same missing-data case for the live target.
+        if (!q.locator) return '';
+        const myLoc = me?.contest_qth || null;
+        if (!myLoc) return '';
+        const a = locatorToLatLon(myLoc);
+        const b = locatorToLatLon(q.locator);
+        if (!a || !b) return '';
+        return escHtml(Math.round(distanceTo(a.lat, a.lon, b.lat, b.lon)) + ' km');
+      }
       case 'itu':          return (q.itu_zone||q.cq_zone) ? `${escHtml(q.itu_zone||'-')}/${escHtml(q.cq_zone||'-')}` : '';
       case 'dok':          return escHtml(q.dok || '');
       case 'lighthouse':   return escHtml(q.lighthouse || '');
