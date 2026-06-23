@@ -2819,6 +2819,25 @@ func exportFilename(contestName, contestCall, ext string) string {
 	return n + "." + ext
 }
 
+// attachmentDisposition returns a Content-Disposition header value that
+// carries name safely even when it contains non-ASCII characters such as
+// umlauts. RFC 6266 mandates the dual form: a quoted `filename=` parameter
+// with an ASCII-only fallback (for legacy clients) plus a `filename*=` parameter
+// using RFC 5987's UTF-8 percent-encoding (for modern clients). Without the
+// `filename*` form, browsers that receive the raw UTF-8 bytes in the legacy
+// parameter often re-decode them as latin-1, producing mojibake such as
+// "NotfunkÃ¼bung" instead of "Notfunkübung".
+func attachmentDisposition(name string) string {
+	asciiFallback := strings.Map(func(r rune) rune {
+		if r > 0x7F {
+			return '_'
+		}
+		return r
+	}, name)
+	return fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`,
+		asciiFallback, url.PathEscape(name))
+}
+
 func (s *Server) handleExportADIF(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFor(s, r)
 	contestID, _, contestCall, contestName := sess.ContestInfo()
@@ -2840,7 +2859,7 @@ func (s *Server) handleExportADIF(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: ADIF")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "adi")+`"`)
+	w.Header().Set("Content-Disposition", attachmentDisposition(exportFilename(contestName, contestCall, "adi")))
 	if err := ExportADIF(w, qsos, programID, programVersion, customFieldsJSON); err != nil {
 		log.Printf("ADIF export error: %v", err)
 	}
@@ -2860,7 +2879,7 @@ func (s *Server) handleExportCabrillo(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: Cabrillo")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "cbr")+`"`)
+	w.Header().Set("Content-Disposition", attachmentDisposition(exportFilename(contestName, contestCall, "cbr")))
 	if err := ExportCabrillo(w, qsos, contestName, contestCall); err != nil {
 		log.Printf("Cabrillo export error: %v", err)
 	}
@@ -2884,7 +2903,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: CSV")
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "csv")+`"`)
+	w.Header().Set("Content-Disposition", attachmentDisposition(exportFilename(contestName, contestCall, "csv")))
 	if err := ExportCSV(w, qsos, customFieldsJSON); err != nil {
 		log.Printf("CSV export error: %v", err)
 	}
@@ -2904,7 +2923,7 @@ func (s *Server) handleExportEDI(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: EDI")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "edi")+`"`)
+	w.Header().Set("Content-Disposition", attachmentDisposition(exportFilename(contestName, contestCall, "edi")))
 	if err := ExportEDI(w, qsos, contestName, contestCall, sess.ContestQTH()); err != nil {
 		log.Printf("EDI export error: %v", err)
 	}
@@ -2972,7 +2991,7 @@ func (s *Server) handleExportPDF(w http.ResponseWriter, r *http.Request) {
 	logoPNG, _ := webFS.ReadFile("web/noctalum.png")
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: PDF")
 	w.Header().Set("Content-Type", "application/pdf")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename(contestName, contestCall, "pdf")+`"`)
+	w.Header().Set("Content-Disposition", attachmentDisposition(exportFilename(contestName, contestCall, "pdf")))
 	if err := ExportPDF(w, qsos, cols, contestName, contestCall, sess.ContestQTH(), logoPNG, programVersion, freqUnit, mapImagePNG, mapPageTitle); err != nil {
 		log.Printf("PDF export error: %v", err)
 	}
