@@ -336,8 +336,9 @@
   <main class="layout">
     <!-- Logging tab -->
     <section id="tab-log" class="tab-pane active">
-      <div id="contest-readonly-banner" class="contest-readonly-banner hidden" data-i18n="topbar.contestReadonly">
-        Contest is finished — log is read-only.
+      <div id="contest-readonly-banner" class="contest-readonly-banner hidden">
+        <span data-i18n="topbar.contestReadonly">Contest is finished — log is read-only.</span>
+        <button type="button" id="contest-reopen-btn" class="ghost small perm-required" data-perm="contests.manage" data-i18n="topbar.reopenForEditing" style="margin-left:10px">Reopen for editing</button>
       </div>
       <div class="layout-outer" id="layout-outer">
 

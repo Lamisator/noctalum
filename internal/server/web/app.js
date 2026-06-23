@@ -1600,6 +1600,39 @@
     $('log-qso-btn').disabled = !isOpen;
     renderQsos();
   }
+  // Reopen the active contest for editing from inside its log view (FR #62).
+  // Admin-only — the perm-required attribute on the button hides it for
+  // operators without contests.manage. The PUT mirrors the toggle in
+  // contestAction(): UpdateContest validates the whole record, so we
+  // fetch the existing row and resubmit it with status='open'.
+  $('contest-reopen-btn')?.addEventListener('click', async () => {
+    if (!me?.contest_id) return;
+    if (!await showConfirm(t('topbar.reopenConfirm'), { ok: t('topbar.reopenButton'), safe: true })) return;
+    const gr = await api('/api/contests/' + me.contest_id);
+    if (!gr.ok) return;
+    const c = await gr.json();
+    const r = await api('/api/contests/' + me.contest_id, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: c.name,
+        station_call: c.station_call,
+        station_id: c.station_id || '',
+        qth: c.qth || '',
+        status: 'open',
+        bands: c.bands || [],
+        objective: c.objective || '',
+        custom_fields: c.custom_fields || '',
+        qso_layout: c.qso_layout || '',
+        log_columns: c.log_columns || '',
+        nr_padded: c.nr_padded !== false,
+        stash_expiry_minutes: c.stash_expiry_minutes || 0,
+        freq_unit: c.freq_unit || 'kHz',
+      }),
+    });
+    if (!r.ok) return;
+    // The WS contest_updated event will flip me.contest_status and
+    // re-run applyContestReadonly(); no local state mutation needed.
+  });
 
   // ----- tabs -----
   document.querySelectorAll('.tab').forEach(tab => {
@@ -4255,7 +4288,19 @@
           clearLeftPanel(); triggerQRZLookup(q.callsign);
           loadQsoIntoForm(q);
         } else {
-          showQsoPicture(q.callsign);
+          // Read-only inspect (FR #62): show QRZ photo *and* the rest of the
+          // detail panel — country flag, locator, distance — for the clicked
+          // station, even when the contest is finished. The QSO entry form
+          // stays disabled (applyContestReadonly() disables every field);
+          // updating `currentTargetLocator` and re-running updateMap()
+          // re-draws the great-circle line and bearing distance so a
+          // finished log behaves like a browseable archive instead of a
+          // wall of plain text.
+          clearLeftPanel();
+          triggerQRZLookup(q.callsign);
+          updateCallCountry(q.callsign);
+          currentTargetLocator = q.locator || null;
+          updateMap();
         }
       });
       tbody.appendChild(tr);
