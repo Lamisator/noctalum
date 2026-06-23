@@ -3000,7 +3000,31 @@
     meta.appendChild(document.createTextNode(` · ${hh}:${mm}Z`));
     const body = document.createElement('div');
     body.className = 'chat-body';
-    body.textContent = payload.text || '';
+    // Config-offer chat messages (FR #23) are plain-text on the wire with a
+    // sentinel prefix `[noctalum-cfg:TOKEN:Name]` (see buildConfigOfferText
+    // in contestShareModal). When we see one, render an inline card with
+    // an "Apply this config" button instead of the raw sentinel text.
+    const cfgMatch = (payload.text || '').match(/^\[noctalum-cfg:([A-Za-z0-9_-]+):([^\]]*)\]$/);
+    if (cfgMatch) {
+      const token = cfgMatch[1];
+      const name = cfgMatch[2].trim() || token;
+      body.className = 'chat-body chat-config-offer';
+      const card = document.createElement('div');
+      card.className = 'chat-cfg-card';
+      const label = document.createElement('div');
+      label.className = 'chat-cfg-label';
+      label.textContent = '🛠 ' + t('chat.configOffered') + ': ' + name;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'primary small';
+      btn.textContent = t('chat.applyConfig');
+      btn.addEventListener('click', () => contestImportShareModal(token));
+      card.appendChild(label);
+      card.appendChild(btn);
+      body.appendChild(card);
+    } else {
+      body.textContent = payload.text || '';
+    }
     li.appendChild(meta);
     li.appendChild(body);
     list.appendChild(li);
@@ -5155,6 +5179,11 @@
     function renderShareRow(s) {
       const url = shareUrl(s.token);
       const created = s.created_at ? new Date(s.created_at).toLocaleString(localeForFmt()) : '';
+      // The "Send to chat" button is shown only when this contest is also
+      // the active contest in the operator's session — chat is per-contest,
+      // so it would be confusing (and useless) to offer the action when
+      // they're not currently in the room (FR #23).
+      const canSendChat = me?.contest_id === c.id;
       return `<div class="share-row" data-token="${escHtml(s.token)}">
         <div class="share-row-meta">
           <code class="share-row-url">${escHtml(url)}</code>
@@ -5162,6 +5191,7 @@
         </div>
         <div class="share-row-actions">
           <button class="ghost small share-copy-btn">${escHtml(t('contestScreen.shareCopyUrl'))}</button>
+          ${canSendChat ? `<button class="ghost small share-chat-btn">${escHtml(t('contestScreen.shareSendChat'))}</button>` : ''}
           <button class="danger small share-revoke-btn">${escHtml(t('contestScreen.shareRevoke'))}</button>
         </div>
       </div>`;
@@ -5207,6 +5237,39 @@
           ensureEmptyHint();
         });
       });
+      // "Send to chat" — emit a sentinel-tagged chat message that the
+      // recipient's chat renderer detects and turns into an "Apply this
+      // config" card (FR #23). No backend chat change required; chat is
+      // plain text on the wire and the prefix is just a convention.
+      container.querySelectorAll('.share-chat-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const row = btn.closest('.share-row');
+          const tok = row?.dataset.token;
+          if (!tok) return;
+          if (!ws || ws.readyState !== WebSocket.OPEN) return;
+          const text = buildConfigOfferText(tok, c.name);
+          try { ws.send(JSON.stringify({ type: 'chat', text })); } catch { return; }
+          const original = btn.textContent;
+          btn.textContent = t('contestScreen.shareSentChat');
+          setTimeout(() => { btn.textContent = original; }, 1500);
+        });
+      });
+    }
+
+    // Build the sentinel message text used to ship a config offer through
+    // the plain-text chat channel. Format:
+    //   [noctalum-cfg:TOKEN:Contest Name]
+    // The chat renderer (appendChatMessage) detects this exact prefix and
+    // renders the "Apply this config" card instead of plain text.
+    // Defined inside contestShareModal so c.name is in scope for the call
+    // site above; the renderer itself uses its own regex against the raw
+    // text and does not call this helper.
+    function buildConfigOfferText(token, contestName) {
+      // Strip ']' and ':' from the visible name part so the regex stays
+      // unambiguous; both are not legal in tokens (base64-url) so the
+      // colon between token and name is safe.
+      const safeName = String(contestName || '').replace(/[\]:]/g, ' ');
+      return `[noctalum-cfg:${token}:${safeName}]`;
     }
 
     function ensureEmptyHint() {

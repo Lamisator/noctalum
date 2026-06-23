@@ -213,6 +213,8 @@
         shareList: 'Active share links',
         shareNone: 'No active share links yet.',
         shareCopyUrl: 'Copy link',
+        shareSendChat: 'Send to chat',
+        shareSentChat: 'Sent ✓',
         shareCopied: 'Copied!',
         shareRevoke: 'Revoke',
         shareRevokeConfirm: 'Revoke this share link? Anyone who has the URL will no longer be able to import it.',
@@ -396,6 +398,8 @@
       chat: {
         messagePlaceholder: 'Message…',
         send: 'Send',
+        configOffered: 'Contest config offered',
+        applyConfig: 'Apply this config',
       },
       settings: {
         title: 'Settings',
@@ -908,6 +912,8 @@
         shareList: 'Aktive Share-Links',
         shareNone: 'Noch keine aktiven Share-Links.',
         shareCopyUrl: 'Link kopieren',
+        shareSendChat: 'In Chat senden',
+        shareSentChat: 'Gesendet ✓',
         shareCopied: 'Kopiert!',
         shareRevoke: 'Zurückziehen',
         shareRevokeConfirm: 'Diesen Share-Link zurückziehen? Wer die URL hat, kann sie danach nicht mehr importieren.',
@@ -1089,6 +1095,8 @@
       chat: {
         messagePlaceholder: 'Nachricht…',
         send: 'Senden',
+        configOffered: 'Contest-Konfig angeboten',
+        applyConfig: 'Diese Konfig übernehmen',
       },
       settings: {
         title: 'Einstellungen',

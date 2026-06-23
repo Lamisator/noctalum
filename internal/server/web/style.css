@@ -2577,6 +2577,21 @@ body.mobile-mode .mobile-bottom-nav { display: flex; }
   font-weight: 600;
 }
 .chat-msg .chat-body { white-space: pre-wrap; word-break: break-word; }
+/* Inline "config offer" card rendered when a chat message carries the
+   [noctalum-cfg:TOKEN:Name] sentinel prefix (FR #23). */
+.chat-msg .chat-config-offer { white-space: normal; }
+.chat-cfg-card {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.chat-cfg-card .chat-cfg-label { font-size: 13px; }
 .chat-input-row {
   display: flex;
   gap: 6px;
