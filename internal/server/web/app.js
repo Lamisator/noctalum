@@ -7437,6 +7437,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.63',
+      date: '2026-06-23',
+      en: 'v0.63: Per-QSO distance in km and a one-click EU DX Contest preset.\n- New optional "km" column in the QSO log shows great-circle distance from your QTH to each station\n- Same distance column lands in the PDF export so printed logs carry it too\n- Distance values match the bearing panel exactly — same earth radius, same formula\n- New "Preset" dropdown in the Create Contest dialog with an EU DX Contest preset\n- The preset pre-fills bands (80/40/20/15/10 m) and a required region_code field for exchanges like 59 DE10\n- Region codes round-trip into ADIF and CSV via the existing custom-field plumbing',
+      de: 'v0.63: Entfernung pro QSO in km und eine Ein-Klick-Vorlage für den EU DX Contest.\n- Neue optionale „km"-Spalte im QSO-Log zeigt die Großkreis-Entfernung von deinem QTH zu jeder Station\n- Dieselbe Spalte landet auch im PDF-Export, ausgedruckte Logs tragen sie also mit\n- Die Werte stimmen exakt mit dem Bearing-Panel überein — gleicher Erdradius, gleiche Formel\n- Neues „Vorlage"-Dropdown im Dialog „Neuer Contest" mit einer EU-DX-Contest-Vorlage\n- Die Vorlage füllt die Bänder (80/40/20/15/10 m) und ein Pflichtfeld region_code für Austausche wie 59 DE10 vor\n- Region-Codes laufen über die bestehende Custom-Field-Mechanik in ADIF und CSV mit',
+    },
+    {
       version: '0.62',
       date: '2026-06-23',
       en: 'v0.62: Light theme for outdoor use, finished logs you can browse, clearer helper setup.\n- New "Light (outdoor / high contrast)" theme in Personal Settings — dark text on a white background, AA contrast accents\n- Finished contests are browsable again: clicking a QSO row refreshes QRZ photo, country flag, locator and bearing distance\n- Admins get a "Reopen for editing" button on the read-only banner — no need to leave the contest to flip it back to open\n- Helper error messages now name the server URL you configured, so a wrong "localhost" is obvious at a glance\n- Helper-GUI shows a hint under the Server URL field: enter the Noctalum server, not your local browser',

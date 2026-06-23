@@ -1,5 +1,62 @@
 # Noctalum Changelog
 
+## v0.63 — 2026-06-23 — Distance column + EU DX preset
+
+- **Per-QSO Distance column in the log table and PDF (FR #60c).**
+  dg4dy suspected the WSA contest results were claiming every QSO
+  sat within 50 km of their JO31PL QTH and asked for the locators
+  to be verified. The audit (32 QSOs in contest 22, WSA 06/2026)
+  computed the great-circle distance from JO31PL to each QSO's
+  locator and found 8 are actually beyond 50 km — DF0WN @ JO42GE at
+  116.5 km, DK2NI @ JO31SW at 53.8 km, DO2EN @ JO32WB at 76.3 km,
+  DL1DBR @ JO41BN at 58.4 km, DL0GX @ JO31LV at 51.7 km (the latter
+  three each logged on multiple bands). The app's bearing-panel
+  `#distance-value` already showed the right km value for the *live*
+  target — there was no math bug — but no per-row distance was ever
+  surfaced, so the operator's only visual cue was the worked-stations
+  map's auto-fit zoom, which clusters dense JO31 traffic and hides
+  the handful of outliers. This commit adds an optional "Distance"
+  column (default off, label "km") to `builtinLogColumns` in
+  `internal/server/log_columns.go` and `LOG_COL_DEFS` in
+  `internal/server/web/app.js`. Value renderers — `qsoColValue` (JS)
+  and `qsoColValuePDF` (Go) — compute the great-circle km on the fly
+  from the contest's `qth` to the QSO's locator and emit it as
+  "%d km" rounded. The Go side ships new
+  `LocatorToLatLon` / `DistanceKm` / `LocatorDistanceKm` helpers in
+  `internal/server/validate.go` that match the JS
+  `locatorToLatLon` / `distanceTo` pair bit-for-bit (R = 6371 km,
+  same haversine, same 1/24+1/48 sub-square centre offsets), so the
+  same QSO reports the same km in the browser and in the PDF. New
+  `TestLocatorDistanceKm` in `validate_test.go` locks the audit
+  numbers (JO31PL → JO42GE ≈ 116 km) against regression. PDF column
+  widths and right-alignment match the other numeric columns.
+- **EU DX Contest preset (FR #58).** dl8aa pointed out that the EU
+  DX Contest (https://www.eudx-contest.com/) uses a "RST DE10" /
+  "RST IT21" region-code exchange that did not fit the Nr-sent /
+  Nr-rcvd fields. The custom-fields machinery from v0.55 + the
+  ADIF / CSV custom-field round-trip from v0.60 already covered the
+  data shape; the friction was setup. This commit introduces a
+  `CONTEST_PRESETS` table at the top of the contest-create modal
+  in `internal/server/web/app.js`. Each entry describes a name,
+  band list, and one or more custom fields. The EU DX entry ships:
+  bands `80m, 40m, 20m, 15m, 10m` (the contest's HF bands; 6 m
+  intentionally omitted), one required `text` field
+  `region_code` (label "Region"). The modal grows a "Preset"
+  `<select>` at the top with `(none)` plus one option per
+  preset. On change, the handler fills the contest name (only if
+  still empty, so half-typed input survives), toggles the
+  `#modal-band-grid` pills to match the preset's bands, and
+  rebuilds the `.cf-editor-rows` HTML with the preset's fields —
+  any previously-half-entered custom field is intentionally
+  overridden because the operator just picked a preset. EN + DE
+  i18n keys (`contestScreen.preset`, `presetHint`, `presetNone`,
+  `presetEUDXName`); DE labels use the informal voice
+  ("Vorlage" / "(keine)"). Exchanges like `59 DE10` now round-trip
+  through ADIF as `APP_NOCTALUM_REGION_CODE` (already wired by the
+  v0.59 / v0.60 export plumbing) and as a `region_code` column in
+  CSV — no new export-side code.
+- `programVersion` bumped to `0.63`
+
 ## v0.62 — 2026-06-23 — Light theme, finished-log inspect, helper UX
 
 - **Per-user light / high-contrast theme.** dg4dy (FR #65) reported the
