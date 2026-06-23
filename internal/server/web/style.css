@@ -16,6 +16,37 @@
   font-family: 'Inter', 'Segoe UI', Roboto, system-ui, -apple-system, sans-serif;
 }
 
+/* Light / high-contrast theme (FR #65). Activated by adding the
+   theme-light class to <body>; app.js sets / clears it based on the
+   per-user `theme` setting from /api/me. Only the palette variables
+   are overridden, so every rule that already references var(--…)
+   automatically picks up the inverted scheme. A handful of inline
+   gradients in this file use literal hex colours — those are tuned
+   for the dark theme and are damped out below by neutralising the
+   tinted radial backgrounds. */
+body.theme-light {
+  --bg: #f7f8fa;
+  --bg-elev: #ffffff;
+  --bg-elev-2: #eef0f3;
+  --border: #c8cdd5;
+  --text: #1a1d22;
+  --text-muted: #5a6470;
+  --accent: #1565c0;            /* stronger blue, AA against #ffffff */
+  --accent-strong: #0d47a1;
+  --accent-dim: rgba(21, 101, 192, 0.16);
+  --error: #c62828;
+  --success: #2e7d32;
+  --warn: #c66900;
+  --shadow: 0 2px 6px rgba(0,0,0,0.10);
+}
+/* Cancel the dark-theme blue radial wash on the login / contest
+   chooser backgrounds — on a white base it reads as a smudge. */
+body.theme-light .login-screen,
+body.theme-light .contest-screen-outer,
+body.theme-light #contest-picker-screen {
+  background: var(--bg) !important;
+}
+
 * { box-sizing: border-box; }
 
 html, body {

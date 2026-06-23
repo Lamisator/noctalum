@@ -35,6 +35,11 @@ type User struct {
 	// per-user because operators in different time zones can share an
 	// installation. Storage of QSO.time is always UTC regardless.
 	TimeInputMode    string     `json:"time_input_mode"`
+	// Theme is the operator's preferred colour scheme: "dark" (default —
+	// the original Material-inspired dark theme with light-blue accents) or
+	// "light" (white background, near-black text, stronger blue accent
+	// for outdoor / direct-sunlight use, FR #65).
+	Theme            string     `json:"theme"`
 	Roles            []string   `json:"roles"`
 	Permissions      []string   `json:"permissions"`
 }
@@ -106,6 +111,7 @@ func (s *Store) migrateUsers() error {
 	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN last_seen_version TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN time_input_mode TEXT NOT NULL DEFAULT 'utc'`)
+	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'dark'`)
 	return nil
 }
 
@@ -246,6 +252,15 @@ func (s *Store) SetTimeInputMode(userID int64, mode string) error {
 	return err
 }
 
+// SetTheme updates a user's preferred colour scheme: "dark" (default —
+// the original dark theme) or "light" (FR #65, intended for outdoor /
+// direct-sunlight use). The HTTP handler rejects anything else;
+// existing rows default to "dark" via the migrateUsers column DEFAULT.
+func (s *Store) SetTheme(userID int64, theme string) error {
+	_, err := s.db.Exec(`UPDATE users SET theme = ? WHERE id = ?`, theme, userID)
+	return err
+}
+
 // SetCallsign updates a user's callsign.
 func (s *Store) SetCallsign(userID int64, callsign string) error {
 	_, err := s.db.Exec(`UPDATE users SET callsign = ? WHERE id = ?`,
@@ -282,13 +297,13 @@ func (s *Store) GetUserByUsername(username string) (User, error) {
 func (s *Store) getUser(where string, arg interface{}) (User, error) {
 	row := s.db.QueryRow(
 		`SELECT id, username, callsign, password_hash, helper_token, failed_attempts,
-		        locked_until, disabled, created_at, last_activity_at, language, last_seen_version, time_input_mode FROM users WHERE `+where, arg)
+		        locked_until, disabled, created_at, last_activity_at, language, last_seen_version, time_input_mode, theme FROM users WHERE `+where, arg)
 	var u User
 	var lockStr sql.NullString
-	var createdStr, lastActStr, lang, lastSeenVer, timeMode string
+	var createdStr, lastActStr, lang, lastSeenVer, timeMode, theme string
 	var disabledInt int
 	err := row.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash, &u.HelperToken,
-		&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr, &lang, &lastSeenVer, &timeMode)
+		&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr, &lang, &lastSeenVer, &timeMode, &theme)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -308,6 +323,7 @@ func (s *Store) getUser(where string, arg interface{}) (User, error) {
 	u.Language = lang
 	u.LastSeenVersion = lastSeenVer
 	u.TimeInputMode = timeMode
+	u.Theme = theme
 
 	roles, perms, err := s.userRolesAndPermissions(u.ID)
 	if err != nil {

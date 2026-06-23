@@ -197,6 +197,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/me/helper-token", s.requireAuth(s.handleRegenHelperToken))
 	mux.HandleFunc("/api/me/language", s.requireAuth(s.handleMeLanguage))
 	mux.HandleFunc("/api/me/time-input-mode", s.requireAuth(s.handleMeTimeInputMode))
+	mux.HandleFunc("/api/me/theme", s.requireAuth(s.handleMeTheme))
 	mux.HandleFunc("/api/me/last-seen-version", s.requireAuth(s.handleMeLastSeenVersion))
 	mux.HandleFunc("/api/passkey/register/begin", s.requireAuth(s.handlePasskeyRegisterBegin))
 	mux.HandleFunc("/api/passkey/register/finish", s.requireAuth(s.handlePasskeyRegisterFinish))
@@ -633,8 +634,41 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 			mode = "utc"
 		}
 		info["time_input_mode"] = mode
+		theme := u.Theme
+		if theme == "" {
+			theme = "dark"
+		}
+		info["theme"] = theme
 	}
 	writeJSON(w, http.StatusOK, info)
+}
+
+// handleMeTheme persists the user's preferred colour scheme — "dark"
+// (the original) or "light" (high-contrast for outdoor use, FR #65).
+// Anything else is rejected.
+func (s *Server) handleMeTheme(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeError(w, http.StatusMethodNotAllowed, "PUT required")
+		return
+	}
+	sess := sessionFor(s, r)
+	var body struct {
+		Theme string `json:"theme"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	theme := strings.ToLower(strings.TrimSpace(body.Theme))
+	if theme != "dark" && theme != "light" {
+		writeError(w, http.StatusBadRequest, "theme must be 'dark' or 'light'")
+		return
+	}
+	if err := s.store.SetTheme(sess.UserID, theme); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleMeTimeInputMode persists the user's UTC-vs-local pick for the

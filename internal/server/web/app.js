@@ -4483,6 +4483,8 @@
     fillSelect($('ms-band'), BANDS, s.default_band || '20m', fmtBand);
     const timeSel = $('ms-time-input-mode');
     if (timeSel) timeSel.value = (me?.time_input_mode === 'local') ? 'local' : 'utc';
+    const themeSel = $('ms-theme');
+    if (themeSel) themeSel.value = (me?.theme === 'light') ? 'light' : 'dark';
     const tokenInput = $('ms-token');
     if (tokenInput) tokenInput.value = me?.helper_token || '';
     const tokenHint = $('ms-hint-token');
@@ -4535,6 +4537,15 @@
       if (tr.ok) {
         me.time_input_mode = timeMode;
         updateQTimeLabel();
+      }
+    }
+    // Same story for the colour-scheme preference (FR #65).
+    const theme = $('ms-theme')?.value === 'light' ? 'light' : 'dark';
+    if (me && me.theme !== theme) {
+      const tr = await api('/api/me/theme', { method: 'PUT', body: JSON.stringify({ theme }) });
+      if (tr.ok) {
+        me.theme = theme;
+        applyTheme(theme);
       }
     }
     await loadSettings();
@@ -7805,6 +7816,14 @@
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
+  // Apply the user's colour scheme by toggling the .theme-light class on
+  // <body>. CSS variables under that selector override the dark defaults
+  // (see style.css). Called from the /api/me handler at startup and from
+  // the personal-settings save handler after a successful PUT (FR #65).
+  function applyTheme(theme) {
+    document.body.classList.toggle('theme-light', theme === 'light');
+  }
+
   // Swap the QSO time-tile label between "UTC date & time" and
   // "Local date & time" to match the active time_input_mode (FR #29).
   // Called after a contest is entered and after the personal-settings
@@ -8027,6 +8046,7 @@
       if (me.language && window.I18N && me.language !== window.I18N.lang()) {
         window.I18N.setLang(me.language);
       }
+      applyTheme(me.theme);
       $('current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
       $('contest-current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
       applyPermissionsToUI();
