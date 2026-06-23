@@ -1,5 +1,77 @@
 # Noctalum Changelog
 
+## v0.60 — 2026-06-23 — Export polish, smarter QSO filter, portable callsigns
+
+- **ADIF export carries the DOK.** `internal/server/export.go::ExportADIF`
+  now writes the QSO's DOK as `<DARC_DOK:n>VALUE`, the de-facto convention
+  used by DXKeeper, Log4OM, HamRadioDeluxe and Tucnak. Previously the
+  field was silently dropped from ADIF even though DOK is a first-class
+  column on `store.QSO` and round-trips through the UI and PDF exports.
+  Emitted only when non-empty so non-DARC contests are unchanged.
+  (FR #54, reported by dl8aa.)
+- **CSV export gains a `dok` column** in
+  `internal/server/export.go::ExportCSV`, inserted between
+  `rst_received` and `locator`. Consumers that key on the header name
+  are unaffected; consumers that index by position need to shift right
+  by one starting at the locator column. Value is upper-cased to match
+  the ADIF tag and the on-screen column. (FR #55, dl8aa.)
+- **Umlauts in export filenames survive the download.** The PDF, ADIF,
+  CSV, Cabrillo and EDI export endpoints previously emitted
+  `Content-Disposition: attachment; filename="Notfunkübung … .pdf"` with
+  the umlaut as raw UTF-8, which most browsers re-decoded as latin-1 and
+  saved as `NotfunkÃ¼bung … .pdf`. New
+  `internal/server/server.go::attachmentDisposition` builds the RFC 6266
+  dual form — an ASCII fallback (non-ASCII → `_`) plus
+  `filename*=UTF-8''<percent-encoded>` — so legacy clients still get a
+  usable filename and modern clients decode the original UTF-8 string.
+  (FR #57, dl8aa.)
+- **PDF map page uses substantially less toner.** Follow-up to v0.59's
+  switch to a white-background map: `renderPdfMapCanvas` in
+  `internal/server/web/app.js` now sources tiles from CartoDB
+  `light_nolabels` instead of `light_all`, dropping the dense
+  place-name labels that accounted for most of the dark pixels on a
+  printed log page. Country borders and coastlines remain. (FR #53,
+  dl8aa.)
+- **QSO history filter no longer false-matches via the operator
+  field.** The old implementation concatenated callsign, band, mode,
+  operator, locator and DOK into a single haystack and substring-tested.
+  For an operator named "DL8AA" that meant filtering for "DL" matched
+  *every* QSO because the substring lived in the operator field —
+  exactly the symptom dl8aa reported in FR #59. The new
+  `qsoMatchesFilter` helper splits the typed filter on whitespace and
+  matches each token independently: callsign/band/mode/locator/DOK use
+  prefix match; operator requires an exact full-callsign match. Bonus:
+  multi-token filters now AND together, so `dl 40 cw` narrows by all
+  three.
+- **Callsigns with slashes accepted everywhere applicable.** The
+  validator regex in `internal/server/validate.go` previously allowed
+  one trailing portable suffix (`DM2LAP/P`) but rejected leading ITU
+  prefixes (`F/DM2LAP`) and double-prefixed forms (`F/DM2LAP/QRP`),
+  closing the door on visiting-operator logs. The new grammar is
+  `[PREFIX/]BASE[/SUFFIX[/SUFFIX...]]` with PREFIX a 1–4 char ITU
+  country prefix and SUFFIX one or more portable/status tokens; the
+  base still must contain a digit and end on a letter, so degenerate
+  inputs like `F/F` or `/DM2LAP` remain rejected. Max length raised
+  from 16 → 20. A new `BaseCallsign()` helper returns the longest
+  /-separated token with a digit (≥3 chars), and the lookup endpoint
+  now passes that to QRZ and the DOK cache so portable QSOs still
+  resolve to the operator's home record. New
+  `internal/server/validate_test.go` locks both behaviours against
+  regressions. (FR #66, dm2lap.)
+- **Deploy script ships the production compose file.** Previously
+  `deploy.sh` unconditionally scp'd the repo-root `docker-compose.yml`
+  (the dev variant) onto the server, overwriting the production compose
+  and detaching the noctalum container from Traefik on every deploy.
+  The repo now versions `docker-compose.prod.yml` separately (container
+  name `noctalum`, `restart: unless-stopped`, attached to the external
+  `proxy` network with the Traefik router/service labels for
+  log.dm2lap.com), and `deploy.sh` scp's that file under the name
+  `docker-compose.yml` the server expects.
+- **SSH keys are gitignored.** Explicit `/id_noctalum` and
+  `/id_noctalum.pub` entries added next to `.deploy.env` so the
+  private key used for production SSH is never tracked accidentally.
+- `programVersion` bumped to `0.60`
+
 ## v0.59 — 2026-06-11 — Map tab, 3D globe, PDF map page, helper-token restored
 
 - **Map tab (2D)**: new contest-view tab between Statistics and Export. Renders
