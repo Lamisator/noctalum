@@ -1793,11 +1793,14 @@
       });
 
       // crossOrigin:'anonymous' is required so we can call drawImage() on the
-      // tile <img> elements without tainting the output canvas.
-      // Use CartoDB's "light_all" basemap so the printed PDF map has a clean
-      // white background and dark land/label ink — much friendlier to paper
-      // and toner than the dark theme used in the in-app live map.
-      const tl = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      // tile <img> elements without tainting the output canvas. Use CartoDB's
+      // "light_nolabels" basemap: the light_* family already gives a white
+      // background with thin grey country/coastline ink, and the _nolabels
+      // variant drops the place-name labels that account for the bulk of the
+      // dark pixels on a printed log page. The result is a clean outline map
+      // that still shows continents and country borders but does not bleed
+      // toner across every populated area like light_all did.
+      const tl = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
         subdomains: 'abcd',
         maxZoom: 18,
         crossOrigin: 'anonymous',
