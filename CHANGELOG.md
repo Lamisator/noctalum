@@ -1,5 +1,68 @@
 # Noctalum Changelog
 
+## v0.61 — 2026-06-23 — QSO entry hardening: local-time mode, band/freq guard, lookup race fix
+
+- **Per-user UTC vs local-time pick for the QSO time field.** The
+  optional date/time tile is rendered by `<input type="datetime-local">`,
+  which most browsers display in the *local* time zone; the submit path
+  used to append a `Z` and treat the typed value as UTC, so an operator
+  in CEST who entered "14:30" got 14:30Z stored instead of the intended
+  12:30Z. dl8aa (FR #29) asked for an explicit choice. New
+  `time_input_mode` column on `users` (default `'utc'`, no behaviour
+  change for existing rows), new `PUT /api/me/time-input-mode`
+  endpoint, new "QSO time input" dropdown in Personal Settings (EN +
+  informal-DE), new `localDateTimeInputValue()` + `updateQTimeLabel()`
+  helpers in `app.js`. The QSO time tile's label now flips between
+  "UTC date & time" and "Local date & time" so the operator can see
+  the active frame at a glance. Storage of `QSO.time` is always UTC.
+- **Reject QSOs whose frequency does not match the selected band.**
+  dl8aa (FR #41) noted that with 20 m selected, a 2 m frequency went
+  through unchallenged. `internal/server/server.go`'s QSO insert and
+  update paths now run a `BandFromHz()` consistency check after the
+  existing band-fallback block: if the inferred band is non-empty and
+  differs from `in.Band`, the request is rejected with
+  `frequency X.XXX MHz is in the <inferred> band, not <selected>`.
+  Out-of-band frequencies (no band match) are *not* rejected, matching
+  the existing latitude for monitoring / off-band contacts.
+- **Lookup race fix — wrong DOK after callsign change.** dg4dy (FR
+  #60a) repeatedly saw the previous callsign's DOK end up in the
+  current QSO's DOK field. The pre-existing guard at line 3596 of
+  `app.js` only compared `q-call.value` to the in-flight lookup's
+  callsign string, which a brief edit-and-retype could defeat.
+  Introduces a monotonic `_qrzLookupSeq` counter: `triggerQRZLookup()`
+  bumps it and remembers its own ticket; on response, mismatch ⇒
+  discard. `clearQRZInfo()` also bumps the counter so an in-flight
+  lookup cannot resurrect just-wiped fields after the operator hits
+  "Log QSO" or backspaces the callsign below 3 chars. The string
+  match guard stays in place as a second layer.
+- **Band `<select>` repopulates when the contest's band list
+  changes.** dg4dy (FR #60b) added 23 cm to the WSA contest post-hoc
+  and could not edit existing QSOs onto the new band — the dropdown
+  was frozen on the set present at last `applyDefaults()` call. New
+  `refreshContestBandSelect()` in `app.js` rebuilds the `<select>`
+  preserving the current selection if it survives the new band list;
+  called from the `contest_updated` WebSocket branch when
+  `'bands' in msg.payload`. `applyDefaults()` itself is unchanged.
+- **Date input fits its grid cell on every browser.** dl8aa (FR #46)
+  reported the optional date/time field overflowed its `defaultW: 3`
+  grid slot — caused by `step="1"` forcing a seconds spinner on top
+  of the existing year/month/day/hour/minute controls. Switched to
+  `step="60"` (minute precision) in `index.html` and corresponding
+  `substring(0, 16)` truncation in `loadQsoIntoForm`. Storage format
+  unchanged; the submit handler already accepted both shapes.
+- **German RST labels normalised to the abbreviated form.** dl8aa
+  (FR #56) noted that the QSO entry form mixed long ("RST gegeben"
+  / "RST empfangen") and short ("Nr geg." / "Nr empf.") labels. The
+  two RST keys in `internal/server/web/i18n.js` are now `RST geg.` /
+  `RST empf.` to match the Nr style. EN catalogue ("RST sent" /
+  "RST rcvd" / "Nr sent" / "Nr rcvd") was already consistent.
+- **FR #21 verified already implemented in v0.55** — Tab order in
+  the QSO entry mask follows the saved layout (via `applyQSOLayout()`
+  in `app.js`), and Enter from band/mode dropdowns submits the form
+  (`qso-form keydown` handler around line 3360). No code change in
+  this release; the feature request was simply still open in the DB.
+- `programVersion` bumped to `0.61`
+
 ## v0.60 — 2026-06-23 — Export polish, smarter QSO filter, portable callsigns
 
 - **ADIF export carries the DOK.** `internal/server/export.go::ExportADIF`
