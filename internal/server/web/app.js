@@ -4761,11 +4761,34 @@
     return Array.from(document.querySelectorAll('#modal-band-grid .band-select-pill.selected')).map(p => p.dataset.band);
   }
 
+  // Built-in contest presets (FR #58). Each preset pre-fills name, bands,
+  // and one or more custom fields so an operator does not have to assemble
+  // a recurring contest's exchange structure by hand. Add new presets here
+  // as the catalogue grows; the dropdown at the top of contestCreateModal
+  // renders this object dynamically.
+  const CONTEST_PRESETS = {
+    eu_dx: {
+      nameKey: 'contestScreen.presetEUDXName',
+      defaultName: 'EU DX Contest',
+      bands: ['80m', '40m', '20m', '15m', '10m'],
+      customFields: [
+        { name: 'region_code', label: 'Region', type: 'text', required: true, options: [] },
+      ],
+    },
+  };
+
   function contestCreateModal(forcePrivate = false) {
     const canPriv = hasPerm('contests.create_private') || hasPerm('contests.manage_private');
+    const presetOptions = Object.entries(CONTEST_PRESETS)
+      .map(([k, p]) => `<option value="${escHtml(k)}">${escHtml(t(p.nameKey))}</option>`).join('');
     showModal(`
       <h3>${escHtml(t('contestScreen.createTitle'))}</h3>
       <form>
+        <label>${escHtml(t('contestScreen.preset'))} <span class="muted small">${escHtml(t('contestScreen.presetHint'))}</span></label>
+        <select name="preset" id="cm-preset">
+          <option value="">${escHtml(t('contestScreen.presetNone'))}</option>
+          ${presetOptions}
+        </select>
         <label>${escHtml(t('contestScreen.contestName'))}</label>
         <input name="name" placeholder="${escHtml(t('contestScreen.contestNamePlaceholder'))}" required />
         <label>${escHtml(t('contestScreen.stationCall'))}</label>
@@ -4828,6 +4851,28 @@
     if (taC && previewC) {
       taC.addEventListener('input', () => { previewC.innerHTML = renderMarkdown(taC.value); });
     }
+    // Apply preset on selection: pre-fill the contest name (if still empty),
+    // toggle the band pills to the preset's bands, and rebuild the custom-
+    // fields editor with the preset's fields. The operator can still tweak
+    // every field before submitting (FR #58).
+    const presetSel = document.getElementById('cm-preset');
+    if (presetSel) presetSel.addEventListener('change', () => {
+      const p = CONTEST_PRESETS[presetSel.value];
+      if (!p) return;
+      const nameInput = document.querySelector('#modal-card input[name=name]');
+      if (nameInput && !nameInput.value.trim()) nameInput.value = p.defaultName || '';
+      // Reset and re-select the preset's bands.
+      document.querySelectorAll('#modal-band-grid .band-select-pill').forEach(pill => {
+        pill.classList.toggle('selected', p.bands.includes(pill.dataset.band));
+      });
+      // Rebuild the custom-fields editor with the preset's fields. Replace
+      // the existing rows wholesale — the operator picked a preset so any
+      // half-typed rows are intentionally overridden.
+      const cfRows = document.querySelector('#cf-editor .cf-editor-rows');
+      if (cfRows) {
+        cfRows.innerHTML = (p.customFields || []).map((f, i) => customFieldRowHTML(f, i)).join('');
+      }
+    });
   }
 
   function contestEditModal(c) {
