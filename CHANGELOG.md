@@ -1,5 +1,63 @@
 # Noctalum Changelog
 
+## v0.64 — 2026-06-23 — Hand off a contest config via chat
+
+- **"Send to chat" on every share row, with an Apply button on the
+  receiving end (FR #23).** dj3nu asked for a way to push a contest
+  setup to another OM through the live chat — a portable operator
+  joining the WSA mid-session should skip the whole layout / bands /
+  custom-fields configuration and adopt the host's instead. The
+  share-link infrastructure from v0.55 already mints token-bearing
+  URLs the importer can paste into their contest picker; this
+  release wires that flow directly into the chat channel so the
+  recipient sees a one-click card rather than a generic URL.
+- **Sender side** — every existing share row in the contest share
+  modal (`internal/server/web/app.js::contestShareModal`) grows a
+  ghost "Send to chat" button next to Copy / Revoke. The button is
+  shown only when this share's contest is also the operator's
+  *active* contest (`me.contest_id === c.id`); chat is per-contest,
+  so offering the action from a different room would deliver to
+  nobody. On click it emits a plain-text chat message via the
+  existing WebSocket channel with the format
+  `[noctalum-cfg:TOKEN:Contest Name]`. `buildConfigOfferText()`
+  strips `]` and `:` from the name part so the receiver's regex
+  stays unambiguous. The button briefly flips to "Sent ✓" for
+  1.5 s on success.
+- **Receiver side** — `appendChatMessage()` now matches every
+  incoming chat body against
+  `/^\[noctalum-cfg:([A-Za-z0-9_-]+):([^\]]*)\]$/`. On match it
+  suppresses the raw sentinel and builds an inline card inside the
+  chat body: a 🛠 label ("Contest config offered: <Name>") plus a
+  primary button ("Apply this config"). The button click opens the
+  existing `contestImportShareModal(token)`, whose flow already
+  fetches the share, previews it, and asks for the importer's own
+  `station_call` + `qth` + new contest name before POSTing
+  `/api/import-share`. Plain chat messages keep the previous
+  `textContent` path — only the strictly-matched sentinel format
+  takes the card branch, so a square-bracket-typing operator
+  cannot accidentally trigger an offer.
+- **History replay** routes through the same `appendChatMessage`,
+  so config-offer messages still in the rolling 24 h chat window
+  re-render as cards on reconnect.
+- **i18n** — new keys `chat.configOffered`, `chat.applyConfig`,
+  `contestScreen.shareSendChat`, `contestScreen.shareSentChat`
+  (EN + informal-DE). The DE phrasing uses "Konfig übernehmen" —
+  the natural German verb for adopting a pre-built configuration.
+- **CSS** — new `.chat-cfg-card` inside `style.css`: an accented
+  panel with the label on top and the button below, using
+  `var(--accent-dim)` / `var(--accent)` so it re-skins
+  automatically under the v0.62 light theme.
+- **Security note.** The sentinel itself is not a credential —
+  anyone can type `[noctalum-cfg:fake:test]` and produce a card.
+  The real authentication is the existing `/api/import-share`
+  endpoint, which validates the token server-side; a revoked or
+  forged token simply produces the import modal's existing
+  "share not found" error.
+- **No backend or schema change.** Chat-message storage stays
+  text-only; the sentinel is a convention on top of the existing
+  channel. This release is pure frontend.
+- `programVersion` bumped to `0.64`
+
 ## v0.63 — 2026-06-23 — Distance column + EU DX preset
 
 - **Per-QSO Distance column in the log table and PDF (FR #60c).**

@@ -7500,6 +7500,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.64',
+      date: '2026-06-23',
+      en: 'v0.64: Hand off a contest config to another OM right from the chat.\n- New "Send to chat" button on every share — fires a one-click "Apply this config" card to everyone in the room\n- Recipients see the card inline in their chat; click Apply, fill in their own call + QTH, and they\'re set up\n- The card reuses the existing import flow so the operator picks a new contest name and stays in control\n- Old offers in the rolling 24-hour chat window keep rendering as cards on reconnect\n- "Send to chat" only appears for the contest you\'re currently in — chat is per-contest so cross-room offers can\'t happen by accident',
+      de: 'v0.64: Contest-Konfig direkt aus dem Chat an einen anderen OM übergeben.\n- Neuer „In Chat senden"-Button auf jedem Share — schickt allen im Raum eine Ein-Klick-Karte „Diese Konfig übernehmen"\n- Empfänger sehen die Karte direkt im Chat; auf Übernehmen klicken, eigenes Rufzeichen + QTH eintragen, fertig\n- Die Karte nutzt den bestehenden Import-Dialog, sodass du den neuen Contest-Namen frei wählst\n- Alte Angebote im rollierenden 24-Stunden-Chatfenster erscheinen beim Reconnect wieder als Karten\n- „In Chat senden" erscheint nur für den Contest, in dem du gerade bist — Chat ist contest-gebunden, kein versehentlicher Versand in fremde Räume',
+    },
+    {
       version: '0.63',
       date: '2026-06-23',
       en: 'v0.63: Per-QSO distance in km and a one-click EU DX Contest preset.\n- New optional "km" column in the QSO log shows great-circle distance from your QTH to each station\n- Same distance column lands in the PDF export so printed logs carry it too\n- Distance values match the bearing panel exactly — same earth radius, same formula\n- New "Preset" dropdown in the Create Contest dialog with an EU DX Contest preset\n- The preset pre-fills bands (80/40/20/15/10 m) and a required region_code field for exchanges like 59 DE10\n- Region codes round-trip into ADIF and CSV via the existing custom-field plumbing',
