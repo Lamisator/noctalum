@@ -7,18 +7,59 @@ import (
 )
 
 var (
-	callsignRe = regexp.MustCompile(`^[A-Z0-9]{1,3}[0-9][A-Z0-9]*[A-Z](/[A-Z0-9]+)?$`)
+	// callsignRe matches plausible amateur callsigns including ITU prefix and
+	// portable suffixes. The grammar is:
+	//   [PREFIX/]BASE[/SUFFIX[/SUFFIX...]]
+	// where BASE is the conventional 1-3 alphanumeric prefix, a digit, more
+	// alphanumerics, ending on a letter — e.g. DM2LAP, G0ABC, 4U1WB. PREFIX
+	// is an optional 1-4 alphanumeric ITU country prefix written before the
+	// base call with a slash (F/DM2LAP, OE/DJ3KA), and SUFFIX is one or more
+	// trailing /-separated tokens (/P, /M, /MM, /AM, /QRP, …).
+	callsignRe = regexp.MustCompile(`^([A-Z0-9]{1,4}/)?[A-Z0-9]{1,3}[0-9][A-Z0-9]*[A-Z](/[A-Z0-9]+)*$`)
 	locatorRe  = regexp.MustCompile(`^[A-R]{2}[0-9]{2}([A-X]{2})?$`)
 )
 
-// ValidCallsign checks for a plausible amateur radio callsign.
-// The pattern is permissive: we accept portable suffixes like "/P", "/M".
+// ValidCallsign checks for a plausible amateur radio callsign. The grammar
+// admits an optional leading ITU prefix (F/DM2LAP) and one or more trailing
+// portable / status suffixes (DM2LAP/P, DM2LAP/MM, F/DM2LAP/QRP).
 func ValidCallsign(cs string) bool {
 	cs = strings.ToUpper(strings.TrimSpace(cs))
-	if cs == "" || len(cs) > 16 {
+	if cs == "" || len(cs) > 20 {
 		return false
 	}
 	return callsignRe.MatchString(cs)
+}
+
+// BaseCallsign returns the "home" callsign component of cs by stripping the
+// optional leading ITU prefix (F/) and the trailing portable/status
+// suffix(es) (/P, /MM, /QRP). It returns the longest slash-separated token
+// that contains at least one digit and is at least 3 characters — that is
+// the heuristic for distinguishing a real base call (DM2LAP, G0ABC) from
+// short prefix/suffix tokens (F, P, MM, QRP).
+//
+// The base call is what should be passed to external lookups (QRZ.com), to
+// the per-callsign DOK cache, and to anything else that should resolve to
+// the operator's home identity rather than to their current portable
+// operating context. The on-screen / on-paper QSO record still carries the
+// full operating string (e.g. "F/DM2LAP/P") in store.QSO.Callsign.
+func BaseCallsign(cs string) string {
+	cs = strings.ToUpper(strings.TrimSpace(cs))
+	if cs == "" || !strings.Contains(cs, "/") {
+		return cs
+	}
+	base := ""
+	for _, p := range strings.Split(cs, "/") {
+		if len(p) < 3 || !strings.ContainsAny(p, "0123456789") {
+			continue
+		}
+		if len(p) > len(base) {
+			base = p
+		}
+	}
+	if base == "" {
+		return cs
+	}
+	return base
 }
 
 // ValidLocator checks Maidenhead grid square: 4 or 6 character locators.

@@ -944,8 +944,12 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ID = id
-	if in.DOK != "" && s.store.GetCachedDOK(in.Callsign) == "" {
-		_ = s.store.UpsertCallsignDOK(in.Callsign, in.DOK)
+	if in.DOK != "" {
+		// Key the cache on the base callsign so a DOK learned from
+		// "F/DM2LAP/P" later resolves for the bare "DM2LAP" lookup too.
+		if baseCall := BaseCallsign(in.Callsign); s.store.GetCachedDOK(baseCall) == "" {
+			_ = s.store.UpsertCallsignDOK(baseCall, in.DOK)
+		}
 	}
 	s.audit(r, store.AuditInfo, AuditQSOCreate, sess.Username, in.Callsign,
 		"contest: "+contestName+", band: "+in.Band+", mode: "+in.Mode)
@@ -1050,8 +1054,10 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if in.DOK != "" && s.store.GetCachedDOK(in.Callsign) == "" {
-			_ = s.store.UpsertCallsignDOK(in.Callsign, in.DOK)
+		if in.DOK != "" {
+			if baseCall := BaseCallsign(in.Callsign); s.store.GetCachedDOK(baseCall) == "" {
+				_ = s.store.UpsertCallsignDOK(baseCall, in.DOK)
+			}
 		}
 		s.audit(r, store.AuditInfo, AuditQSOUpdate, sess.Username, in.Callsign,
 			"id: "+strconv.FormatInt(id, 10)+", band: "+in.Band+", mode: "+in.Mode)
@@ -1234,14 +1240,19 @@ func (s *Server) handleLookup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "callsign required")
 		return
 	}
-	cachedDOK := s.store.GetCachedDOK(callsign)
+	// External lookups must use the home/base callsign — QRZ has no record
+	// under "F/DM2LAP" but does under "DM2LAP", and the per-callsign DOK
+	// cache should likewise key on the operator's home call so a portable
+	// QSO inherits the already-known DOK.
+	baseCall := BaseCallsign(callsign)
+	cachedDOK := s.store.GetCachedDOK(baseCall)
 	if s.qrz == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"name": "", "locator": "", "has_picture": false, "configured": false, "cached_dok": cachedDOK})
 		return
 	}
-	result, err := s.qrz.Lookup(callsign)
+	result, err := s.qrz.Lookup(baseCall)
 	if err != nil {
-		log.Printf("qrz lookup %s: %v", callsign, err)
+		log.Printf("qrz lookup %s: %v", baseCall, err)
 		writeJSON(w, http.StatusOK, map[string]any{"name": "", "locator": "", "has_picture": false, "error": err.Error(), "cached_dok": cachedDOK})
 		return
 	}
