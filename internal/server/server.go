@@ -906,6 +906,19 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "band could not be determined")
 		return
 	}
+	// Reject obvious band/frequency mismatches: if the operator picked a band
+	// but the frequency falls cleanly inside a *different* band, the QSO is
+	// almost certainly wrong (FR #41 — "with 20 m selected I can enter a
+	// 2 m frequency"). Out-of-band frequencies (BandFromHz returns "")
+	// are left alone — operators sometimes log monitoring or test contacts
+	// outside the standard amateur bands.
+	if in.FreqHz > 0 {
+		if inferred := BandFromHz(in.FreqHz); inferred != "" && inferred != in.Band {
+			mhz := strconv.FormatFloat(float64(in.FreqHz)/1_000_000.0, 'f', 3, 64)
+			writeError(w, http.StatusBadRequest, "frequency "+mhz+" MHz is in the "+inferred+" band, not "+in.Band)
+			return
+		}
+	}
 	if in.Time.IsZero() {
 		in.Time = time.Now().UTC()
 	}
@@ -1042,6 +1055,14 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 		if in.Band == "" {
 			writeError(w, http.StatusBadRequest, "band could not be determined")
 			return
+		}
+		// Reject obvious band/frequency mismatches on update too (FR #41).
+		if in.FreqHz > 0 {
+			if inferred := BandFromHz(in.FreqHz); inferred != "" && inferred != in.Band {
+				mhz := strconv.FormatFloat(float64(in.FreqHz)/1_000_000.0, 'f', 3, 64)
+				writeError(w, http.StatusBadRequest, "frequency "+mhz+" MHz is in the "+inferred+" band, not "+in.Band)
+				return
+			}
 		}
 		if in.Time.IsZero() {
 			in.Time = existing.Time
