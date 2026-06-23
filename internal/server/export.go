@@ -67,6 +67,9 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 		writeField(w, "MODE", strings.ToUpper(q.Mode))
 		writeField(w, "RST_SENT", q.RSTSent)
 		writeField(w, "RST_RCVD", q.RSTReceived)
+		if q.DOK != "" {
+			writeField(w, "DARC_DOK", strings.ToUpper(q.DOK))
+		}
 		if q.Locator != "" {
 			writeField(w, "GRIDSQUARE", q.Locator)
 		}
