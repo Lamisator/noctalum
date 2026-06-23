@@ -6368,11 +6368,43 @@
     card.classList.toggle('modal-wide', !!(opts && opts.wide));
     root.classList.remove('hidden');
     const form = card.querySelector('form');
+    // Reported live: in the Map tab, clicking "Edit Contest", typing into a
+    // field, then hitting Esc occasionally left the user with no way back to
+    // normal interaction — the page needed a full reload. Two robustness
+    // improvements close every plausible failure mode:
+    //
+    //   1. close() actively blurs the focused element before hiding the
+    //      modal so the browser cannot leave focus stranded on a node
+    //      that is about to enter display:none (which on some browsers
+    //      means subsequent keystrokes go to nowhere).
+    //   2. The modal-card carries its own Esc-keydown handler (capture
+    //      phase, in case some upstream listener stopPropagation's). The
+    //      existing document-level Esc handler stays in place as a
+    //      second layer.
+    //   3. Clicking the backdrop (outside the card) closes the modal —
+    //      the standard expectation for centre-of-screen dialogs.
+    //   4. The first form input is auto-focused so the operator can
+    //      always see where their keystrokes will land.
     const close = () => {
+      try { document.activeElement?.blur(); } catch {}
       root.classList.add('hidden');
       card.classList.remove('modal-wide');
+      root.onclick = null;
+      card.onkeydown = null;
     };
     card.querySelector('.cancel-btn')?.addEventListener('click', close);
+    card.onkeydown = (e) => {
+      if (e.key === 'Escape' && !root.classList.contains('hidden')) {
+        e.preventDefault();
+        close();
+      }
+    };
+    root.onclick = (e) => {
+      // Only fires on the backdrop (modal-root itself) — clicks inside
+      // the card bubble through here too but e.target === card or its
+      // descendants, never modal-root.
+      if (e.target === root) close();
+    };
     if (form) {
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -6385,6 +6417,13 @@
         }
       });
     }
+    // Auto-focus the first visible input/select/textarea so the
+    // operator immediately knows where their keystrokes go, and a
+    // subsequent Esc has an active element to bubble from.
+    setTimeout(() => {
+      const first = card.querySelector('input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled])');
+      if (first) try { first.focus(); } catch {}
+    }, 0);
   }
 
   function showConfirm(msg, opts = {}) {
