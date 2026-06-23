@@ -13,5 +13,9 @@ cmd/helper-gui/rigctld-bins/
 # Deployment secrets — copy .deploy.env.example → .deploy.env and fill in values
 .deploy.env
 
+# SSH keys used to reach the production server — never commit these
+/id_noctalum
+/id_noctalum.pub
+
 # Claude Code local settings (machine-specific paths and permissions)
 .claude/settings.local.json
