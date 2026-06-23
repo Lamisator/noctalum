@@ -3264,6 +3264,21 @@
       sel.appendChild(o);
     }
   }
+  // Refill the QSO band <select> from the contest's current bands list,
+  // preserving the operator's existing selection if it is still in the new
+  // option set. Used when the contest's bands change mid-session (e.g. the
+  // operator adds 23 cm post-hoc): without this, the dropdown stays frozen
+  // on the bands present at last applyDefaults() and the operator cannot
+  // pick or edit a QSO into the newly-added band (FR #60b).
+  function refreshContestBandSelect() {
+    const sel = $('q-band');
+    if (!sel) return;
+    const current = sel.value;
+    const cBands = contestBands();
+    const options = cBands.length ? cBands : BANDS;
+    const pick = options.includes(current) ? current : (settings?.default_band || '20m');
+    fillSelect(sel, options, pick, fmtBand);
+  }
   function applyDefaults() {
     fillSelect($('q-mode'), MODES, settings?.default_mode || 'SSB');
     const cBands = contestBands();
@@ -6357,7 +6372,12 @@
             me.contest_call = msg.payload.station_call;
             me.contest_name = msg.payload.name;
             if ('qth' in msg.payload) me.contest_qth = msg.payload.qth;
-            if ('bands' in msg.payload) me.contest_bands = (msg.payload.bands || []).join(',');
+            if ('bands' in msg.payload) {
+              me.contest_bands = (msg.payload.bands || []).join(',');
+              // Repopulate the q-band <select> so newly-added bands appear
+              // immediately and edits can move QSOs onto them (FR #60b).
+              refreshContestBandSelect();
+            }
             if ('objective' in msg.payload) me.contest_objective = msg.payload.objective;
             if ('station_id' in msg.payload) me.contest_station_id = msg.payload.station_id;
             const layoutAffected = ('custom_fields' in msg.payload) || ('qso_layout' in msg.payload);
