@@ -134,7 +134,7 @@ func ExportCSV(w io.Writer, qsos []store.QSO, customFieldsJSON string) error {
 	customFields := parseCustomFieldDefs(customFieldsJSON)
 	header := []string{
 		"id", "time_utc", "callsign", "name", "band", "freq_hz", "mode",
-		"rst_sent", "rst_received", "locator", "itu_zone", "cq_zone",
+		"rst_sent", "rst_received", "dok", "locator", "itu_zone", "cq_zone",
 		"lighthouse", "operator", "station_call", "contest_name", "notes",
 	}
 	for _, cf := range customFields {
@@ -153,7 +153,7 @@ func ExportCSV(w io.Writer, qsos []store.QSO, customFieldsJSON string) error {
 			strconv.FormatInt(q.ID, 10),
 			q.Time.UTC().Format(time.RFC3339),
 			q.Callsign, q.Name, q.Band, strconv.FormatInt(q.FreqHz, 10), q.Mode,
-			q.RSTSent, q.RSTReceived, q.Locator, q.ITUZone, q.CQZone,
+			q.RSTSent, q.RSTReceived, strings.ToUpper(q.DOK), q.Locator, q.ITUZone, q.CQZone,
 			q.Lighthouse, q.Operator, q.StationCall, q.ContestName, q.Notes,
 		}
 		if len(customFields) > 0 {
