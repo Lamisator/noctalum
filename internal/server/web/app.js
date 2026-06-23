@@ -4556,15 +4556,24 @@
   $('ms-settings-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     $('ms-settings-error').textContent = '';
-    const body = {
-      default_mode: $('ms-mode').value,
-      default_band: $('ms-band').value,
-    };
-    const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      $('ms-settings-error').textContent = j.error || t('common.saveFailed');
-      return;
+    // The default_mode / default_band selects are GLOBAL settings; only
+    // operators with settings.write may persist them. Regular users still
+    // see this form because it also holds per-user prefs (time input,
+    // theme) — so we skip the /api/settings PUT silently for them rather
+    // than 403'ing the whole save. The selects themselves are hidden for
+    // non-admins via .perm-required on their label so they never reach
+    // this branch with stale values.
+    if (hasPerm('settings.write')) {
+      const body = {
+        default_mode: $('ms-mode').value,
+        default_band: $('ms-band').value,
+      };
+      const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        $('ms-settings-error').textContent = j.error || t('common.saveFailed');
+        return;
+      }
     }
     // Persist the per-user time-input-mode separately — the legacy
     // /api/settings endpoint holds *global* defaults, but date/time

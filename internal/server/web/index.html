@@ -928,10 +928,10 @@
     <div class="card settings-card">
       <h2 data-i18n="settings.defaults">Defaults</h2>
       <form id="ms-settings-form">
-        <label><span data-i18n="settings.defaultMode">Default mode</span>
+        <label class="perm-required" data-perm="settings.write"><span data-i18n="settings.defaultMode">Default mode</span>
           <select id="ms-mode"></select>
         </label>
-        <label><span data-i18n="settings.defaultBand">Default band</span>
+        <label class="perm-required" data-perm="settings.write"><span data-i18n="settings.defaultBand">Default band</span>
           <select id="ms-band"></select>
         </label>
         <label><span data-i18n="settings.timeInputMode">Date/time input</span>
@@ -951,7 +951,7 @@
         </div>
 <div class="entry-actions">
           <span id="ms-settings-error" class="error"></span>
-          <button type="submit" class="primary perm-required" data-perm="settings.write" data-i18n="settings.saveSettings">Save settings</button>
+          <button type="submit" class="primary" data-i18n="settings.saveSettings">Save settings</button>
         </div>
       </form>
     </div>
