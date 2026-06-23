@@ -1,5 +1,32 @@
 # Noctalum Changelog
 
+## v0.66 — 2026-06-23 — Umlauts in export filenames are readable on every client
+
+- **Transliterate German umlauts in the legacy `filename=` fallback.**
+  Reported live by operators downloading exports: filenames arrived
+  on disk as "Notfunk_bung.pdf" instead of "Notfunkübung.pdf" — every
+  umlaut became an underscore. The v0.60 fix for FR #57 already
+  emits the RFC 6266 dual form
+  `filename="…"; filename*=UTF-8''<percent-encoded>` and RFC 5987-
+  compliant clients pick the second parameter. In practice though,
+  some download managers, corporate proxies and older browser
+  builds use the legacy `filename=` value, and the previous
+  ASCII-fallback in `internal/server/server.go::attachmentDisposition`
+  collapsed every non-ASCII rune to `_`.
+- The fallback now transliterates the four umlauts and ß instead:
+  `ä→ae`, `ö→oe`, `ü→ue`, `Ä→Ae`, `Ö→Oe`, `Ü→Ue`, `ß→ss`. Anything
+  still non-ASCII after that step remains `_`. Modern clients pick
+  the unchanged `filename*=UTF-8''…` parameter and see the exact
+  original name; legacy / proxy paths now produce
+  "Notfunkuebung.pdf" — readable instead of "Notfunk_bung.pdf".
+- New `TestAttachmentDispositionTransliteratesUmlauts` in
+  `internal/server/validate_test.go` locks both halves of the
+  Content-Disposition value against regression.
+- Transliteration is German-specific (ä/ö/ü/ß) rather than full
+  ICU, matching the DARC-region operator base whose contest names
+  realistically contain these letters and not, say, ç or 漢字.
+- `programVersion` bumped to `0.66`
+
 ## v0.65 — 2026-06-23 — Personal Settings save works for regular users
 
 - **Save button restored in Personal Settings for non-admin users.**

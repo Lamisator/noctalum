@@ -7509,6 +7509,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.66',
+      date: '2026-06-23',
+      en: 'v0.66: Umlauts in export filenames are readable on every client.\n- Download managers and proxies that ignored the v0.60 RFC 5987 fix saw "Notfunk_bung.pdf"; they now see "Notfunkuebung.pdf"\n- Modern browsers still get the exact "Notfunkübung.pdf" via the unchanged filename* parameter\n- Transliteration covers ä/ö/ü/ß and their uppercase variants',
+      de: 'v0.66: Umlaute in Export-Dateinamen sind auf jedem Client lesbar.\n- Download-Manager und Proxies, die den v0.60-RFC-5987-Fix ignoriert haben, lieferten „Notfunk_bung.pdf"; jetzt liefern sie „Notfunkuebung.pdf"\n- Moderne Browser bekommen weiterhin exakt „Notfunkübung.pdf" über den unveränderten filename*-Parameter\n- Die Transliteration umfasst ä/ö/ü/ß und die Großschreibungen',
+    },
+    {
       version: '0.65',
       date: '2026-06-23',
       en: 'v0.65: Personal Settings now save for regular users.\n- The Save button in Personal Settings was admin-only by mistake — it\'s back for everyone\n- Light theme and local-time pick now actually persist when a non-admin clicks Save\n- Default mode / default band selects are hidden for non-admins since they\'re global settings',
