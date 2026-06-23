@@ -3474,11 +3474,23 @@
   // Tracks which field values were auto-populated by the last successful lookup
   // so we can reverse them when the final callsign has no entry.
   let _qrzAutoFilled = null; // { name?, locator?, dok? }
+  // Monotonic sequence number for in-flight QRZ lookups. Each call to
+  // triggerQRZLookup() bumps this and remembers its own value; when a
+  // response arrives, it is only applied if its sequence still equals the
+  // current one. This defeats the race that produced FR #60a's wrong-DOK
+  // symptom: an in-flight lookup for an earlier callsign would resolve
+  // after the operator had moved on, and the only existing guard (a string
+  // comparison against the current q-call value) failed when the operator
+  // happened to type the previous callsign back in (e.g. fixing a typo).
+  let _qrzLookupSeq = 0;
 
   function clearQRZInfo() {
     $('q-name').value = '';
     $('q-loc').value = '';
     _qrzAutoFilled = null;
+    // Invalidate any in-flight lookup so it cannot resurrect just-wiped
+    // fields after the user has hit submit or navigated away.
+    _qrzLookupSeq++;
     clearLeftPanel();
     renderBandPills();
     updateCallCountry('');
@@ -3589,10 +3601,19 @@
 
   async function triggerQRZLookup(callsign) {
     if (!callsign || callsign.length < 3) return;
+    const mySeq = ++_qrzLookupSeq;
     try {
       const res = await api('/api/lookup?callsign=' + encodeURIComponent(callsign));
       if (!res.ok) return;
-      // Guard: discard the result if the user has since changed the callsign.
+      // Two-layer staleness guard:
+      //   1. mySeq vs _qrzLookupSeq — superseded by a later lookup (defeats
+      //      the race where the operator briefly types back to this
+      //      callsign and the simple value-comparison would wave us through).
+      //   2. q-call.value vs callsign — defends against the case where the
+      //      user has just navigated away, cleared the form, or accepted a
+      //      different result; never apply a lookup whose callsign does not
+      //      match what is currently in the input.
+      if (mySeq !== _qrzLookupSeq) return;
       if ($('q-call').value.trim().toUpperCase() !== callsign) return;
       const j = await res.json();
       // No QRZ entry for this callsign — wipe any name/locator that were
