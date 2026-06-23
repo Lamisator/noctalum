@@ -1499,6 +1499,7 @@
     $('tab-log').classList.add('active');
     updateContestDisplay();
     updateFreqLabel();
+    updateQTimeLabel();
     applyContestReadonly();
     clearChat();
     qsos = [];
@@ -3737,7 +3738,12 @@
     $('q-lh').value = q.lighthouse || '';
     $('q-notes').value = q.notes || '';
     const qTime = new Date(q.time);
-    $('q-time').value = qTime.toISOString().substring(0, 16); // YYYY-MM-DDTHH:MM in UTC (input step=60)
+    // datetime-local needs "YYYY-MM-DDTHH:MM" without a Z. Show the value in
+    // the operator's chosen frame: UTC by default, or browser-local time
+    // when time_input_mode is "local" (FR #29).
+    $('q-time').value = (me?.time_input_mode === 'local')
+      ? localDateTimeInputValue(qTime)
+      : qTime.toISOString().substring(0, 16);
     // Restore custom-field values from q.extras (JSON object keyed by field name).
     if (q.extras) {
       try { applyCustomFieldsValues(JSON.parse(q.extras)); } catch {}
@@ -3807,8 +3813,15 @@
     };
     const qTimeRaw = $('q-time').value;
     if (qTimeRaw) {
-      // datetime-local emits "YYYY-MM-DDTHH:MM" or "YYYY-MM-DDTHH:MM:SS" — treat as UTC.
-      body.time = new Date(qTimeRaw + 'Z').toISOString();
+      // datetime-local emits "YYYY-MM-DDTHH:MM" (or :SS); see FR #29.
+      // If the operator picked "local" mode in Personal Settings, treat the
+      // raw value as browser-local time (new Date() without 'Z' uses the
+      // local zone) and convert to UTC for storage. Otherwise — and by
+      // default — the value is already UTC and we just append 'Z'.
+      const treatAsLocal = me?.time_input_mode === 'local';
+      body.time = treatAsLocal
+        ? new Date(qTimeRaw).toISOString()
+        : new Date(qTimeRaw + 'Z').toISOString();
     }
     // Custom fields: enforce mandatory ones and attach to body.extras as a JSON string.
     const cfResult = collectCustomFieldsValues();
@@ -4423,6 +4436,8 @@
     const s = await res.json();
     fillSelect($('ms-mode'), MODES, s.default_mode || 'SSB');
     fillSelect($('ms-band'), BANDS, s.default_band || '20m', fmtBand);
+    const timeSel = $('ms-time-input-mode');
+    if (timeSel) timeSel.value = (me?.time_input_mode === 'local') ? 'local' : 'utc';
     const tokenInput = $('ms-token');
     if (tokenInput) tokenInput.value = me?.helper_token || '';
     const tokenHint = $('ms-hint-token');
@@ -4465,6 +4480,17 @@
       const j = await res.json().catch(() => ({}));
       $('ms-settings-error').textContent = j.error || t('common.saveFailed');
       return;
+    }
+    // Persist the per-user time-input-mode separately — the legacy
+    // /api/settings endpoint holds *global* defaults, but date/time
+    // interpretation is per-operator (FR #29).
+    const timeMode = $('ms-time-input-mode')?.value === 'local' ? 'local' : 'utc';
+    if (me && me.time_input_mode !== timeMode) {
+      const tr = await api('/api/me/time-input-mode', { method: 'PUT', body: JSON.stringify({ mode: timeMode }) });
+      if (tr.ok) {
+        me.time_input_mode = timeMode;
+        updateQTimeLabel();
+      }
     }
     await loadSettings();
     applyDefaults();
@@ -7717,6 +7743,30 @@
 
   function fmtBand(b) {
     return String(b).replace(/^(\d+)(cm|m)$/, '$1 $2');
+  }
+
+  // Format a Date as "YYYY-MM-DDTHH:MM" in the *browser-local* timezone —
+  // the shape datetime-local <input> needs. Date.toISOString() returns UTC
+  // (with a 'Z' suffix), which is the wrong frame when the operator has
+  // chosen FR #29's "local" time-input mode.
+  function localDateTimeInputValue(d) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  // Swap the QSO time-tile label between "UTC date & time" and
+  // "Local date & time" to match the active time_input_mode (FR #29).
+  // Called after a contest is entered and after the personal-settings
+  // form persists a mode change.
+  function updateQTimeLabel() {
+    const lbl = document.querySelector('label[data-qso-field="time"]');
+    if (!lbl) return;
+    const key = me?.time_input_mode === 'local' ? 'qso.localDateTimeOptional' : 'qso.utcDateTimeOptional';
+    lbl.setAttribute('data-i18n', key);
+    // Replace just the leading text node (the label caption) — keep any
+    // nested elements such as the <input> intact.
+    const first = lbl.firstChild;
+    if (first && first.nodeType === Node.TEXT_NODE) first.nodeValue = t(key);
   }
 
   function normMode(m) {

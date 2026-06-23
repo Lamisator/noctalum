@@ -196,6 +196,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/me/password", s.requireAuth(s.handleChangeOwnPassword))
 	mux.HandleFunc("/api/me/helper-token", s.requireAuth(s.handleRegenHelperToken))
 	mux.HandleFunc("/api/me/language", s.requireAuth(s.handleMeLanguage))
+	mux.HandleFunc("/api/me/time-input-mode", s.requireAuth(s.handleMeTimeInputMode))
 	mux.HandleFunc("/api/me/last-seen-version", s.requireAuth(s.handleMeLastSeenVersion))
 	mux.HandleFunc("/api/passkey/register/begin", s.requireAuth(s.handlePasskeyRegisterBegin))
 	mux.HandleFunc("/api/passkey/register/finish", s.requireAuth(s.handlePasskeyRegisterFinish))
@@ -627,8 +628,41 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		info["helper_token"] = u.HelperToken
 		info["language"] = u.Language
 		info["last_seen_version"] = u.LastSeenVersion
+		mode := u.TimeInputMode
+		if mode == "" {
+			mode = "utc"
+		}
+		info["time_input_mode"] = mode
 	}
 	writeJSON(w, http.StatusOK, info)
+}
+
+// handleMeTimeInputMode persists the user's UTC-vs-local pick for the
+// QSO entry form's date/time input (FR #29). Only "utc" and "local" are
+// accepted; anything else is rejected.
+func (s *Server) handleMeTimeInputMode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writeError(w, http.StatusMethodNotAllowed, "PUT required")
+		return
+	}
+	sess := sessionFor(s, r)
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	mode := strings.ToLower(strings.TrimSpace(body.Mode))
+	if mode != "utc" && mode != "local" {
+		writeError(w, http.StatusBadRequest, "mode must be 'utc' or 'local'")
+		return
+	}
+	if err := s.store.SetTimeInputMode(sess.UserID, mode); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleMeLanguage persists the user's preferred UI language.

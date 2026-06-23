@@ -27,6 +27,14 @@ type User struct {
 	LastActivityAt   *time.Time `json:"last_activity_at,omitempty"`
 	Language         string     `json:"language"`
 	LastSeenVersion  string     `json:"last_seen_version"`
+	// TimeInputMode controls how the QSO entry form's optional date/time field
+	// interprets the value the operator types: "utc" (default — current
+	// behaviour, the typed value is treated as UTC and stored as-is) or
+	// "local" (treat the typed value as the operator's browser-local time
+	// and convert to UTC at submit / from UTC at edit-load). The setting is
+	// per-user because operators in different time zones can share an
+	// installation. Storage of QSO.time is always UTC regardless.
+	TimeInputMode    string     `json:"time_input_mode"`
 	Roles            []string   `json:"roles"`
 	Permissions      []string   `json:"permissions"`
 }
@@ -97,6 +105,7 @@ func (s *Store) migrateUsers() error {
 	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN last_activity_at TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN last_seen_version TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN time_input_mode TEXT NOT NULL DEFAULT 'utc'`)
 	return nil
 }
 
@@ -227,6 +236,16 @@ func (s *Store) SetLanguage(userID int64, language string) error {
 	return err
 }
 
+// SetTimeInputMode updates a user's preferred interpretation of the QSO
+// entry form's date/time field: "utc" (the typed value is UTC) or
+// "local" (the typed value is the browser's local time and gets converted
+// to UTC on submit). Any other value is rejected by the HTTP handler;
+// existing rows default to "utc" via the column DEFAULT in migrateUsers.
+func (s *Store) SetTimeInputMode(userID int64, mode string) error {
+	_, err := s.db.Exec(`UPDATE users SET time_input_mode = ? WHERE id = ?`, mode, userID)
+	return err
+}
+
 // SetCallsign updates a user's callsign.
 func (s *Store) SetCallsign(userID int64, callsign string) error {
 	_, err := s.db.Exec(`UPDATE users SET callsign = ? WHERE id = ?`,
@@ -263,13 +282,13 @@ func (s *Store) GetUserByUsername(username string) (User, error) {
 func (s *Store) getUser(where string, arg interface{}) (User, error) {
 	row := s.db.QueryRow(
 		`SELECT id, username, callsign, password_hash, helper_token, failed_attempts,
-		        locked_until, disabled, created_at, last_activity_at, language, last_seen_version FROM users WHERE `+where, arg)
+		        locked_until, disabled, created_at, last_activity_at, language, last_seen_version, time_input_mode FROM users WHERE `+where, arg)
 	var u User
 	var lockStr sql.NullString
-	var createdStr, lastActStr, lang, lastSeenVer string
+	var createdStr, lastActStr, lang, lastSeenVer, timeMode string
 	var disabledInt int
 	err := row.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash, &u.HelperToken,
-		&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr, &lang, &lastSeenVer)
+		&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr, &lang, &lastSeenVer, &timeMode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -288,6 +307,7 @@ func (s *Store) getUser(where string, arg interface{}) (User, error) {
 	}
 	u.Language = lang
 	u.LastSeenVersion = lastSeenVer
+	u.TimeInputMode = timeMode
 
 	roles, perms, err := s.userRolesAndPermissions(u.ID)
 	if err != nil {
