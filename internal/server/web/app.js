@@ -4126,6 +4126,42 @@
     updateSortHeaders();
   }
 
+  // Per-field filter matcher for the QSO history search box. The old
+  // implementation concatenated every field into one haystack and substring-
+  // matched, which produced a subtle false positive: the operator's own
+  // callsign (e.g. "DL8AA") sits on every QSO they log, so filtering for
+  // "DL" matched *every* row via the operator field, looking like the filter
+  // had silently failed (FR #59, reported by dl8aa). Filters for "DD" or
+  // "DJ" worked because those substrings are absent from "DL8AA".
+  //
+  // The replacement matches each space-separated token against the QSO's
+  // fields independently:
+  //   - callsign / band / mode / locator / DOK: prefix match (handles the
+  //     common case of typing a country/region prefix, a band like "40",
+  //     a mode like "FT8", etc.)
+  //   - operator: exact full-string match only, so a 2-character prefix
+  //     does not turn the operator into a universal match.
+  function qsoMatchesFilter(q, filter) {
+    const tokens = filter.split(/\s+/).filter(Boolean);
+    if (!tokens.length) return true;
+    const call = (q.callsign || '').toLowerCase();
+    const band = (q.band || '').toLowerCase();
+    const bandFmt = fmtBand(q.band || '').toLowerCase();
+    const mode = (q.mode || '').toLowerCase();
+    const locator = (q.locator || '').toLowerCase();
+    const dok = (q.dok || '').toLowerCase();
+    const operator = (q.operator || '').toLowerCase();
+    return tokens.every(tok =>
+      call.startsWith(tok) ||
+      band.startsWith(tok) ||
+      bandFmt.startsWith(tok) ||
+      mode.startsWith(tok) ||
+      locator.startsWith(tok) ||
+      dok.startsWith(tok) ||
+      operator === tok
+    );
+  }
+
   function renderQsos(highlightId) {
     if ($('tab-statistics')?.classList.contains('active')) renderStatistics();
     renderLogHeaders();
@@ -4154,10 +4190,7 @@
     }
 
     for (const q of source) {
-      if (textFilter) {
-        const hay = `${q.callsign} ${q.band} ${fmtBand(q.band)} ${q.mode} ${q.operator} ${q.locator} ${q.dok || ''}`.toLowerCase();
-        if (!hay.includes(textFilter)) continue;
-      }
+      if (textFilter && !qsoMatchesFilter(q, textFilter)) continue;
       const tr = document.createElement('tr');
       if (q.id === highlightId) tr.classList.add('fresh');
       tr.className = (q.id === editingQsoId) ? 'editing-row' : '';
