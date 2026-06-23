@@ -2927,15 +2927,42 @@ func exportFilename(contestName, contestCall, ext string) string {
 // `filename*` form, browsers that receive the raw UTF-8 bytes in the legacy
 // parameter often re-decode them as latin-1, producing mojibake such as
 // "NotfunkÃ¼bung" instead of "Notfunkübung".
+//
+// For the ASCII fallback, German umlauts are transliterated (ü→ue, ö→oe,
+// ä→ae, ß→ss, capitals likewise) instead of being collapsed to '_'. RFC 5987
+// says compliant clients pick `filename*`, but in practice some download
+// managers, proxies and older browser builds use the legacy parameter — and
+// when they do, "Notfunkuebung.pdf" is far more readable than
+// "Notfunk_bung.pdf". Any remaining non-ASCII character still maps to '_'.
 func attachmentDisposition(name string) string {
-	asciiFallback := strings.Map(func(r rune) rune {
-		if r > 0x7F {
-			return '_'
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range name {
+		switch r {
+		case 'ä':
+			b.WriteString("ae")
+		case 'ö':
+			b.WriteString("oe")
+		case 'ü':
+			b.WriteString("ue")
+		case 'Ä':
+			b.WriteString("Ae")
+		case 'Ö':
+			b.WriteString("Oe")
+		case 'Ü':
+			b.WriteString("Ue")
+		case 'ß':
+			b.WriteString("ss")
+		default:
+			if r > 0x7F {
+				b.WriteRune('_')
+			} else {
+				b.WriteRune(r)
+			}
 		}
-		return r
-	}, name)
+	}
 	return fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`,
-		asciiFallback, url.PathEscape(name))
+		b.String(), url.PathEscape(name))
 }
 
 func (s *Server) handleExportADIF(w http.ResponseWriter, r *http.Request) {

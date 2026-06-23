@@ -1,6 +1,9 @@
 package server
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidCallsignAcceptsSlashes(t *testing.T) {
 	cases := []struct {
@@ -29,6 +32,21 @@ func TestValidCallsignAcceptsSlashes(t *testing.T) {
 		if got := ValidCallsign(c.in); got != c.want {
 			t.Errorf("ValidCallsign(%q) = %v, want %v", c.in, got, c.want)
 		}
+	}
+}
+
+func TestAttachmentDispositionTransliteratesUmlauts(t *testing.T) {
+	got := attachmentDisposition("Notfunkübung 16.05.2026 - DR1HER.pdf")
+	// Legacy filename= must have the umlaut transliterated to a readable
+	// "ue", not collapsed to '_' — that was the regression operators saw
+	// with download managers / proxies that ignore filename*.
+	if !strings.Contains(got, `filename="Notfunkuebung 16.05.2026 - DR1HER.pdf"`) {
+		t.Errorf("legacy filename= missing transliteration: %q", got)
+	}
+	// filename* keeps the original UTF-8 byte sequence percent-encoded
+	// so modern clients still get the exact original name.
+	if !strings.Contains(got, "filename*=UTF-8''Notfunk%C3%BCbung") {
+		t.Errorf("filename* not RFC 5987 encoded: %q", got)
 	}
 }
 
