@@ -1,5 +1,45 @@
 # Noctalum Changelog
 
+## v0.67 — 2026-06-23 — Modal robustness — Edit Contest no longer wedges focus
+
+- **Modal becomes unresponsive after editing from the Map tab —
+  fixed.** Reported live: a user on the Map tab clicks the station
+  pill to open "Edit Contest", clicks into an input, then cannot
+  escape the modal via keyboard shortcuts; only a page reload
+  restores normal interaction. Root cause was a stack of small
+  gaps in `internal/server/web/app.js::showModal`:
+- **`close()` now blurs the focused element first.** Toggling
+  `.hidden` (`display: none !important`) on the wrapper while
+  focus is still on an input inside it leaves some browsers with
+  `document.activeElement` pointing at a now-hidden node;
+  subsequent keystrokes go to nowhere. `document.activeElement
+  ?.blur()` before adding `.hidden` lets focus deterministically
+  return to `<body>`.
+- **The modal-card carries its own Esc keydown.** The pre-existing
+  document-level Esc handler at line ~3462 is the only Esc binding
+  in the app; if any ancestor `stopPropagation`s the keydown the
+  listener never fires. The new `card.onkeydown` runs before
+  bubbling escapes the modal and is a hard guarantee Esc always
+  closes.
+- **Backdrop click closes.** `modal-root` gets an `onclick` that
+  fires only when `e.target === root` (clicks inside the card
+  never bubble with that target), giving operators the standard
+  centred-dialog dismiss affordance.
+- **First input is auto-focused.** A `setTimeout 0` after the
+  modal renders focuses the first non-disabled input/select/
+  textarea inside `modal-card`. Operators always see where their
+  keystrokes will land, and Esc / Tab have a real `activeElement`
+  to bubble from.
+- **Handlers are cleared on close** — `modal-root.onclick = null`
+  and `card.onkeydown = null` in the `close()` path so listeners
+  do not accumulate across the many modals a session opens.
+- The document-level Esc handler stays in place as a second layer
+  for callers that bypass `showModal` (the confirm dialog, the
+  deploy-countdown ribbon). Map / globe canvas listeners are
+  untouched — they only act on canvas-targeted events and never
+  saw modal traffic.
+- `programVersion` bumped to `0.67`
+
 ## v0.66 — 2026-06-23 — Umlauts in export filenames are readable on every client
 
 - **Transliterate German umlauts in the legacy `filename=` fallback.**

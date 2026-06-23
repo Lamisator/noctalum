@@ -7548,6 +7548,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.67',
+      date: '2026-06-23',
+      en: 'v0.67: "Edit Contest" no longer wedges keyboard focus.\n- Opening Edit Contest from the Map tab and typing in a field used to trap focus — Esc and Tab stopped working until a full page reload\n- Esc now reliably closes any modal, including via a second listener on the dialog itself\n- Clicking the dark backdrop outside the dialog also closes it\n- The first input in every modal is auto-focused so you always know where typing goes\n- Focus is released cleanly when a modal closes',
+      de: 'v0.67: „Contest bearbeiten" friert die Tastatur nicht mehr ein.\n- Wenn du im Karten-Tab „Contest bearbeiten" geöffnet und in einem Feld getippt hast, blieb der Fokus stecken — Esc und Tab gingen erst nach Seiten-Neuladen wieder\n- Esc schließt jetzt zuverlässig jeden Dialog, abgesichert über einen zweiten Listener direkt am Dialog\n- Ein Klick auf den dunklen Bereich außerhalb des Dialogs schließt ihn ebenfalls\n- Das erste Eingabefeld in jedem Dialog wird automatisch fokussiert, damit du immer siehst, wohin Tippen geht\n- Der Fokus wird beim Schließen sauber freigegeben',
+    },
+    {
       version: '0.66',
       date: '2026-06-23',
       en: 'v0.66: Umlauts in export filenames are readable on every client.\n- Download managers and proxies that ignored the v0.60 RFC 5987 fix saw "Notfunk_bung.pdf"; they now see "Notfunkuebung.pdf"\n- Modern browsers still get the exact "Notfunkübung.pdf" via the unchanged filename* parameter\n- Transliteration covers ä/ö/ü/ß and their uppercase variants',
