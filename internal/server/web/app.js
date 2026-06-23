@@ -3701,7 +3701,7 @@
     $('q-lh').value = q.lighthouse || '';
     $('q-notes').value = q.notes || '';
     const qTime = new Date(q.time);
-    $('q-time').value = qTime.toISOString().substring(0, 19); // YYYY-MM-DDTHH:MM:SS in UTC
+    $('q-time').value = qTime.toISOString().substring(0, 16); // YYYY-MM-DDTHH:MM in UTC (input step=60)
     // Restore custom-field values from q.extras (JSON object keyed by field name).
     if (q.extras) {
       try { applyCustomFieldsValues(JSON.parse(q.extras)); } catch {}
