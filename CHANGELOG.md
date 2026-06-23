@@ -1,5 +1,64 @@
 # Noctalum Changelog
 
+## v0.62 — 2026-06-23 — Light theme, finished-log inspect, helper UX
+
+- **Per-user light / high-contrast theme.** dg4dy (FR #65) reported the
+  default dark theme is unreadable in direct sunlight when operating
+  from the field. New `theme` column on `users` (default `'dark'`, so
+  existing installs roll forward unchanged), new `PUT /api/me/theme`
+  endpoint (accepts `dark` or `light`, rejects anything else), new
+  "Theme" dropdown in the personal-settings card. CSS implementation:
+  `body.theme-light` overrides every palette variable to a near-white
+  background / near-black text scheme (`--bg #f7f8fa`, `--bg-elev
+  #ffffff`, `--text #1a1d22`, `--accent #1565c0` — Material Blue 800,
+  AA against white at body and label sizes); the dark theme's tinted
+  radial wash baked into the login / contest-picker backgrounds is
+  neutralised under `theme-light` so it doesn't read as a smudge.
+  Every existing rule that references `var(--…)` flips automatically
+  — modals, cards, tables, pills, inputs, the QSO grid, the layout
+  editor, audit log, and the read-only banner all re-skin without
+  per-element edits. `applyTheme()` in `app.js` toggles the body class
+  on `/api/me` load and after a successful settings save.
+- **Closed contests are browsable again.** dl8aa (FR #62) noted that
+  clicking a QSO row in a finished contest only refreshed the QRZ
+  photo — country flag, locator, distance and the great-circle line
+  all stayed frozen on whatever the previous click left behind. The
+  read-only branch in `renderQsos`' click handler in
+  `internal/server/web/app.js` now mirrors the editing branch's
+  display-only side-effects: `triggerQRZLookup(q.callsign)` for the
+  photo and name, `updateCallCountry(q.callsign)` for the flag,
+  `currentTargetLocator = q.locator` + `updateMap()` for the
+  bearing line and km. The form stays disabled (already gated by
+  `applyContestReadonly()`), so this is purely browse-mode without
+  any path to mutate stored data.
+- **Reopen-for-editing button on the finished-contest banner.** Same
+  FR — operators previously had to leave the contest and use the
+  picker's toggle to flip a finished contest back to writable. The
+  `contest-readonly-banner` in `index.html` now carries a
+  `class="ghost small perm-required" data-perm="contests.manage"`
+  button labelled "Reopen for editing" / "Zum Bearbeiten wieder
+  öffnen" (informal "du" in DE). The click handler in `app.js`
+  fetches the full contest record via `GET /api/contests/<id>`,
+  resubmits it with `status: "open"` (the existing UpdateContest
+  validates the whole record, so a status-only PUT would 400 on the
+  StationCall check at `server.go:2783`), and lets the WS
+  `contest_updated` event flip `me.contest_status` and re-run
+  `applyContestReadonly()` — no client-side state mutation needed.
+- **Helper makes clear it connects to the Noctalum server, not
+  localhost.** dg4dy (FR #63 / #64) was confused by the cryptic
+  startup sequence `ws dial: dial tcp [::1]:8080: …` and had
+  accidentally pointed the helper's Server URL field at
+  `http://localhost:8080`, assuming the helper talked to the
+  browser on the same machine. `cmd/helper/main.go` and
+  `cmd/helper-gui/session.go` now wrap the `websocket.DefaultDialer`
+  error with the configured URL: `ws dial to %s: %w`. The
+  helper-gui's index.html grows an inline 11 px hint under the
+  Server URL `<input>`: *"URL of the Noctalum server (e.g.
+  https://log.dm2lap.com), not your local browser — this helper
+  relays the rig's frequency to the server."* New `.field-hint`
+  style added to `cmd/helper-gui/frontend/dist/style.css`.
+- `programVersion` bumped to `0.62`
+
 ## v0.61 — 2026-06-23 — QSO entry hardening: local-time mode, band/freq guard, lookup race fix
 
 - **Per-user UTC vs local-time pick for the QSO time field.** The

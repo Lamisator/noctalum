@@ -7378,6 +7378,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.62',
+      date: '2026-06-23',
+      en: 'v0.62: Light theme for outdoor use, finished logs you can browse, clearer helper setup.\n- New "Light (outdoor / high contrast)" theme in Personal Settings — dark text on a white background, AA contrast accents\n- Finished contests are browsable again: clicking a QSO row refreshes QRZ photo, country flag, locator and bearing distance\n- Admins get a "Reopen for editing" button on the read-only banner — no need to leave the contest to flip it back to open\n- Helper error messages now name the server URL you configured, so a wrong "localhost" is obvious at a glance\n- Helper-GUI shows a hint under the Server URL field: enter the Noctalum server, not your local browser',
+      de: 'v0.62: Helles Farbschema für draußen, beendete Logs wieder durchstöberbar, klarere Helper-Einrichtung.\n- Neues „Hell (für draußen / hoher Kontrast)"-Farbschema in den persönlichen Einstellungen — dunkle Schrift auf weißem Hintergrund mit AA-Kontrast\n- Beendete Contests sind wieder durchstöberbar: Ein Klick auf eine QSO-Zeile aktualisiert QRZ-Foto, Länderflagge, Locator und Entfernung\n- Admins bekommen einen „Zum Bearbeiten wieder öffnen"-Button im Read-only-Banner — kein Wechsel zum Contest-Picker mehr nötig\n- Helper-Fehlermeldungen nennen jetzt die konfigurierte Server-URL, sodass ein falsches „localhost" sofort sichtbar ist\n- Im Helper-GUI steht ein Hinweis unter dem Server-URL-Feld: gib den Noctalum-Server ein, nicht deinen lokalen Browser',
+    },
+    {
       version: '0.61',
       date: '2026-06-23',
       en: 'v0.61: QSO entry hardening — local-time mode, band/freq guard, lookup race fix.\n- New choice in Personal Settings: type QSO times in UTC or in your local time (auto-converted to UTC)\n- The QSO time field label flips between "UTC date & time" and "Local date & time" so you always see the active frame\n- The form now rejects mismatched band/frequency combinations with a clear error (e.g. 144 MHz on the 20 m band)\n- "Wrong DOK after typing a new callsign" is fixed: stale lookup responses are now reliably discarded\n- Adding a band to a running contest now shows that band in the QSO form\'s dropdown immediately — you can edit existing QSOs onto it\n- Date/time field no longer overflows its grid cell (minute precision instead of seconds)\n- German RST labels match the Nr style: "RST geg." / "RST empf."',
