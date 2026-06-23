@@ -167,10 +167,14 @@ func (a *App) bridge(ctx context.Context, req ConnectRequest, rigHost string, ri
 		"Origin": []string{req.Server},
 	})
 	if err != nil {
+		// Include the configured server URL in the error so an operator who
+		// accidentally points the helper at localhost (FR #63 / #64) sees
+		// immediately *where* the connection failed, not just a generic
+		// "ws dial: dial tcp [::1]:8080" mystery.
 		if resp != nil {
-			return fmt.Errorf("ws dial: %w (HTTP %d)", err, resp.StatusCode)
+			return fmt.Errorf("ws dial to %s: %w (HTTP %d)", req.Server, err, resp.StatusCode)
 		}
-		return fmt.Errorf("ws dial: %w", err)
+		return fmt.Errorf("ws dial to %s: %w", req.Server, err)
 	}
 	defer conn.Close()
 	a.emitLog("registered rig %q at %s", req.RigName, req.Server)

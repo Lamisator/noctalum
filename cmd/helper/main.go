@@ -195,10 +195,14 @@ func session(serverURL, name, token, rigHost string, rigPort, intervalMs int) er
 		"Origin": []string{serverURL},
 	})
 	if err != nil {
+		// Include the configured server URL in the error so an operator who
+		// accidentally points the helper at localhost (FR #63 / #64) sees
+		// where the connection actually failed, not just a generic
+		// "ws dial: dial tcp [::1]:8080" mystery.
 		if resp != nil {
-			return fmt.Errorf("ws dial: %w (HTTP %d)", err, resp.StatusCode)
+			return fmt.Errorf("ws dial to %s: %w (HTTP %d)", serverURL, err, resp.StatusCode)
 		}
-		return fmt.Errorf("ws dial: %w", err)
+		return fmt.Errorf("ws dial to %s: %w", serverURL, err)
 	}
 	defer conn.Close()
 	log.Printf("registered rig %q at %s", name, serverURL)

@@ -321,6 +321,11 @@ button, input, select, textarea {
   letter-spacing: 0.06em;
   color: var(--text-muted);
 }
+.field-hint {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
 input[type="text"],
 input[type="number"],
 input[type="password"],
