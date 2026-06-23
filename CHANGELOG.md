@@ -1,5 +1,39 @@
 # Noctalum Changelog
 
+## v0.65 — 2026-06-23 — Personal Settings save works for regular users
+
+- **Save button restored in Personal Settings for non-admin users.**
+  Reported live during v0.62 testing: a regular user opening Personal
+  Settings could see the new Theme and QSO-time-input dropdowns
+  added in v0.61 / v0.62, but no Save button. Root cause: the Save
+  button on this card carried `class="perm-required"
+  data-perm="settings.write"` from a time when the form only
+  persisted the global `default_mode` / `default_band` settings.
+  When v0.61 (FR #29) and v0.62 (FR #65) bolted on per-user prefs,
+  the gate was not lifted, so non-admins lost the ability to save
+  per-user prefs they were otherwise free to change.
+- **internal/server/web/index.html** — the `default_mode` and
+  `default_band` `<label>`s gain
+  `class="perm-required" data-perm="settings.write"` so non-admins
+  no longer see two selects they cannot persist. The Save button
+  (line 954) drops its `perm-required` attribute and is now always
+  visible. The admin-only **Global Settings** card on line 627
+  keeps its gate untouched — that path remains admin-only.
+- **internal/server/web/app.js** — the `ms-settings-form` submit
+  handler now branches on `hasPerm('settings.write')` before
+  PUTing the global `/api/settings` endpoint. Non-admins skip
+  that step silently (their default selects are hidden, so any
+  stale value never reaches the server). The subsequent
+  `PUT /api/me/time-input-mode` and `PUT /api/me/theme` calls were
+  already correctly per-user-authenticated and now run for every
+  user once the surrounding handler is no longer short-circuited
+  by a 403.
+- Result: a regular user picking "Light theme" or "Local time"
+  in Personal Settings clicks Save and the choice persists live —
+  the theme flips immediately, no error pill, no phantom Save
+  button.
+- `programVersion` bumped to `0.65`
+
 ## v0.64 — 2026-06-23 — Hand off a contest config via chat
 
 - **"Send to chat" on every share row, with an Apply button on the

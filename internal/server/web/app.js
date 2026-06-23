@@ -7509,6 +7509,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.65',
+      date: '2026-06-23',
+      en: 'v0.65: Personal Settings now save for regular users.\n- The Save button in Personal Settings was admin-only by mistake — it\'s back for everyone\n- Light theme and local-time pick now actually persist when a non-admin clicks Save\n- Default mode / default band selects are hidden for non-admins since they\'re global settings',
+      de: 'v0.65: Persönliche Einstellungen lassen sich jetzt auch als regulärer Nutzer speichern.\n- Der Speichern-Button in den persönlichen Einstellungen war versehentlich admin-only — jetzt für alle wieder da\n- Helles Farbschema und Ortszeit-Auswahl werden beim Speichern als regulärer Nutzer wirklich übernommen\n- Standard-Mode / Standard-Band sind für Nicht-Admins ausgeblendet, da das globale Einstellungen sind',
+    },
+    {
       version: '0.64',
       date: '2026-06-23',
       en: 'v0.64: Hand off a contest config to another OM right from the chat.\n- New "Send to chat" button on every share — fires a one-click "Apply this config" card to everyone in the room\n- Recipients see the card inline in their chat; click Apply, fill in their own call + QTH, and they\'re set up\n- The card reuses the existing import flow so the operator picks a new contest name and stays in control\n- Old offers in the rolling 24-hour chat window keep rendering as cards on reconnect\n- "Send to chat" only appears for the contest you\'re currently in — chat is per-contest so cross-room offers can\'t happen by accident',
