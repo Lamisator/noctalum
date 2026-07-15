@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +62,89 @@ func TestExportADIFOmitsSTXSRXWhenZero(t *testing.T) {
 	out := buf.String()
 	if strings.Contains(out, "<STX:") || strings.Contains(out, "<SRX:") {
 		t.Errorf("STX/SRX leaked into non-contest QSO: %q", out)
+	}
+}
+
+// FR #67: bare <ARLHS> is not a standard ADIF field. Verify lighthouse
+// references are exported via the idiomatic SIG=ARLHS + SIG_INFO=<ref> pair.
+func TestExportADIFLighthouseUsesSIG(t *testing.T) {
+	q := sampleQSO()
+	q.Lighthouse = "DE-0042"
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "<ARLHS:") {
+		t.Errorf("bare <ARLHS> still emitted (non-standard): %q", out)
+	}
+	if !strings.Contains(out, "<SIG:5>ARLHS") {
+		t.Errorf("SIG=ARLHS missing: %q", out)
+	}
+	if !strings.Contains(out, "<SIG_INFO:7>DE-0042") {
+		t.Errorf("SIG_INFO=<ref> missing: %q", out)
+	}
+}
+
+// FR #67: FT8/FT4 are SUBMODEs of MFSK per ADIF 3.1.5, PSK31 is a SUBMODE
+// of PSK. Emitting MODE=FT8 directly makes strict validators reject.
+func TestExportADIFModeSubmodeSplit(t *testing.T) {
+	cases := []struct {
+		in           string
+		wantMode     string
+		wantSubmode  string
+		wantNoSubmod bool
+	}{
+		{"FT8", "MFSK", "FT8", false},
+		{"FT4", "MFSK", "FT4", false},
+		{"PSK31", "PSK", "PSK31", false},
+		{"PSK63", "PSK", "PSK63", false},
+		{"CW", "CW", "", true},
+		{"SSB", "SSB", "", true},
+		{"USB", "SSB", "USB", false},
+		{"FM", "FM", "", true},
+	}
+	for _, c := range cases {
+		q := sampleQSO()
+		q.Mode = c.in
+		var buf bytes.Buffer
+		if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+			t.Fatalf("ExportADIF(%s): %v", c.in, err)
+		}
+		out := buf.String()
+		wantModeTag := "<MODE:" + strconv.Itoa(len(c.wantMode)) + ">" + c.wantMode
+		if !strings.Contains(out, wantModeTag) {
+			t.Errorf("Mode %q: missing %s in output %q", c.in, wantModeTag, out)
+		}
+		if c.wantNoSubmod {
+			if strings.Contains(out, "<SUBMODE:") {
+				t.Errorf("Mode %q: unexpected SUBMODE emitted: %q", c.in, out)
+			}
+			continue
+		}
+		wantSub := "<SUBMODE:" + strconv.Itoa(len(c.wantSubmode)) + ">" + c.wantSubmode
+		if !strings.Contains(out, wantSub) {
+			t.Errorf("Mode %q: missing %s in output %q", c.in, wantSub, out)
+		}
+	}
+}
+
+// FR #67: free-form notes belong in NOTES (general operator remarks), not
+// COMMENT (which ADIF reserves for QSO-relevant metadata like signal
+// conditions).
+func TestExportADIFUsesNOTESNotCOMMENT(t *testing.T) {
+	q := sampleQSO()
+	q.Notes = "hello world"
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "<COMMENT:") {
+		t.Errorf("COMMENT still emitted for freeform notes: %q", out)
+	}
+	if !strings.Contains(out, "<NOTES:11>hello world") {
+		t.Errorf("NOTES tag missing: %q", out)
 	}
 }
 

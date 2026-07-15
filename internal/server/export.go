@@ -64,7 +64,11 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 			mhz := float64(q.FreqHz) / 1_000_000.0
 			writeField(w, "FREQ", strconv.FormatFloat(mhz, 'f', 6, 64))
 		}
-		writeField(w, "MODE", strings.ToUpper(q.Mode))
+		mode, submode := adifModeSubmode(q.Mode)
+		writeField(w, "MODE", mode)
+		if submode != "" {
+			writeField(w, "SUBMODE", submode)
+		}
 		writeField(w, "RST_SENT", q.RSTSent)
 		writeField(w, "RST_RCVD", q.RSTReceived)
 		// Contest exchange numbers: ADIF integer form is STX (sent) / SRX
@@ -89,7 +93,11 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 			writeField(w, "CQZ", q.CQZone)
 		}
 		if q.Lighthouse != "" {
-			writeField(w, "ARLHS", q.Lighthouse)
+			// ADIF has no dedicated lighthouse field — the idiomatic mapping
+			// is SIG=<program> + SIG_INFO=<reference>. Bare <ARLHS> tags were
+			// invented by early loggers and get rejected by strict validators.
+			writeField(w, "SIG", "ARLHS")
+			writeField(w, "SIG_INFO", q.Lighthouse)
 		}
 		writeField(w, "OPERATOR", q.Operator)
 		writeField(w, "STATION_CALLSIGN", q.StationCall)
@@ -97,7 +105,11 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 			writeField(w, "CONTEST_ID", q.ContestName)
 		}
 		if q.Notes != "" {
-			writeField(w, "COMMENT", q.Notes)
+			// ADIF distinguishes COMMENT (QSO-relevant remarks) from NOTES
+			// (general operator notes). Our field is a free-form text box,
+			// so NOTES is the more accurate mapping and matches what
+			// LotW/eQSL importers expect.
+			writeField(w, "NOTES", q.Notes)
 		}
 		if len(customFields) > 0 {
 			extras := parseExtras(q.Extras)
@@ -124,6 +136,44 @@ func writeField(w io.Writer, name, value string) {
 		return
 	}
 	fmt.Fprintf(w, "<%s:%d>%s ", name, len(value), value)
+}
+
+// adifModeSubmode maps our internal mode string to the (MODE, SUBMODE) pair
+// required by ADIF 3.1.5. In ADIF, PSK31/PSK63 are SUBMODEs of PSK, FT8/FT4
+// are SUBMODEs of MFSK, and JT65A/JT9A are SUBMODEs of the JT65/JT9 modes.
+// When we emit MODE=FT8 directly, strict importers (DXKeeper, LotW) reject
+// the record because FT8 is not a legal MODE enum value.
+//
+// Anything not in this table falls through as MODE=<uppercased input> with
+// no SUBMODE — the safe default for CW/SSB/AM/FM/RTTY etc. which are legal
+// top-level modes.
+func adifModeSubmode(m string) (mode, submode string) {
+	switch strings.ToUpper(m) {
+	case "FT8":
+		return "MFSK", "FT8"
+	case "FT4":
+		return "MFSK", "FT4"
+	case "PSK31":
+		return "PSK", "PSK31"
+	case "PSK63":
+		return "PSK", "PSK63"
+	case "PSK125":
+		return "PSK", "PSK125"
+	case "JT65A":
+		return "JT65", "JT65A"
+	case "JT65B":
+		return "JT65", "JT65B"
+	case "JT65C":
+		return "JT65", "JT65C"
+	case "JT9A":
+		return "JT9", "JT9A"
+	case "USB":
+		return "SSB", "USB"
+	case "LSB":
+		return "SSB", "LSB"
+	default:
+		return strings.ToUpper(m), ""
+	}
 }
 
 // ExportCSV writes the QSO list to w as CSV. customFieldsJSON, when non-empty,
