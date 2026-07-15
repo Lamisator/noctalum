@@ -135,6 +135,7 @@ func TestExportADIFModeSubmodeSplit(t *testing.T) {
 func TestExportADIFUsesNOTESNotCOMMENT(t *testing.T) {
 	q := sampleQSO()
 	q.Notes = "hello world"
+	q.ContestName = "" // don't let the contest-name fallback rewrite NOTES
 	var buf bytes.Buffer
 	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
@@ -145,6 +146,69 @@ func TestExportADIFUsesNOTESNotCOMMENT(t *testing.T) {
 	}
 	if !strings.Contains(out, "<NOTES:11>hello world") {
 		t.Errorf("NOTES tag missing: %q", out)
+	}
+}
+
+// FR #67: CONTEST_ID must contain a valid ADIF enum value. A recognised
+// contest name maps to its canonical form (case- and hyphen-insensitive);
+// an unknown contest name falls back to being prepended to NOTES so
+// strict validators (DXKeeper, Log4OM, LotW) don't reject the record.
+func TestExportADIFContestIDEnumLookup(t *testing.T) {
+	cases := []struct {
+		in      string
+		wantTag string
+	}{
+		{"IARU-HF", "<CONTEST_ID:7>IARU-HF"},
+		{"iaru hf", "<CONTEST_ID:7>IARU-HF"},   // case + separator insensitive
+		{"CQ-WW-CW", "<CONTEST_ID:8>CQ-WW-CW"}, // exact match
+		{"cqww ssb", "<CONTEST_ID:9>CQ-WW-SSB"},
+	}
+	for _, c := range cases {
+		q := sampleQSO()
+		q.ContestName = c.in
+		q.Notes = "" // start clean so we can assert NOTES isn't touched
+		var buf bytes.Buffer
+		if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+			t.Fatalf("ExportADIF(%q): %v", c.in, err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, c.wantTag) {
+			t.Errorf("Contest %q: expected %q in %q", c.in, c.wantTag, out)
+		}
+		if strings.Contains(out, "<NOTES:") {
+			t.Errorf("Contest %q: NOTES should not be touched when CONTEST_ID matches: %q", c.in, out)
+		}
+	}
+}
+
+func TestExportADIFUnknownContestFallsBackToNOTES(t *testing.T) {
+	q := sampleQSO()
+	q.ContestName = "WSA 2026" // local DARC OV activity — not in ADIF enum
+	q.Notes = ""
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "<CONTEST_ID:") {
+		t.Errorf("CONTEST_ID must be omitted for unknown contest names: %q", out)
+	}
+	if !strings.Contains(out, "Contest: WSA 2026") {
+		t.Errorf("unknown contest name must fall back to NOTES: %q", out)
+	}
+}
+
+func TestExportADIFUnknownContestPreservesExistingNotes(t *testing.T) {
+	q := sampleQSO()
+	q.ContestName = "Local Fun Run"
+	q.Notes = "S9+20 into JN49"
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Contest: Local Fun Run\nS9+20 into JN49") {
+		t.Errorf("existing NOTES must be preserved after the contest fallback: %q", out)
 	}
 }
 

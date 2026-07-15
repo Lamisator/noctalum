@@ -101,15 +101,30 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 		}
 		writeField(w, "OPERATOR", q.Operator)
 		writeField(w, "STATION_CALLSIGN", q.StationCall)
+		notes := q.Notes
 		if q.ContestName != "" {
-			writeField(w, "CONTEST_ID", q.ContestName)
+			if id, ok := adifContestID(q.ContestName); ok {
+				writeField(w, "CONTEST_ID", id)
+			} else {
+				// Contest name isn't in the ADIF enum (e.g. a local
+				// DARC OV activity like "WSA 2026"). Emitting it as
+				// CONTEST_ID gets the record rejected by strict
+				// importers, so prepend "Contest: <name>" to NOTES
+				// where free text is legal.
+				prefix := "Contest: " + q.ContestName
+				if notes == "" {
+					notes = prefix
+				} else {
+					notes = prefix + "\n" + notes
+				}
+			}
 		}
-		if q.Notes != "" {
+		if notes != "" {
 			// ADIF distinguishes COMMENT (QSO-relevant remarks) from NOTES
 			// (general operator notes). Our field is a free-form text box,
 			// so NOTES is the more accurate mapping and matches what
 			// LotW/eQSL importers expect.
-			writeField(w, "NOTES", q.Notes)
+			writeField(w, "NOTES", notes)
 		}
 		if len(customFields) > 0 {
 			extras := parseExtras(q.Extras)
@@ -136,6 +151,108 @@ func writeField(w io.Writer, name, value string) {
 		return
 	}
 	fmt.Fprintf(w, "<%s:%d>%s ", name, len(value), value)
+}
+
+// adifContestIDs is a case-insensitive index of the ADIF Contest_ID
+// enumeration values we recognise. It is intentionally a subset —
+// covering the DARC, IARU, CQ, ARRL and RSGB contests our users
+// participate in. Anything not in this map falls back to being written
+// into the NOTES field so strict ADIF importers (DXKeeper, Log4OM, LotW)
+// don't reject the record for CONTEST_ID enum violations.
+//
+// Keys are stored fully upper-cased with punctuation stripped so that
+// contest names typed with different casing / spacing (e.g. "IARU HF",
+// "iaru-hf", "IARU-HF") all match a single entry. The value is the
+// canonical ADIF enum spelling.
+var adifContestIDs = func() map[string]string {
+	list := []string{
+		// DARC contests
+		"DARC-FT4",
+		"DARC-WAEDC-CW",
+		"DARC-WAEDC-RTTY",
+		"DARC-WAEDC-SSB",
+		"DARC-WAG",
+		"DL-DX-RTTY",
+		// IARU / general HF
+		"IARU-HF",
+		"IARU-FIELD-DAY",
+		"EU-HF",
+		"EU-PSK-DX",
+		"EU-SPRINT",
+		"EUCW160M",
+		"HELVETIA",
+		// CQ contests
+		"CQ-160-CW",
+		"CQ-160-SSB",
+		"CQ-M",
+		"CQ-WPX-CW",
+		"CQ-WPX-RTTY",
+		"CQ-WPX-SSB",
+		"CQ-WW-CW",
+		"CQ-WW-RTTY",
+		"CQ-WW-SSB",
+		"CQ-WW-VHF",
+		// ARRL
+		"ARRL-10",
+		"ARRL-160",
+		"ARRL-DX-CW",
+		"ARRL-DX-SSB",
+		"ARRL-FIELD-DAY",
+		"ARRL-RTTY",
+		"ARRL-SS-CW",
+		"ARRL-SS-SSB",
+		"ARRL-VHF-JAN",
+		"ARRL-VHF-JUN",
+		"ARRL-VHF-SEP",
+		// RSGB
+		"RSGB-160",
+		"RSGB-21/28-CW",
+		"RSGB-21/28-SSB",
+		"RSGB-IOTA",
+		// REF (France)
+		"REF-160M",
+		"REF-CW",
+		"REF-SSB",
+		// Scandinavian Activity Contest
+		"SAC-CW",
+		"SAC-SSB",
+	}
+	m := make(map[string]string, len(list))
+	for _, id := range list {
+		m[normaliseContestKey(id)] = id
+	}
+	return m
+}()
+
+// normaliseContestKey collapses a contest identifier to a lookup key:
+// upper-case, with hyphens, spaces, underscores and slashes stripped.
+// This lets "IARU HF", "iaru-hf" and "IARU_HF" all collide on the same
+// canonical entry.
+func normaliseContestKey(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case ' ', '-', '_', '/':
+			continue
+		default:
+			if r >= 'a' && r <= 'z' {
+				b.WriteRune(r - 32)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return b.String()
+}
+
+// adifContestID looks up a contest name against the ADIF Contest_ID
+// enumeration. Returns the canonical enum value and true on hit; empty
+// string and false if the caller should fall back to putting the
+// contest name into NOTES.
+func adifContestID(name string) (string, bool) {
+	id, ok := adifContestIDs[normaliseContestKey(name)]
+	return id, ok
 }
 
 // adifModeSubmode maps our internal mode string to the (MODE, SUBMODE) pair
