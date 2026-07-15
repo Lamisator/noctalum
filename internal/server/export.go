@@ -38,7 +38,9 @@ func adifFieldName(name string) string {
 // non-empty, lists the contest's per-QSO custom fields; their values are
 // emitted as application-defined fields (APP_<PROGRAMID>_<NAME>) so the data
 // round-trips through ADIF-aware tools without colliding with standard tags.
-func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, customFieldsJSON string) error {
+// myGridsquare, when non-empty, is emitted as MY_GRIDSQUARE on every record —
+// award trackers rely on it to compute worked-grids/DXCC-from-here credits.
+func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, customFieldsJSON, myGridsquare string) error {
 	header := fmt.Sprintf("ADIF export from %s %s\n", programID, programVersion)
 	if _, err := io.WriteString(w, header); err != nil {
 		return err
@@ -55,7 +57,17 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 	for _, q := range qsos {
 		writeField(w, "CALL", q.Callsign)
 		if q.Name != "" {
-			writeField(w, "NAME", q.Name)
+			// ADIF `NAME` is defined as ASCII-only String. Names with
+			// umlauts or accents (e.g. "Jörg", "José") violate that,
+			// but ADIF 3.1.x introduced `NAME_INTL` (IntlString / UTF-8)
+			// for exactly this case. Prefer the _INTL variant when any
+			// byte falls outside 7-bit ASCII so importers know to
+			// UTF-8-decode.
+			if hasNonASCII(q.Name) {
+				writeField(w, "NAME_INTL", q.Name)
+			} else {
+				writeField(w, "NAME", q.Name)
+			}
 		}
 		writeField(w, "QSO_DATE", q.Time.UTC().Format("20060102"))
 		writeField(w, "TIME_ON", q.Time.UTC().Format("150405"))
@@ -101,6 +113,13 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 		}
 		writeField(w, "OPERATOR", q.Operator)
 		writeField(w, "STATION_CALLSIGN", q.StationCall)
+		// MY_GRIDSQUARE is the exporting station's own Maidenhead
+		// locator. Award trackers (LotW, eQSL, VUCC) rely on it to
+		// credit worked-grids/DXCC-from-here — omitting it forces
+		// operators to hand-edit every export before submission.
+		if myGridsquare != "" {
+			writeField(w, "MY_GRIDSQUARE", strings.ToUpper(myGridsquare))
+		}
 		notes := q.Notes
 		if q.ContestName != "" {
 			if id, ok := adifContestID(q.ContestName); ok {
@@ -123,8 +142,14 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 			// ADIF distinguishes COMMENT (QSO-relevant remarks) from NOTES
 			// (general operator notes). Our field is a free-form text box,
 			// so NOTES is the more accurate mapping and matches what
-			// LotW/eQSL importers expect.
-			writeField(w, "NOTES", notes)
+			// LotW/eQSL importers expect. UTF-8 payloads (umlauts,
+			// non-Latin scripts) go into NOTES_INTL — the plain NOTES
+			// field is ASCII-only per spec.
+			if hasNonASCII(notes) {
+				writeField(w, "NOTES_INTL", notes)
+			} else {
+				writeField(w, "NOTES", notes)
+			}
 		}
 		if len(customFields) > 0 {
 			extras := parseExtras(q.Extras)
@@ -144,6 +169,18 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 		}
 	}
 	return nil
+}
+
+// hasNonASCII reports whether s contains any byte outside 7-bit ASCII.
+// Used to decide between an ADIF String field (ASCII-only per spec) and
+// its IntlString "_INTL" sibling (UTF-8 permitted).
+func hasNonASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 0x7F {
+			return true
+		}
+	}
+	return false
 }
 
 func writeField(w io.Writer, name, value string) {

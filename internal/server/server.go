@@ -3001,7 +3001,7 @@ func (s *Server) handleExportADIF(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: ADIF")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", attachmentDisposition(exportFilename(contestName, contestCall, "adi")))
-	if err := ExportADIF(w, qsos, programID, programVersion, customFieldsJSON); err != nil {
+	if err := ExportADIF(w, qsos, programID, programVersion, customFieldsJSON, sess.ContestQTH()); err != nil {
 		log.Printf("ADIF export error: %v", err)
 	}
 }

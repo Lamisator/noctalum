@@ -39,7 +39,7 @@ func sampleQSO() store.QSO {
 // numbers, and omitted for QSOs that don't.
 func TestExportADIFEmitsSTXSRX(t *testing.T) {
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, "Noctalum", "test", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, "Noctalum", "test", "", ""); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -56,7 +56,7 @@ func TestExportADIFOmitsSTXSRXWhenZero(t *testing.T) {
 	q.NrSent = 0
 	q.NrReceived = 0
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -71,7 +71,7 @@ func TestExportADIFLighthouseUsesSIG(t *testing.T) {
 	q := sampleQSO()
 	q.Lighthouse = "DE-0042"
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -108,7 +108,7 @@ func TestExportADIFModeSubmodeSplit(t *testing.T) {
 		q := sampleQSO()
 		q.Mode = c.in
 		var buf bytes.Buffer
-		if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+		if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
 			t.Fatalf("ExportADIF(%s): %v", c.in, err)
 		}
 		out := buf.String()
@@ -137,7 +137,7 @@ func TestExportADIFUsesNOTESNotCOMMENT(t *testing.T) {
 	q.Notes = "hello world"
 	q.ContestName = "" // don't let the contest-name fallback rewrite NOTES
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -168,7 +168,7 @@ func TestExportADIFContestIDEnumLookup(t *testing.T) {
 		q.ContestName = c.in
 		q.Notes = "" // start clean so we can assert NOTES isn't touched
 		var buf bytes.Buffer
-		if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+		if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
 			t.Fatalf("ExportADIF(%q): %v", c.in, err)
 		}
 		out := buf.String()
@@ -186,7 +186,7 @@ func TestExportADIFUnknownContestFallsBackToNOTES(t *testing.T) {
 	q.ContestName = "WSA 2026" // local DARC OV activity — not in ADIF enum
 	q.Notes = ""
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -203,12 +203,89 @@ func TestExportADIFUnknownContestPreservesExistingNotes(t *testing.T) {
 	q.ContestName = "Local Fun Run"
 	q.Notes = "S9+20 into JN49"
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
 	if !strings.Contains(out, "Contest: Local Fun Run\nS9+20 into JN49") {
 		t.Errorf("existing NOTES must be preserved after the contest fallback: %q", out)
+	}
+}
+
+// FR #67: MY_GRIDSQUARE is required by every award tracker to credit
+// worked-grids/DXCC-from-here. It was previously never emitted.
+func TestExportADIFEmitsMyGridsquare(t *testing.T) {
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, "Noctalum", "test", "", "jn49xx"); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	// Locator gets uppercased so LotW/eQSL accept it verbatim.
+	if !strings.Contains(out, "<MY_GRIDSQUARE:6>JN49XX") {
+		t.Errorf("MY_GRIDSQUARE missing or wrong case: %q", out)
+	}
+}
+
+func TestExportADIFOmitsMyGridsquareWhenEmpty(t *testing.T) {
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, "Noctalum", "test", "", ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	if strings.Contains(buf.String(), "<MY_GRIDSQUARE:") {
+		t.Errorf("MY_GRIDSQUARE must not appear when caller passes empty QTH")
+	}
+}
+
+// FR #67: ADIF `NAME` is ASCII-only. Names with umlauts / accents must be
+// emitted via the `NAME_INTL` sibling field so importers UTF-8-decode.
+func TestExportADIFNameIntlForUmlauts(t *testing.T) {
+	q := sampleQSO() // Name: "Jörg"
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	// "Jörg" is 5 bytes in UTF-8 (ö = 0xC3 0xB6).
+	if !strings.Contains(out, "<NAME_INTL:5>Jörg") {
+		t.Errorf("NAME_INTL missing for umlaut name: %q", out)
+	}
+	// Plain <NAME> would misrepresent the byte count on a strict reader.
+	if strings.Contains(out, "<NAME:") {
+		t.Errorf("plain <NAME> emitted for non-ASCII value: %q", out)
+	}
+}
+
+func TestExportADIFNamePlainForASCII(t *testing.T) {
+	q := sampleQSO()
+	q.Name = "Carsten"
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "<NAME:7>Carsten") {
+		t.Errorf("plain <NAME> missing for ASCII value: %q", out)
+	}
+	if strings.Contains(out, "<NAME_INTL:") {
+		t.Errorf("NAME_INTL wrongly emitted for ASCII value: %q", out)
+	}
+}
+
+// Same _INTL / ASCII split applies to NOTES.
+func TestExportADIFNotesIntlForUmlauts(t *testing.T) {
+	q := sampleQSO()
+	q.ContestName = "" // avoid the "Contest:" prefix polluting the notes
+	q.Notes = "schöner Kontakt"
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "<NOTES_INTL:") {
+		t.Errorf("NOTES_INTL missing for umlaut notes: %q", out)
+	}
+	if strings.Contains(out, "<NOTES:") {
+		t.Errorf("plain <NOTES> emitted for non-ASCII value: %q", out)
 	}
 }
 
