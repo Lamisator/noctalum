@@ -7714,6 +7714,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.68',
+      date: '2026-07-15',
+      en: 'v0.68: Cleaner ADIF exports and a way to update your own callsign.\n- New "Request callsign change" card in Personal Settings — upload a licence scan, an admin approves or declines\n- Approved changes update your callsign live in every open session, no re-login\n- ADIF now carries the contest running number in STX/SRX; CSV gains nr_sent and nr_received columns\n- FT8/FT4/PSK31/PSK63 written as proper MODE+SUBMODE pairs, lighthouses via SIG/SIG_INFO — strict importers stop rejecting records\n- CONTEST_ID only for known ADIF contests; local activities land in NOTES instead of failing import\n- MY_GRIDSQUARE from your contest QTH is now emitted on every QSO\n- Names with umlauts (Jörg, José) go into the ADIF _INTL fields so LotW/eQSL show them correctly',
+      de: 'v0.68: Saubere ADIF-Exports und ein Weg, dein eigenes Rufzeichen zu ändern.\n- Neue Karte „Rufzeichenänderung beantragen" in den persönlichen Einstellungen — Lizenznachweis hochladen, Admin gibt frei oder lehnt ab\n- Nach der Freigabe ist dein neues Rufzeichen sofort in jeder offenen Session aktiv, ohne Neuanmeldung\n- ADIF trägt jetzt die laufende Nummer in STX/SRX; CSV bekommt zusätzlich nr_sent und nr_received\n- FT8/FT4/PSK31/PSK63 werden als korrekte MODE+SUBMODE-Paare geschrieben, Leuchttürme über SIG/SIG_INFO — strenge Importer verwerfen keine Datensätze mehr\n- CONTEST_ID nur noch für bekannte ADIF-Conteste; lokale Aktivitäten landen in NOTES statt den Import zu sprengen\n- MY_GRIDSQUARE aus deinem Contest-QTH wird bei jedem QSO mitgeschrieben\n- Namen mit Umlauten (Jörg, José) landen in den ADIF-_INTL-Feldern, damit LotW/eQSL sie richtig anzeigen',
+    },
+    {
       version: '0.67',
       date: '2026-06-23',
       en: 'v0.67: "Edit Contest" no longer wedges keyboard focus.\n- Opening Edit Contest from the Map tab and typing in a field used to trap focus — Esc and Tab stopped working until a full page reload\n- Esc now reliably closes any modal, including via a second listener on the dialog itself\n- Clicking the dark backdrop outside the dialog also closes it\n- The first input in every modal is auto-focused so you always know where typing goes\n- Focus is released cleanly when a modal closes',

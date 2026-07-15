@@ -1,5 +1,93 @@
 # Noctalum Changelog
 
+## v0.68 — 2026-07-15 — Callsign change requests, ADIF spec-conformant exports
+
+- **New "Request callsign change" flow in Personal Settings.**
+  Operators submit a new callsign together with a scan/photo of the
+  licence upgrade (jpg/png/pdf, up to 5 MB); admins with the new
+  `callsign_requests.review` permission get a top-nav "Callsign
+  requests" screen listing every pending request with the proof link
+  and inline Approve / Decline buttons. Approval updates the stored
+  callsign and refreshes every live session for the user via
+  `SessionStore.RefreshUser` so the topbar and outgoing chat call
+  update without a re-login. One request in flight per user is
+  enforced server-side; withdrawing marks the row rejected
+  ("withdrawn by user") to preserve the audit trail. Uploads land in
+  `<db-dir>/callsign_proofs/` with random opaque filenames written
+  `O_EXCL 0600`, and the proof file is deleted the moment a decision
+  is recorded — the row keeps the metadata but the sensitive document
+  only lives while the request is open. Files touched:
+  `internal/store/callsign_requests.go` (new `callsign_requests` table
+  + migration), `internal/server/callsign_requests.go` (handlers),
+  `internal/server/{auth.go,audit.go,server.go,main.go}` (permission,
+  audit actions, routes, proofs-dir plumbing),
+  `internal/server/web/{index.html,app.js,i18n.js}` (settings card,
+  admin screen, EN/DE i18n with informal "du" strings).
+- **Contest exchange numbers now appear in ADIF and CSV exports —
+  FR #67 (dl8aa).** `QSO.NrSent` / `QSO.NrReceived` were populated by
+  the logging path but silently dropped from both exports. ADIF now
+  emits `<STX:n>{nr}` for a non-zero sent number and `<SRX:n>{nr}` for
+  a non-zero received number. CSV gains two new columns, `nr_sent` and
+  `nr_received`, inserted after `rst_received` so the running numbers
+  sit next to the reports they belong with. Zero values are omitted
+  so non-contest / imported QSOs don't leak a spurious `<STX:1>0`.
+  Third-party scoring tools (DXKeeper, Log4OM, Tucnak) now receive
+  the sequence instead of only the RST.
+- **ADIF lighthouse: bare `<ARLHS>` → `SIG=ARLHS` + `SIG_INFO=<ref>`.**
+  ADIF has no dedicated lighthouse field; bare `<ARLHS>` tags were
+  invented by early loggers and get rejected by strict validators
+  (DXKeeper, Log4OM). The idiomatic mapping is the Special Interest
+  Group pair, mirroring the SOTA-in-SIG / POTA-in-SIG pattern.
+- **ADIF mode/submode split for FT8, FT4, PSK31/63/125, JT65A/B/C,
+  JT9A, USB, LSB.** Per the ADIF Mode enumeration, digital variants
+  are not standalone modes: FT8/FT4 are SUBMODEs of MFSK; PSK31/63 of
+  PSK; JT65A/B/C of JT65; USB/LSB of SSB. Emitting `<MODE:3>FT8` was
+  not a legal enum value and strict importers rejected the whole
+  record. New `adifModeSubmode()` helper returns the correct pair;
+  plain analogue modes (CW, SSB, AM, FM, RTTY) pass through unchanged
+  with no SUBMODE.
+- **Notes now map to ADIF `NOTES`, not `COMMENT`.** ADIF distinguishes
+  COMMENT (QSO-relevant remarks — signal conditions, equipment) from
+  NOTES (general operator notes). Our field is a free-form text box,
+  so NOTES is the accurate mapping and what LotW/eQSL importers
+  expect.
+- **`CONTEST_ID` is validated against the ADIF enum with a NOTES
+  fallback.** Previously the free-form contest name landed in
+  `<CONTEST_ID>`, so records for local DARC OV activities (WSA 2026,
+  Notfunkübung, ...) were rejected by strict importers. A curated
+  whitelist of ~40 ADIF `Contest_ID` values covers DARC (WAEDC, WAG,
+  FT4), IARU, EU-HF/PSK, CQ (WW, WPX, 160), ARRL, RSGB, REF and SAC.
+  Lookup via `normaliseContestKey()` is case- and separator-
+  insensitive so "cq ww cw" hits `CQ-WW-CW`. On miss,
+  `"Contest: <name>"` is prepended to `NOTES` (with a newline before
+  any existing content), so the information isn't lost — it just
+  isn't machine-indexable as a contest.
+- **`MY_GRIDSQUARE` is emitted from the contest QTH.** Every award
+  tracker (LotW, eQSL, VUCC, DXCC-from-here) reads `MY_GRIDSQUARE` to
+  credit worked-grids and DXCC-from-QTH. We had the value on the
+  session (`sess.ContestQTH()`, used already by the PDF export) but
+  never threaded it into `ExportADIF`. Now emitted uppercased once
+  per QSO; empty QTH is a no-op so non-contest exports are
+  unaffected. `ExportADIF` signature grows a trailing `myGridsquare`
+  string parameter — the only production caller is `handleExportADIF`.
+- **UTF-8 in ADIF `NAME` and `NOTES` uses the `_INTL` variants.**
+  Per ADIF 3.1.x, `NAME` and `NOTES` are ASCII-only `String`. Values
+  with umlauts ("Jörg", "schöner Kontakt") or accents ("José")
+  violate that and can round-trip as mojibake through strict readers.
+  ADIF 3.1 added `NAME_INTL` and `NOTES_INTL` as `IntlString`
+  (UTF-8 permitted). New `hasNonASCII(s)` helper picks the right
+  variant per field; pure-ASCII values still land in the plain
+  `<NAME>` / `<NOTES>` tags so downstream tools aren't forced onto
+  the `_INTL` parser unnecessarily.
+- **New regression tests for every ADIF fix.** New file
+  `internal/server/export_test.go` covers STX/SRX presence and
+  omission, `SIG` + `SIG_INFO`, mode/submode split (FT8, FT4, PSK31,
+  PSK63, USB, LSB, CW/SSB/FM pass-through), NOTES vs COMMENT,
+  CONTEST_ID enum lookup with case/separator insensitivity,
+  unknown-contest NOTES fallback, `MY_GRIDSQUARE` presence/absence,
+  and `_INTL` variants for `NAME` and `NOTES`. 14 test cases total.
+- `programVersion` bumped to `0.68`
+
 ## v0.67 — 2026-06-23 — Modal robustness — Edit Contest no longer wedges focus
 
 - **Modal becomes unresponsive after editing from the Map tab —
