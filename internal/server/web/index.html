@@ -92,6 +92,10 @@
         <span class="nav-pill-icon">&#9733;</span>
         <span data-i18n="contestScreen.featureRequests">Feature Requests</span>
       </button>
+      <button id="callsign-requests-admin-btn" class="nav-pill-btn perm-required" data-perm="callsign_requests.review">
+        <span class="nav-pill-icon">&#128231;</span>
+        <span data-i18n="contestScreen.callsignRequests">Callsign requests</span>
+      </button>
       <button id="my-settings-nav-btn" class="nav-pill-btn">
         <span class="nav-pill-icon">&#9881;</span>
         <span data-i18n="contestScreen.personalSettings">Personal Settings</span>
@@ -891,6 +895,38 @@
   </div>
 </div>
 
+<div id="callsign-requests-admin-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="callsignRequestsAdmin.title">Callsign change requests</h1>
+  </div>
+  <div class="admin-screen-body">
+    <div class="card">
+      <div class="history-header">
+        <h2 data-i18n="callsignRequestsAdmin.title">Callsign change requests</h2>
+        <button type="button" id="cr-refresh-btn" class="ghost" data-i18n="common.refresh">Refresh</button>
+      </div>
+      <table id="cr-table">
+        <thead>
+          <tr>
+            <th data-i18n="callsignRequestsAdmin.colDate">Submitted</th>
+            <th data-i18n="callsignRequestsAdmin.colUser">User</th>
+            <th data-i18n="callsignRequestsAdmin.colFrom">Current</th>
+            <th data-i18n="callsignRequestsAdmin.colTo">Requested</th>
+            <th data-i18n="callsignRequestsAdmin.colProof">Proof</th>
+            <th data-i18n="callsignRequestsAdmin.colStatus">Status</th>
+            <th data-i18n="callsignRequestsAdmin.colActions">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="cr-tbody"></tbody>
+      </table>
+      <div class="history-footer muted">
+        <span id="cr-count"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- My Feature Requests screen -->
 <div id="my-featurerequests-screen" class="screen admin-screen hidden">
   <div class="admin-screen-header">
@@ -971,6 +1007,31 @@
   -server <span id="ms-hint-server">http://this-server:8080</span> \
   -name "IC-7300" \
   -token <span id="ms-hint-token">...</span></pre>
+    </div>
+
+    <div class="card settings-card" style="margin-top:14px">
+      <h2 data-i18n="callsignRequest.title">Request callsign change</h2>
+      <p class="muted small" data-i18n="callsignRequest.intro">Submit a new callsign together with a scan or photo of a document that proves the change (e.g. your amateur radio licence). An administrator will review and either approve or decline the request.</p>
+      <div id="ms-callsign-current" class="muted small" style="margin-bottom:8px"></div>
+      <div id="ms-callsign-pending" class="hidden" style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:10px;background:var(--bg-elev-2)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <span><strong data-i18n="callsignRequest.pendingTitle">Pending request</strong>: <span id="ms-callsign-pending-summary"></span></span>
+          <button type="button" id="ms-callsign-withdraw-btn" class="ghost" data-i18n="callsignRequest.withdraw">Withdraw request</button>
+        </div>
+        <div id="ms-callsign-pending-meta" class="muted small" style="margin-top:6px"></div>
+      </div>
+      <form id="ms-callsign-form">
+        <label><span data-i18n="callsignRequest.newCallsign">New callsign</span>
+          <input id="ms-callsign-new" type="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="20" required />
+        </label>
+        <label><span data-i18n="callsignRequest.proof">Proof (JPG, PNG or PDF, max 5 MB)</span>
+          <input id="ms-callsign-proof" type="file" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" required />
+        </label>
+        <div class="entry-actions">
+          <span id="ms-callsign-error" class="error"></span>
+          <button type="submit" class="primary" data-i18n="callsignRequest.submit">Submit request</button>
+        </div>
+      </form>
     </div>
 
     <div class="card settings-card" style="margin-top:14px">

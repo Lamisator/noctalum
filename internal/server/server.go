@@ -66,6 +66,7 @@ type Server struct {
 	qrz            *QRZClient
 	downloadsDir        string
 	soundsDir           string
+	callsignProofsDir   string
 	shutdownTriggerPath string
 }
 
@@ -74,6 +75,16 @@ func (s *Server) SetSoundsDir(dir string) {
 	s.soundsDir = dir
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		log.Printf("warning: could not create sounds dir %s: %v", dir, err)
+	}
+}
+
+// SetCallsignProofsDir configures the directory where callsign-change-request
+// proof uploads are stored. One file per request, safe filename is stored on
+// the row so the admin UI can stream it back.
+func (s *Server) SetCallsignProofsDir(dir string) {
+	s.callsignProofsDir = dir
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		log.Printf("warning: could not create callsign proofs dir %s: %v", dir, err)
 	}
 }
 
@@ -199,6 +210,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/me/time-input-mode", s.requireAuth(s.handleMeTimeInputMode))
 	mux.HandleFunc("/api/me/theme", s.requireAuth(s.handleMeTheme))
 	mux.HandleFunc("/api/me/last-seen-version", s.requireAuth(s.handleMeLastSeenVersion))
+	mux.HandleFunc("/api/me/callsign-request", s.requireAuth(s.handleMeCallsignRequest))
 	mux.HandleFunc("/api/passkey/register/begin", s.requireAuth(s.handlePasskeyRegisterBegin))
 	mux.HandleFunc("/api/passkey/register/finish", s.requireAuth(s.handlePasskeyRegisterFinish))
 	mux.HandleFunc("/api/passkey/credentials", s.requireAuth(s.handlePasskeyCredentials))
@@ -240,6 +252,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/export/edi", s.requirePerm(PermQSOExport, s.handleExportEDI))
 	mux.HandleFunc("/api/export/pdf", s.requirePerm(PermQSOExport, s.handleExportPDF))
 	mux.HandleFunc("/api/audit", s.requirePerm(PermAuditLog, s.handleAuditLog))
+	mux.HandleFunc("/api/callsign-requests", s.requirePerm(PermCallsignRequestsReview, s.handleCallsignRequests))
+	mux.HandleFunc("/api/callsign-requests/", s.requirePerm(PermCallsignRequestsReview, s.handleCallsignRequestByID))
 	mux.HandleFunc("/api/feature-requests", s.requireAuth(s.handleFeatureRequests))
 	mux.HandleFunc("/api/feature-requests/mine", s.requireAuth(s.handleMyFeatureRequests))
 	mux.HandleFunc("/api/feature-requests/", s.requireAuth(s.handleFeatureRequestByID))

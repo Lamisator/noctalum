@@ -36,6 +36,9 @@ func main() {
 	}
 	// Derive sounds directory from db location so no extra flag is needed.
 	srv.SetSoundsDir(filepath.Join(filepath.Dir(*dbPath), "sounds"))
+	// Callsign-change-request proof uploads live next to the sounds dir
+	// under the db directory (single deploy target for all runtime state).
+	srv.SetCallsignProofsDir(filepath.Join(filepath.Dir(*dbPath), "callsign_proofs"))
 	// Derive shutdown trigger path the same way — the deploy script writes
 	// the countdown value here instead of calling an unauthenticated HTTP endpoint.
 	srv.SetShutdownTriggerPath(filepath.Join(filepath.Dir(*dbPath), "shutdown_trigger"))

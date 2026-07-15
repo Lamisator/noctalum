@@ -641,6 +641,7 @@
   function show(which) {
     ['setup-screen', 'login-screen', 'contest-screen', 'global-settings-screen',
      'contests-admin-screen', 'users-admin-screen', 'audit-admin-screen', 'featurerequests-admin-screen',
+     'callsign-requests-admin-screen',
      'my-featurerequests-screen', 'my-settings-screen', 'changelog-screen', 'dok-cache-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
     $(which).classList.remove('hidden');
     if (which === 'setup-screen') $('setup-username').focus();
@@ -732,6 +733,7 @@
   $('users-admin-btn').addEventListener('click', () => { if (!hasPerm('users.manage')) return; showAdminScreen('users-admin-screen', refreshUsers); });
   $('audit-admin-btn').addEventListener('click', () => { if (!hasPerm('audit.log')) return; showAdminScreen('audit-admin-screen', () => refreshAuditLog(true)); });
   $('featurerequests-admin-btn').addEventListener('click', () => { if (!hasPerm('feature_requests.read')) return; showAdminScreen('featurerequests-admin-screen', refreshFeatureRequests); });
+  $('callsign-requests-admin-btn')?.addEventListener('click', () => { if (!hasPerm('callsign_requests.review')) return; showAdminScreen('callsign-requests-admin-screen', refreshCallsignRequests); });
 
   document.querySelectorAll('.admin-back-btn').forEach(btn => {
     btn.addEventListener('click', () => showContestScreen());
@@ -4532,6 +4534,7 @@
     updateMsChatMutePill();
     applyPermissionsToUI();
     loadMyPasskeys();
+    loadMyCallsignRequest();
   }
   $('ms-regen-token')?.addEventListener('click', async () => {
     if (!await showConfirm(t('settings.regenConfirm'), { ok: t('settings.regenButton') })) return;
@@ -4666,6 +4669,169 @@
       if (err.name !== 'NotAllowedError') $('ms-passkey-error').textContent = err.message || t('settings.passkeyRegFail');
     }
   });
+
+  // ----- callsign change request (Personal Settings card) -----
+  async function loadMyCallsignRequest() {
+    const currentBox = $('ms-callsign-current');
+    if (currentBox && me) currentBox.textContent = t('callsignRequest.currentCallsign', { call: me.callsign || '' });
+    const pendingBox = $('ms-callsign-pending');
+    const form = $('ms-callsign-form');
+    const errEl = $('ms-callsign-error');
+    if (errEl) { errEl.textContent = ''; errEl.style.color = ''; }
+    const res = await api('/api/me/callsign-request');
+    if (res.status === 204 || !res.ok) {
+      pendingBox?.classList.add('hidden');
+      if (form) form.classList.remove('hidden');
+      return;
+    }
+    const cr = await res.json();
+    if (form) form.classList.add('hidden');
+    if (pendingBox) {
+      pendingBox.classList.remove('hidden');
+      const summary = $('ms-callsign-pending-summary');
+      if (summary) summary.textContent = t('callsignRequest.pendingSummary', { from: cr.current_callsign, to: cr.requested_callsign });
+      const meta = $('ms-callsign-pending-meta');
+      if (meta) {
+        const when = cr.created_at ? new Date(cr.created_at).toLocaleString(localeForFmt()) : '';
+        meta.textContent = t('callsignRequest.pendingSubmitted', { when });
+      }
+    }
+  }
+  $('ms-callsign-withdraw-btn')?.addEventListener('click', async () => {
+    if (!await showConfirm(t('callsignRequest.withdrawConfirm'), { ok: t('callsignRequest.withdraw') })) return;
+    const res = await api('/api/me/callsign-request', { method: 'DELETE' });
+    if (res.ok || res.status === 204) await loadMyCallsignRequest();
+  });
+  $('ms-callsign-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = $('ms-callsign-error');
+    if (errEl) { errEl.textContent = ''; errEl.style.color = ''; }
+    const newCall = ($('ms-callsign-new').value || '').trim().toUpperCase();
+    const fileInput = $('ms-callsign-proof');
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    if (!newCall) { errEl.textContent = t('callsignRequest.invalidCallsign'); return; }
+    if (me && newCall === (me.callsign || '').toUpperCase()) {
+      errEl.textContent = t('callsignRequest.sameAsCurrent');
+      return;
+    }
+    if (!file) { errEl.textContent = t('callsignRequest.proofMissing'); return; }
+    if (file.size > 5 * 1024 * 1024) { errEl.textContent = t('callsignRequest.proofTooLarge'); return; }
+    const nameLc = (file.name || '').toLowerCase();
+    const okExt = nameLc.endsWith('.jpg') || nameLc.endsWith('.jpeg') || nameLc.endsWith('.png') || nameLc.endsWith('.pdf');
+    if (!okExt) { errEl.textContent = t('callsignRequest.proofBadType'); return; }
+    const fd = new FormData();
+    fd.append('callsign', newCall);
+    fd.append('proof', file);
+    // Bypass the api() helper so we don't force a JSON Content-Type header on
+    // this multipart submission; still pass the CSRF cookie ourselves.
+    const res = await fetch('/api/me/callsign-request', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {},
+      body: fd,
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      errEl.textContent = j.error || t('callsignRequest.submitFailed');
+      return;
+    }
+    $('ms-callsign-new').value = '';
+    if (fileInput) fileInput.value = '';
+    errEl.textContent = t('callsignRequest.submitted');
+    errEl.style.color = 'var(--success)';
+    await loadMyCallsignRequest();
+  });
+
+  // ----- callsign change request (Admin review screen) -----
+  async function refreshCallsignRequests() {
+    if (!hasPerm('callsign_requests.review')) return;
+    const res = await api('/api/callsign-requests');
+    if (!res.ok) return;
+    const list = await res.json();
+    renderCallsignRequests(Array.isArray(list) ? list : []);
+  }
+  function renderCallsignRequests(list) {
+    const tbody = $('cr-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    const count = $('cr-count');
+    if (count) {
+      const n = list.length;
+      if (n === 0) count.textContent = t('callsignRequestsAdmin.noRequests');
+      else count.textContent = n === 1 ? t('callsignRequestsAdmin.count', { n }) : t('callsignRequestsAdmin.countPlural', { n });
+    }
+    for (const cr of list) {
+      const tr = document.createElement('tr');
+      const when = cr.created_at ? new Date(cr.created_at).toLocaleString(localeForFmt()) : '';
+      const statusKey = 'callsignRequestsAdmin.status_' + cr.status;
+      const statusLabel = t(statusKey) || cr.status;
+      const statusClass = { pending: 'open', approved: 'finished', rejected: 'disabled' }[cr.status] || '';
+      let proofCell = '';
+      if (cr.status === 'pending') {
+        proofCell = `<a href="/api/callsign-requests/${Number(cr.id)}/proof" target="_blank" rel="noopener">${escHtml(t('callsignRequestsAdmin.viewProof'))}</a>`;
+      } else {
+        proofCell = '<span class="muted small">—</span>';
+      }
+      let actionsCell = '';
+      if (cr.status === 'pending') {
+        actionsCell = `<button class="primary cr-approve-btn" data-id="${Number(cr.id)}" style="width:auto;font-size:12px;padding:4px 10px">${escHtml(t('callsignRequestsAdmin.approve'))}</button>
+          <button class="ghost cr-decline-btn" data-id="${Number(cr.id)}" style="width:auto;font-size:12px;padding:4px 10px;margin-left:4px">${escHtml(t('callsignRequestsAdmin.decline'))}</button>`;
+      } else {
+        const decidedAt = cr.decided_at ? new Date(cr.decided_at).toLocaleString(localeForFmt()) : '';
+        const who = cr.decided_by || '';
+        let meta = who ? t('callsignRequestsAdmin.decidedBy', { who, when: decidedAt }) : decidedAt;
+        if (cr.admin_note) meta += ' — ' + cr.admin_note;
+        actionsCell = `<span class="muted small">${escHtml(meta)}</span>`;
+      }
+      tr.innerHTML = `
+        <td class="muted small">${escHtml(when)}</td>
+        <td>${escHtml(cr.username)}</td>
+        <td>${escHtml(cr.current_callsign)}</td>
+        <td><strong>${escHtml(cr.requested_callsign)}</strong></td>
+        <td>${proofCell}</td>
+        <td><span class="badge ${statusClass}">${escHtml(statusLabel)}</span></td>
+        <td style="white-space:nowrap">${actionsCell}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+    tbody.querySelectorAll('.cr-approve-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = Number(btn.dataset.id);
+        const row = list.find(x => Number(x.id) === id);
+        if (!row) return;
+        const ok = await showConfirm(t('callsignRequestsAdmin.approveConfirm', {
+          from: row.current_callsign, to: row.requested_callsign, user: row.username,
+        }), { ok: t('callsignRequestsAdmin.approve') });
+        if (!ok) return;
+        const res = await api('/api/callsign-requests/' + id + '/decide', {
+          method: 'POST', body: JSON.stringify({ decision: 'approve' }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          alert(j.error || t('callsignRequestsAdmin.actionFailed'));
+          return;
+        }
+        await refreshCallsignRequests();
+      });
+    });
+    tbody.querySelectorAll('.cr-decline-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = Number(btn.dataset.id);
+        const note = prompt(t('callsignRequestsAdmin.declinePrompt'), '');
+        if (note === null) return; // admin cancelled the prompt
+        const res = await api('/api/callsign-requests/' + id + '/decide', {
+          method: 'POST', body: JSON.stringify({ decision: 'reject', note }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          alert(j.error || t('callsignRequestsAdmin.actionFailed'));
+          return;
+        }
+        await refreshCallsignRequests();
+      });
+    });
+  }
+  $('cr-refresh-btn')?.addEventListener('click', refreshCallsignRequests);
 
   // ----- dummy TRX management -----
   async function loadDummyRigs() {

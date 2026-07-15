@@ -51,6 +51,10 @@ const (
 	AuditFeatureRequestCreate = "feature_request.create"
 	AuditFeatureRequestUpdate = "feature_request.update"
 	AuditFeatureRequestDelete = "feature_request.delete"
+	AuditCallsignRequestCreate   = "callsign_request.create"
+	AuditCallsignRequestWithdraw = "callsign_request.withdraw"
+	AuditCallsignRequestApprove  = "callsign_request.approve"
+	AuditCallsignRequestReject   = "callsign_request.reject"
 	AuditExport              = "export"
 	AuditAccessDenied        = "access.denied"
 )
@@ -69,6 +73,7 @@ var AllAuditActions = []string{
 	AuditPasskeyRegister, AuditPasskeyDelete,
 	AuditSoundUpload, AuditSoundDelete,
 	AuditFeatureRequestCreate, AuditFeatureRequestUpdate, AuditFeatureRequestDelete,
+	AuditCallsignRequestCreate, AuditCallsignRequestWithdraw, AuditCallsignRequestApprove, AuditCallsignRequestReject,
 	AuditExport,
 	AuditAccessDenied,
 }
