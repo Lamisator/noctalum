@@ -4916,18 +4916,27 @@
   // trigger file. This browser sees its own broadcast and drops into
   // the standard "deploy" overlay + polling flow.
   function openRestoreModal(name) {
+    // The <form> wrapper is load-bearing: showModal() wires the
+    // submit handler off `card.querySelector('form')` — no form, no
+    // submit event, and the button appears frozen because its
+    // enable/disable listener (which also selects `#modal-card form
+    // input[name=confirm]`) never binds either. Earlier revisions
+    // omitted the form and left the modal effectively inert on
+    // click.
     showModal(`
       <h3>${escHtml(t('backups.restoreTitle'))}</h3>
-      <p>${escHtml(t('backups.restoreWarning'))}</p>
-      <p><code style="font-size:12px;word-break:break-all">${escHtml(name)}</code></p>
-      <p class="muted small">${escHtml(t('backups.restoreSafetyNote'))}</p>
-      <label>${escHtml(t('backups.restoreConfirmLabel'))}</label>
-      <input name="confirm" autocomplete="off" placeholder="${escHtml(name)}" />
-      <div class="modal-err error"></div>
-      <div class="modal-actions">
-        <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
-        <button type="submit" class="danger" id="bk-restore-submit" disabled>${escHtml(t('backups.restoreConfirmButton'))}</button>
-      </div>
+      <form>
+        <p>${escHtml(t('backups.restoreWarning'))}</p>
+        <p><code style="font-size:12px;word-break:break-all">${escHtml(name)}</code></p>
+        <p class="muted small">${escHtml(t('backups.restoreSafetyNote'))}</p>
+        <label>${escHtml(t('backups.restoreConfirmLabel'))}</label>
+        <input name="confirm" autocomplete="off" placeholder="${escHtml(name)}" />
+        <div class="modal-err error"></div>
+        <div class="modal-actions">
+          <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
+          <button type="submit" class="danger" id="bk-restore-submit" disabled>${escHtml(t('backups.restoreConfirmButton'))}</button>
+        </div>
+      </form>
     `, async (form) => {
       if (form.confirm.value.trim() !== name) {
         throw new Error(t('backups.restoreConfirmMismatch'));
