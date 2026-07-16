@@ -7909,6 +7909,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.71',
+      date: '2026-07-16',
+      en: 'v0.71: Restore a database backup with one click.\n- New Restore button in the Backups admin screen next to Download / Delete\n- Type-to-confirm modal: the button stays disabled until you type the exact filename\n- A fresh safety backup is taken automatically right before the restore runs — a misclick is always one step recoverable\n- Every browser sees a "restore in progress" overlay for ~30 seconds while the container is stopped, the database reloaded, and the container brought back\n- Requires the backups.manage permission (same as taking / downloading / deleting backups)\n- Restore is executed by a host-side systemd unit that ships with the deploy, so no manual SSH steps',
+      de: 'v0.71: Datenbank-Backup mit einem Klick wiederherstellen.\n- Neuer „Wiederherstellen"-Button im Backups-Bildschirm neben Herunterladen / Löschen\n- Bestätigen durch Tippen: der Button bleibt inaktiv, bis du den exakten Dateinamen eingibst\n- Direkt vor dem Restore wird automatisch ein frisches Sicherheits-Backup erstellt — ein Vertipper ist immer einen Schritt zurück reparierbar\n- Alle Browser sehen für ca. 30 Sekunden ein Overlay „Restore läuft", während der Container gestoppt, die Datenbank neu geladen und der Container wieder gestartet wird\n- Erfordert die Berechtigung backups.manage (dieselbe wie für Erstellen / Herunterladen / Löschen von Backups)\n- Der Restore wird von einer hostseitigen systemd-Unit ausgeführt, die mit dem Deploy mitgeliefert wird — kein manueller SSH-Zugriff nötig',
+    },
+    {
       version: '0.70',
       date: '2026-07-16',
       en: 'v0.70: Automatic daily database backups, plus a cleaner deploy.\n- Postgres backups now run automatically every day, deduplicated by content and pruned after the retention window (default 30 days)\n- New Backups admin screen — take manual backups, download, delete, all gated behind a new backups.manage permission\n- Restore stays out of the UI on purpose; the screen shows the SSH recipe operators use to load a snapshot back with the app stopped\n- Retention window is configurable in Global Settings; set to 0 to keep every backup forever\n- Deploys are back to giving you the full 30-second shutdown warning — the pipeline no longer races the countdown\n- Ghost restart after the previous deploy is fixed: a stale shutdown trigger is now cleared on startup instead of firing a second time',

@@ -1,5 +1,83 @@
 # Noctalum Changelog
 
+## v0.71 — 2026-07-16 — Restore a database backup from the admin UI
+
+- **New "Restore" button on every backup row.** Reverses the
+  earlier download-only design: operators with the `backups.manage`
+  permission can now trigger a restore from the UI instead of
+  SSHing in. The button is danger-styled and behind a type-to-
+  confirm modal — the submit button stays disabled until the
+  operator types the target backup's exact filename (same
+  discipline GitHub / AWS impose for destructive actions).
+- **The app does NOT execute the restore itself** — dropping and
+  reloading tables while the app holds live DB connections would
+  be self-destructive. Instead, `POST /api/backups/<name>/restore`
+  writes a JSON trigger file (atomically, via temp + rename) at
+  `data/restore_trigger`, and a new host-side systemd path unit
+  picks it up. New files under `deploy/systemd/`:
+  * `noctalum-restore.path` — `PathModified` watch on the trigger
+    file (not `PathExists`, which would re-fire every second
+    while the file sits around).
+  * `noctalum-restore.service` — oneshot unit that runs the shell
+    script.
+  * `noctalum-restore.sh` — parses the trigger JSON (jq if
+    available, else python3, else regex fallback), refuses if the
+    referenced backup file is missing or the filename contains
+    path-traversal characters (defence in depth — the app already
+    validates, but a compromised app shouldn't be able to
+    psql-load arbitrary files), then `docker compose stop
+    noctalum` → `zcat backups/<file> | docker exec -i
+    noctalum-postgres psql -v ON_ERROR_STOP=1 ...` → `docker
+    compose start noctalum`. An `EXIT` trap deletes the trigger
+    file on every code path (success OR failure) so the path
+    unit doesn't re-fire in a loop. If psql fails, the container
+    is started back up anyway to avoid turning a bad restore
+    into a full outage.
+- **Belt-and-suspenders safety backup before the restore runs.**
+  The endpoint calls `Manager.Take()` first and only writes the
+  systemd trigger if that succeeds — so a botched restore always
+  leaves a one-step rollback (`noctalum-<ts>-<hash>-manual.sql.gz`)
+  in `./backups/`. If the safety take fails, the whole restore is
+  aborted; the operator retries once the underlying issue is
+  fixed. Refuses with `409 Conflict` if a restore is already in
+  flight (another trigger file exists).
+- **Restore triggers a browser-side overlay across every open
+  session.** Before writing the trigger, the endpoint broadcasts
+  a `restore_starting` WebSocket event to every connected browser.
+  The frontend handler reuses the existing deploy-warning modal +
+  polling machinery with a restore-specific title/body and a
+  shorter 5-second countdown — systemd fires within a second or
+  two of the trigger, so the container-down phase is basically
+  immediate. From every user's POV the whole thing looks like a
+  normal deploy: "restore in progress, please wait, reconnecting…"
+  overlay for ~30 s, then the page comes back on the freshly
+  restored database. `showDeployWarning(seconds, opts)` grew an
+  optional `{title, body}` overrides parameter so the restore
+  path can reuse the same countdown/polling without duplicating
+  logic.
+- **Audit-logged at error level.** Restore is the single most
+  destructive action in the app — a cluster of `backup.restore`
+  events in the audit log should stand out. The record carries
+  the target filename plus the safety-backup filename for later
+  forensics.
+- **New EN/DE strings** (DE informal `du` per CLAUDE.md): the
+  restore button label, the confirm modal (title + destructive
+  warning + safety-backup note + type-to-confirm prompt + submit
+  button), a mismatch error, a failure error, and the "restore
+  starting" overlay title + body. The pre-existing "How do I
+  restore?" collapsible now points at the systemd hook as the
+  primary path, keeping the SSH recipe as a documented fallback
+  for setups where the systemd unit isn't installed.
+- **`deploy.sh` grew an "Installing systemd restore hook" step.**
+  scp's the three systemd files to `/etc/systemd/system/` on
+  every deploy, then `daemon-reload` + `enable --now
+  noctalum-restore.path`. Both operations are idempotent —
+  `daemon-reload` only re-reads files that actually changed,
+  `enable --now` is a no-op on already-active units. Keeps the
+  systemd hook version-locked to whatever release of the app
+  owns the trigger-file contract.
+- `programVersion` bumped to `0.71`.
+
 ## v0.70 — 2026-07-16 — Automatic daily database backups, deploy hardening
 
 - **Automatic daily database backups with deduplication and
