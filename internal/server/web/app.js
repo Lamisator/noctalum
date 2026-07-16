@@ -5718,12 +5718,39 @@
       return arr.filter(f => f && f.name);
     } catch { return []; }
   }
+  // Curated suggestions for the "Field name" input in the custom-fields
+  // editor. Kept intentionally focused on tags contest / DX / SOTA / POTA
+  // operators reach for most often — the full ADIF tag universe would drown
+  // the datalist. Matching entries in export.go's adifStandardFields set
+  // makes the ADIF export emit them as standard tags instead of
+  // APP_NOCTALUM_<name>.
+  const ADIF_FIELD_SUGGESTIONS = [
+    'ADDRESS', 'AGE', 'ANT_AZ', 'ANT_EL', 'ARRL_SECT',
+    'CHECK', 'CLASS', 'CNTY', 'COMMENT', 'COUNTRY',
+    'DISTANCE', 'DXCC', 'EMAIL',
+    'IOTA', 'IOTA_ISLAND_ID',
+    'MY_ANTENNA', 'MY_CITY', 'MY_COUNTRY', 'MY_CQ_ZONE', 'MY_DXCC',
+    'MY_ITU_ZONE', 'MY_IOTA', 'MY_LAT', 'MY_LON', 'MY_NAME',
+    'MY_POTA_REF', 'MY_RIG', 'MY_SOTA_REF', 'MY_STATE', 'MY_WWFF_REF',
+    'POTA_REF', 'PRECEDENCE',
+    'QSLMSG', 'QSL_VIA', 'QTH',
+    'RIG', 'SAT_MODE', 'SAT_NAME', 'SFI', 'SOTA_REF',
+    'STATE', 'TEN_TEN', 'TX_PWR',
+    'VE_PROV', 'WWFF_REF',
+  ];
   function buildCustomFieldsEditorHTML(fields) {
     const rows = (fields || []).map((f, i) => customFieldRowHTML(f, i)).join('');
+    // <datalist> is emitted once per editor; each cf-name input references
+    // it via list=. Browsers show it as a dropdown of typeahead
+    // suggestions but still accept free-text (so non-standard names keep
+    // working).
+    const opts = ADIF_FIELD_SUGGESTIONS.map(n => `<option value="${n}"></option>`).join('');
     return `
       <div class="cf-editor" id="cf-editor">
+        <datalist id="cf-adif-suggestions">${opts}</datalist>
         <div class="cf-editor-rows">${rows}</div>
         <button type="button" class="ghost cf-add-btn" id="cf-add-btn">${escHtml(t('contestScreen.cfAdd'))}</button>
+        <div class="cf-adif-hint muted small">${escHtml(t('contestScreen.cfAdifHint'))}</div>
       </div>`;
   }
   function customFieldRowHTML(f, i) {
@@ -5732,7 +5759,7 @@
     return `
       <div class="cf-row" data-i="${i}">
         <div class="cf-row-fields">
-          <input class="cf-name" placeholder="${escHtml(t('contestScreen.cfNamePlaceholder'))}" value="${escHtml(f.name || '')}" />
+          <input class="cf-name" list="cf-adif-suggestions" placeholder="${escHtml(t('contestScreen.cfNamePlaceholder'))}" value="${escHtml(f.name || '')}" />
           <input class="cf-label" placeholder="${escHtml(t('contestScreen.cfLabelPlaceholder'))}" value="${escHtml(f.label || '')}" />
           <select class="cf-type">${tOpt}</select>
           <input class="cf-options" placeholder="${escHtml(t('contestScreen.cfOptionsPlaceholder'))}" value="${escHtml((f.options || []).join(','))}" />

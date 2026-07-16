@@ -2542,6 +2542,10 @@ body.mobile-mode .mobile-bottom-nav { display: flex; }
   margin-top: 6px;
   font-size: 12px;
 }
+.cf-adif-hint {
+  margin-top: 8px;
+  line-height: 1.4;
+}
 
 /* Chat panel — pin top + bottom, scroll only the message list */
 #ops-tab-chat.active {

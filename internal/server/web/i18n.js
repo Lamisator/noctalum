@@ -248,6 +248,7 @@
         cfRequired: 'Required',
         cfAdd: '+ Add field',
         cfRemoveTitle: 'Remove field',
+        cfAdifHint: 'Tip: naming the field after a standard ADIF tag (e.g. STATE, POTA_REF, TX_PWR) makes it export as that tag — otherwise it is exported as APP_NOCTALUM_<name>.',
       },
       topbar: {
         loggedInAs: 'Logged in as',
@@ -990,6 +991,7 @@
         cfOptionsPlaceholder: 'Optionen (kommagetrennt, für select)',
         cfRequired: 'Pflichtfeld',
         cfAdd: '+ Feld hinzufügen',
+        cfAdifHint: 'Tipp: Benennst du das Feld nach einem Standard-ADIF-Tag (z. B. STATE, POTA_REF, TX_PWR), wird es genau als dieses Tag exportiert — sonst als APP_NOCTALUM_<name>.',
         cfRemoveTitle: 'Feld entfernen',
       },
       topbar: {
