@@ -91,25 +91,50 @@ scp -i "$SSH_KEY" "$ROOT/docker-compose.prod.yml" "$SSH_HOST:$REMOTE_WORK_DIR/do
 # to all connected users, then sends itself SIGTERM after the countdown elapses.
 # No HTTP endpoint is involved — file-write access requires SSH access to the
 # host, which is already a prerequisite for this deploy script.
+#
+# Detection strategy: `docker inspect` the container's State.StartedAt
+# timestamp before and after the trigger.  The self-SIGTERM makes the
+# process exit; docker's `restart: unless-stopped` policy immediately
+# restarts the container, which bumps StartedAt — that transition is
+# our "grace period fully elapsed" signal.  Previous versions polled
+# `curl http://localhost:8675/api/me` on the server, which never
+# reached the container (the prod compose file doesn't publish 8675
+# to the host — Traefik fronts it), so the poll bailed out on the
+# first attempt and `docker compose down` fired before the app had
+# even started its countdown.
+#
+# All polling runs inside a single SSH session so we don't pay ~200 ms
+# of connection overhead per iteration.
 echo "Triggering graceful shutdown (${countdown}s warning)..."
-if ssh -i "$SSH_KEY" "$SSH_HOST" \
-    "printf '%s\n' '${countdown}' > $REMOTE_WORK_DIR/data/shutdown_trigger" ; then
-  echo "Shutdown triggered. Waiting for server to stop..."
-  # Poll until the server stops responding (or give up after countdown + 10 s).
-  deadline=$(( $(date +%s) + countdown + 10 ))
-  while ssh -i "$SSH_KEY" "$SSH_HOST" \
-      "curl -s --max-time 2 http://localhost:8675/api/me > /dev/null 2>&1"; do
-    if [ "$(date +%s)" -ge "$deadline" ]; then
-      echo "warning: server did not stop in time — forcing docker compose down" >&2
-      ssh -i "$SSH_KEY" "$SSH_HOST" "cd $REMOTE_WORK_DIR && docker compose down" || true
-      break
-    fi
-    sleep 1
-  done
-  echo "Server stopped."
+if ssh -i "$SSH_KEY" "$SSH_HOST" bash -s "$countdown" "$REMOTE_WORK_DIR" <<'REMOTE_TRIGGER'
+set -u
+countdown="$1"
+workdir="$2"
+started_before="$(docker inspect --format='{{.State.StartedAt}}' noctalum 2>/dev/null || true)"
+printf '%s\n' "$countdown" > "$workdir/data/shutdown_trigger"
+if [ -z "$started_before" ]; then
+  echo "  container not running — skipping wait, proceeding straight to compose down"
+  exit 0
+fi
+echo "  trigger written; waiting for container restart (StartedAt was $started_before)"
+deadline=$(( $(date +%s) + countdown + 15 ))
+while true; do
+  started_now="$(docker inspect --format='{{.State.StartedAt}}' noctalum 2>/dev/null || true)"
+  if [ -n "$started_now" ] && [ "$started_now" != "$started_before" ]; then
+    echo "  container restarted at $started_now — grace period complete"
+    break
+  fi
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    echo "  warning: container did not restart within countdown+15s — proceeding anyway" >&2
+    break
+  fi
+  sleep 2
+done
+REMOTE_TRIGGER
+then
+  :
 else
-  echo "note: SSH write failed — proceeding with docker compose down" >&2
-  ssh -i "$SSH_KEY" "$SSH_HOST" "cd $REMOTE_WORK_DIR && docker compose down" || true
+  echo "note: shutdown-trigger SSH failed — proceeding with docker compose down" >&2
 fi
 
 # Ensure the container is fully removed before we start the new one.
