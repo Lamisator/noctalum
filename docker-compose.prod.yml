@@ -1,16 +1,56 @@
 services:
+  # PostgreSQL 16 — the app's system of record. The data directory is
+  # bind-mounted (not a named volume) so operators can `ls`/`du`/rsync
+  # against the host filesystem without going through docker inspection.
+  # Backups are still taken via pg_dump (see backup.sh); a raw copy of a
+  # live pgdata directory is not safe.
+  #
+  # The postgres:16 (Debian-based) image runs as UID 999 by convention.
+  # On first boot its entrypoint chowns /var/lib/postgresql/data if it's
+  # empty, so the deploy script just needs to create the pgdata directory
+  # on the host; it does not need to pre-chown it.
+  postgres:
+    image: postgres:16
+    container_name: noctalum-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: noctalum
+      POSTGRES_USER: noctalum
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    networks:
+      - db
+    # pg_isready is bundled with the postgres image; the app depends_on
+    # this healthcheck so it doesn't race Postgres on cold start.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U noctalum -d noctalum"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   noctalum:
     image: debian:bookworm-slim
     container_name: noctalum
     restart: unless-stopped
-    command: /app/noctalum-server -addr :8675 -db /data/noctalum.db -downloads-dir /downloads
+    command: /app/noctalum-server -addr :8675 -data-dir /data -downloads-dir /downloads
+    environment:
+      # Points at the postgres service by its compose-network hostname.
+      # sslmode=disable is fine here — traffic stays on the internal db
+      # network and never touches the host, let alone the public LAN.
+      DATABASE_URL: postgres://noctalum:${POSTGRES_PASSWORD}@postgres:5432/noctalum?sslmode=disable
     volumes:
       - ./app/noctalum-server:/app/noctalum-server:ro
       - ./app/downloads:/downloads:ro
       - ./data:/data
       - /etc/ssl/certs:/etc/ssl/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - proxy
+      - db
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
@@ -22,3 +62,7 @@ services:
 networks:
   proxy:
     external: true
+  # Internal-only network shared between noctalum and postgres. Not
+  # exposed to the host and not reachable from Traefik.
+  db:
+    driver: bridge

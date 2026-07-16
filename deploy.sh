@@ -4,8 +4,11 @@
 # Usage:
 #   ./deploy.sh                      # build everything, then deploy
 #   ./deploy.sh --skip-build         # deploy already-built dist/ artifacts (no rebuild)
-#   ./deploy.sh --transfer-db        # also push the local noctalum.db to the server
 #   ./deploy.sh --countdown 30       # warn users N seconds before shutdown (default: 15)
+#
+# Database migration from a legacy SQLite file is done separately via
+# `cmd/sqlite-to-pg` — see its --help. deploy.sh does not touch the
+# database.
 
 set -euo pipefail
 
@@ -22,13 +25,15 @@ fi
 REMOTE_APP_DIR="$REMOTE_WORK_DIR/app"
 
 skip_build=false
-transfer_db=false
 countdown=60
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-build)  skip_build=true  ; shift ;;
-    --transfer-db) transfer_db=true ; shift ;;
+    --transfer-db)
+      echo "error: --transfer-db is no longer supported. Use cmd/sqlite-to-pg to migrate a SQLite backup into Postgres." >&2
+      exit 1
+      ;;
     --countdown)
       countdown="$2"
       if ! [[ "$countdown" =~ ^[0-9]+$ ]] || [ "$countdown" -lt 1 ]; then
@@ -48,7 +53,31 @@ if [ "$skip_build" = false ]; then
 fi
 
 echo "Preparing remote directories..."
-ssh -i "$SSH_KEY" "$SSH_HOST" "mkdir -p $REMOTE_APP_DIR/downloads $REMOTE_WORK_DIR/data"
+# pgdata holds the Postgres data directory bind-mount. postgres:16's
+# entrypoint chowns it to UID 999 on first init if it's empty, so we
+# just need it to exist — no chown here.
+ssh -i "$SSH_KEY" "$SSH_HOST" \
+  "mkdir -p $REMOTE_APP_DIR/downloads $REMOTE_WORK_DIR/data $REMOTE_WORK_DIR/pgdata $REMOTE_WORK_DIR/backups"
+
+# First-run bootstrap: if .env does not exist on the server, mint a
+# strong random POSTGRES_PASSWORD and write it. We *never* overwrite
+# an existing .env — rotating the password after the DB is already
+# initialised would lock the app out. openssl ships with the target
+# host so no extra install step is needed.
+echo "Bootstrapping .env if missing..."
+ssh -i "$SSH_KEY" "$SSH_HOST" bash -s "$REMOTE_WORK_DIR" <<'REMOTE_ENV'
+set -euo pipefail
+cd "$1"
+ENV_FILE=".env"
+if [ -f "$ENV_FILE" ]; then
+  echo "  .env already exists — leaving it alone"
+else
+  PW="$(openssl rand -base64 32 | tr -d '=+/' | cut -c1-40)"
+  printf 'POSTGRES_PASSWORD=%s\n' "$PW" > "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+  echo "  wrote fresh .env with a random POSTGRES_PASSWORD"
+fi
+REMOTE_ENV
 
 echo "Copying docker-compose.yml..."
 # Push the production compose file (Traefik labels, external proxy network,
@@ -102,11 +131,6 @@ if [ ${#downloads[@]} -eq 0 ]; then
   echo "warning: no helper/wsjtx binaries found in dist/ — was build skipped?" >&2
 else
   scp -i "$SSH_KEY" "${downloads[@]}" "$SSH_HOST:$REMOTE_APP_DIR/downloads/"
-fi
-
-if [ "$transfer_db" = true ]; then
-  echo "Transferring database..."
-  scp -i "$SSH_KEY" "$ROOT/noctalum.db" "$SSH_HOST:$REMOTE_WORK_DIR/data/"
 fi
 
 echo "Starting service..."

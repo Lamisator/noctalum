@@ -13,6 +13,15 @@ cmd/helper-gui/rigctld-bins/
 # Deployment secrets — copy .deploy.env.example → .deploy.env and fill in values
 .deploy.env
 
+# Docker-compose runtime secrets — POSTGRES_PASSWORD lives here on the server
+# and locally for dev. Never commit.
+.env
+
+# Local Postgres bind mount + pg_dump output — populated by docker compose up
+# and ./backup.sh respectively.
+/pgdata/
+/backups/
+
 # SSH keys used to reach the production server — never commit these
 /id_noctalum
 /id_noctalum.pub

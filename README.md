@@ -145,14 +145,22 @@ Windows (amd64) are produced under `dist/` by `build.sh`.
 
 ### 1. Run the server
 
+Noctalum needs a running PostgreSQL 12+ instance and a directory for
+on-disk runtime state (sounds, callsign proofs, shutdown trigger). The
+easiest way to get both locally is via the included Compose stack —
+see [Running in Docker](#running-in-docker). If you want to run the
+binary directly:
+
 ```
-./noctalum -addr :8080 -db ./noctalum.db
+export DATABASE_URL='postgres://noctalum:devpassword@localhost:5432/noctalum?sslmode=disable'
+./noctalum -addr :8080 -data-dir ./noctalum-data
 ```
 
 Flags:
 
 - `-addr` — HTTP listen address (default `:8080`).
-- `-db` — path to the SQLite database file (default `noctalum.db`).
+- `-db` — Postgres DSN. If unset, `DATABASE_URL` is used.
+- `-data-dir` — directory for on-disk runtime state (default `/var/lib/noctalum`).
 - `-downloads-dir` — optional directory whose files are served under
   `/downloads/`. Used to host the helper binaries for operators to download
   directly from the server.
@@ -211,27 +219,34 @@ go build -o noctalum-wsjtx  ./cmd/wsjtx
 
 ## Running in Docker
 
-A minimal `docker-compose.yml` is included:
+The bundled `docker-compose.yml` boots Noctalum + PostgreSQL 16 on a
+single host. Postgres data lives in a bind-mounted `./pgdata` folder
+(not a Docker named volume) so you can `ls`/`du` it and take file-level
+snapshots without going through Docker inspection.
 
-```yaml
-services:
-  noctalum:
-    image: debian:bookworm-slim
-    command: /app/noctalum-server -addr :8675 -db /data/noctalum.db -downloads-dir /downloads
-    volumes:
-      - ./app/noctalum-server:/app/noctalum-server:ro
-      - ./app/downloads:/downloads:ro
-      - ./data:/data
-      - /etc/ssl/certs:/etc/ssl/certs:ro
-    ports:
-      - "127.0.0.1:8675:8675"
-    restart: unless-stopped
+```bash
+# Optional — pin a specific password (otherwise "devpassword" is used).
+echo 'POSTGRES_PASSWORD=some-strong-secret' > .env
+docker compose up -d
 ```
 
+The Compose stack maps three folders on the host:
+
+- `./pgdata` — Postgres data directory (managed by the postgres:16 image;
+  do **not** back it up by copying while the container is running — use
+  `./backup.sh` instead)
+- `./data`   — sounds, callsign proofs, and the shutdown trigger file
+- `./app`    — the server binary + `downloads/` served under `/downloads/`
+
+The dev compose file publishes Postgres on `127.0.0.1:5432` so tools like
+`psql` and DBeaver can connect from the host. The production compose file
+(`docker-compose.prod.yml`) keeps Postgres internal-only.
+
 `deploy.sh` is a reference deployment script that builds all binaries,
-copies them to a remote host over SSH, and restarts the Compose stack.
-Adapt the `SSH_HOST`, `SSH_KEY`, and remote paths at the top of the script
-to your environment.
+copies them to a remote host over SSH, generates a fresh `.env` with a
+random `POSTGRES_PASSWORD` on first run (never overwriting an existing
+one), and restarts the Compose stack. Adapt the `SSH_HOST`, `SSH_KEY`,
+and remote paths in `.deploy.env` — see `.deploy.env.example`.
 
 ## Operator concepts
 
@@ -362,11 +377,15 @@ where the server runs.
 
 Server flags:
 
-| Flag             | Default        | Description                                                |
-|------------------|----------------|------------------------------------------------------------|
-| `-addr`          | `:8080`        | HTTP listen address.                                       |
-| `-db`            | `noctalum.db`  | Path to the SQLite database file.                          |
-| `-downloads-dir` | (unset)        | Directory served under `/downloads/`. Used for helper DLs. |
+| Flag             | Default              | Description                                                |
+|------------------|----------------------|------------------------------------------------------------|
+| `-addr`          | `:8080`              | HTTP listen address.                                       |
+| `-db`            | (unset — see below)  | Postgres DSN. If empty, `DATABASE_URL` env is used.        |
+| `-data-dir`      | `/var/lib/noctalum`  | On-disk runtime state (sounds, proofs, shutdown trigger).  |
+| `-downloads-dir` | (unset)              | Directory served under `/downloads/`. Used for helper DLs. |
+
+The DSN accepts any libpq-compatible URL, e.g.
+`postgres://noctalum:secret@postgres:5432/noctalum?sslmode=disable`.
 
 Per-server settings (managed in the web UI **Settings** screen):
 
@@ -401,20 +420,34 @@ Helper flags (`noctalum-helper`):
 
 ## Data and backups
 
-All persistent state lives in the SQLite file passed via `-db`. To back
-up a running server, copy the database file with a SQLite-aware tool
-(e.g. `sqlite3 noctalum.db ".backup backup.db"`) or stop the server
-briefly and copy it directly. The `deploy.sh` script's `--transfer-db`
-option demonstrates pushing a local DB to a remote host.
+Persistent state lives in two places:
 
-A separate `sounds/` directory is created next to the database file for
-custom chat sounds.
+- **PostgreSQL** — all logical data (users, contests, QSOs, sessions,
+  audit log, chat, cluster spots, feature requests, …). The Compose
+  stack bind-mounts `./pgdata` to the container's data directory.
+- **`./data`** — on-disk runtime files: custom chat sounds under
+  `sounds/`, uploaded callsign proofs under `callsign_proofs/`, and the
+  transient `shutdown_trigger` file that `deploy.sh` writes to signal
+  a graceful stop.
+
+To back up a running server, use `./backup.sh` — it runs `pg_dump`
+inside the Postgres container and writes a gzipped SQL file to
+`./backups/`. Do **not** simply copy `pgdata/` while the container is
+running: Postgres writes continuously and a raw copy can be
+inconsistent. `./backup.sh --remote` runs the same dump on the remote
+host defined in `.deploy.env`.
+
+**Migrating from an older SQLite-backed deployment:**
+`cmd/sqlite-to-pg` loads a SQLite backup into a fresh Postgres schema
+in a single transaction, preserving IDs and advancing every sequence
+past the loaded max. See its `--help` for usage and the design notes at
+the top of the file for the guarantees.
 
 ## Tech stack
 
 - **Language:** Go 1.21+
 - **Web UI:** vanilla JavaScript, dark Material-style CSS, Leaflet for maps
-- **Storage:** SQLite via `modernc.org/sqlite` (pure Go, no CGO)
+- **Storage:** PostgreSQL 12+ via `jackc/pgx/v5` (through the `database/sql` shim)
 - **Realtime:** `gorilla/websocket`
 - **Auth:** `go-webauthn/webauthn` + `golang.org/x/crypto/bcrypt`
 - **Helper TUI:** `rivo/tview`
@@ -429,14 +462,17 @@ custom chat sounds.
 ├── internal/
 │   ├── server/              # HTTP/WebSocket handlers, auth, hub, cluster, exports
 │   │   └── web/             # embedded web UI (HTML, CSS, JS, i18n, leaflet)
-│   └── store/               # SQLite store (QSOs, users, sessions, contests, audit)
+│   └── store/               # Postgres store (QSOs, users, sessions, contests, audit)
 ├── cmd/
 │   ├── helper/              # CLI rigctld bridge
 │   ├── helper-gui/          # Wails GUI rigctld bridge
+│   ├── sqlite-to-pg/        # one-shot SQLite→Postgres data migrator
 │   └── wsjtx/               # WSJT-X UDP -> Noctalum bridge
 ├── build.sh                 # cross-compile all binaries (Docker-based)
 ├── deploy.sh                # reference SSH/Docker-Compose deploy script
-├── docker-compose.yml       # minimal production compose file
+├── backup.sh                # pg_dump-based hot backup (local or --remote)
+├── docker-compose.yml       # dev Compose stack (app + Postgres, port 5432 exposed)
+├── docker-compose.prod.yml  # prod Compose stack (app + Postgres + Traefik labels)
 ├── REQUIREMENTS.md          # original requirements specification
 ├── noctalum.png             # app logo
 └── dist/                    # build output (created by build.sh)

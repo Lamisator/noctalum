@@ -1,7 +1,31 @@
 services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: noctalum
+      POSTGRES_USER: noctalum
+      # Dev-only default password. Production overrides via .env.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    ports:
+      # Exposed on localhost only, so tools like psql / DBeaver can
+      # connect straight from the host machine during development. The
+      # prod compose file keeps Postgres internal-only.
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U noctalum -d noctalum"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   noctalum:
     image: debian:bookworm-slim
-    command: /app/noctalum-server -addr :8675 -db /data/noctalum.db -downloads-dir /downloads
+    command: /app/noctalum-server -addr :8675 -data-dir /data -downloads-dir /downloads
+    environment:
+      DATABASE_URL: postgres://noctalum:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/noctalum?sslmode=disable
     volumes:
       - ./app/noctalum-server:/app/noctalum-server:ro
       - ./app/downloads:/downloads:ro
@@ -9,4 +33,7 @@ services:
       - /etc/ssl/certs:/etc/ssl/certs:ro
     ports:
       - "127.0.0.1:8675:8675"
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
