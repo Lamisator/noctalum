@@ -1,5 +1,96 @@
 # Noctalum Changelog
 
+## v0.69 — 2026-07-16 — PostgreSQL storage backend, ADIF export refinements
+
+- **Storage backend migrated from SQLite to PostgreSQL 16.** The
+  `internal/store/` package was rewritten against `jackc/pgx/v5`
+  (via the `pgx/v5/stdlib` shim), keeping the existing `*sql.DB`
+  method signatures so no call site outside the package changed.
+  Every DDL, placeholder, and dialect-specific construct was
+  converted: `BIGSERIAL PRIMARY KEY` for auto-ids, `TIMESTAMPTZ`
+  for timestamps (no more RFC3339 string round-trips on read/write),
+  real `BOOLEAN` for what used to be `INTEGER 0/1`, `?` → `$N`
+  placeholders across ~140 call sites, `INSERT OR REPLACE`/`IGNORE`
+  → `ON CONFLICT DO UPDATE`/`DO NOTHING`, `PRAGMA table_info`
+  removed (schema is now expressed entirely in the initial
+  `CREATE TABLE` statements), and unique-violation detection via
+  `pgconn.PgError` code `23505` instead of
+  `strings.Contains(err.Error(), "UNIQUE")`. `store.Open()` now
+  takes a DSN; `main.go` accepts `-db` or the `DATABASE_URL` env
+  var plus a new `-data-dir` flag (default `/var/lib/noctalum`)
+  that owns `sounds/`, `callsign_proofs/`, and the
+  `shutdown_trigger` file — previously derived from the SQLite
+  file's parent directory.
+- **New `cmd/sqlite-to-pg` migration tool.** One-shot binary that
+  reads a SQLite backup file and loads it into a fresh Postgres
+  schema in a single transaction. Preserves IDs and advances every
+  `BIGSERIAL` sequence past the loaded `MAX(id)` so subsequent
+  app-side INSERTs don't collide. Handles three real prod-data
+  quirks discovered against the live backup: 75 Latin-1-encoded
+  DX-cluster comments (sanitised through `strings.ToValidUTF8` in
+  an `m.exec()` wrapper), one legacy Unix-epoch timestamp in
+  `feature_requests` (extended `parseTS` to accept 10-digit epoch
+  seconds), and `cluster_spots.created_at` using SQLite's
+  `datetime('now')` format instead of RFC3339. Dry-run mode reads
+  and transforms every row without committing. Refuses to load
+  into a non-empty schema unless `--force` is passed.
+- **Postgres in docker-compose with bind-mounted pgdata.**
+  `docker-compose.prod.yml` gained a `postgres:16` service on an
+  internal `db` bridge network (not exposed to the host or
+  Traefik), with a `pg_isready` healthcheck and
+  `depends_on: condition: service_healthy` so the app doesn't
+  race Postgres on cold boot. Data lives in `./pgdata`
+  (bind-mounted per the "easy backups, not a docker volume"
+  requirement). `docker-compose.yml` (dev) mirrors the layout but
+  exposes Postgres on `127.0.0.1:5432` for local `psql`/DBeaver.
+  `deploy.sh` grew a first-run `.env` bootstrap that generates a
+  40-char random `POSTGRES_PASSWORD` via `openssl rand -base64`
+  and never overwrites an existing `.env`; the retired
+  `--transfer-db` flag now points operators at `cmd/sqlite-to-pg`.
+  New `backup.sh` script runs `pg_dump` inside the container to
+  `./backups/noctalum-YYYYMMDDTHHMMSSZ.sql.gz`, with a `--remote`
+  mode for the production host. Raw `pgdata/` copies are
+  deliberately not supported — Postgres writes continuously and a
+  hot file copy can be inconsistent.
+- **Runtime UTF-8 sanitisation at insert boundaries.** SQLite
+  silently stored arbitrary bytes; Postgres rejects any non-UTF-8
+  payload with SQLSTATE 22021 and drops the whole INSERT. A new
+  `internal/store/utf8.go::cleanStr()` (fast-path for valid input,
+  else `strings.ToValidUTF8` + NUL strip) is applied at four
+  insertion paths where the input is provably external and
+  byte-oriented: `SaveClusterSpot` (DX cluster comments — the
+  confirmed regression, ~2 lost spots per 15 min from European
+  Latin-1 spotters after the cutover), `InsertChatMessage`,
+  `UpsertCallsignDOK`, and `InsertAuditLog`. User-authored fields
+  from the JSON HTTP layer are already valid UTF-8 at decode
+  time so they're left alone.
+- **ADIF export tightened against the 3.1.5 spec** (follow-up to
+  FR #67, dl8aa). `ADIF_VER` bumped `3.1.4` → `3.1.5` so the
+  declared version matches the byte-length semantics we use for
+  `NAME_INTL`/`NOTES_INTL` (the spec changed the length rule to
+  bytes in 3.1.5). `GRIDSQUARE` (partner locator) is now
+  uppercased to match `MY_GRIDSQUARE` and the LotW/eQSL/DXCC
+  convention. A new `normaliseCRLF` helper rewrites any mix of
+  LF/CR/CRLF to canonical CR/LF before `NOTES` is emitted (bare
+  LF is non-conforming for `MultilineString`). Custom fields
+  whose name matches a standard ADIF tag (`STATE`, `POTA_REF`,
+  `TX_PWR`, …) are now emitted under that standard tag instead
+  of getting wrapped in `APP_NOCTALUM_` — a new
+  `adifStandardFields` set decides at export time, with the
+  `APP_` prefix as the fallback for anything unknown.
+- **Contest custom-fields editor suggests standard ADIF tags.**
+  The "Field name" input in the contest-settings mask now
+  advertises a curated `<datalist>` of ~45 tags contest / DX /
+  SOTA / POTA operators reach for most often (`STATE`,
+  `POTA_REF`, `TX_PWR`, `RIG`, `CHECK`, `PRECEDENCE`,
+  `ARRL_SECT`, `MY_ANTENNA`, `IOTA`, `WWFF_REF`, …). Browsers
+  surface it as a type-ahead dropdown but still accept free
+  text, so contest-specific non-ADIF names keep working. A
+  short EN/DE hint below the editor explains the trade-off:
+  standard-named fields export as that tag verbatim; anything
+  else exports as `APP_NOCTALUM_<name>`.
+- `programVersion` bumped to `0.69`.
+
 ## v0.68 — 2026-07-15 — Callsign change requests, ADIF spec-conformant exports
 
 - **New "Request callsign change" flow in Personal Settings.**

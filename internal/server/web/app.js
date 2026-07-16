@@ -7741,6 +7741,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.69',
+      date: '2026-07-16',
+      en: 'v0.69: Moved storage to PostgreSQL; ADIF export tightened.\n- Database backend is now PostgreSQL 16 — SQLite is out\n- Backups run via pg_dump (see backup.sh); pgdata is bind-mounted for easy access\n- ADIF export now declares 3.1.5 and uses CR/LF line breaks in NOTES\n- Partner GRIDSQUARE is uppercased for LotW/eQSL compatibility\n- Custom-field editor suggests standard ADIF tags (STATE, POTA_REF, TX_PWR, …)\n- Custom fields named after a standard ADIF tag now export as that tag instead of APP_NOCTALUM_*\n- Cluster spots with non-UTF-8 comments (e.g. Latin-1 from European spotters) are now sanitised and saved instead of silently dropped',
+      de: 'v0.69: Umstellung auf PostgreSQL-Speicher; ADIF-Export präziser.\n- Datenbank läuft jetzt auf PostgreSQL 16 — SQLite ist raus\n- Backups laufen über pg_dump (siehe backup.sh); pgdata liegt als Bind-Mount für einfachen Zugriff\n- ADIF-Export meldet jetzt Version 3.1.5 und nutzt CR/LF in NOTES\n- GRIDSQUARE der Gegenstation wird in Großbuchstaben ausgegeben (LotW/eQSL-konform)\n- Der Feld-Editor schlägt jetzt Standard-ADIF-Tags vor (STATE, POTA_REF, TX_PWR, …)\n- Eigene Felder mit ADIF-Standard-Namen werden als dieses Tag exportiert, nicht mehr als APP_NOCTALUM_*\n- Cluster-Spots mit nicht-UTF-8-Kommentaren (z. B. Latin-1 von europäischen Spottern) werden jetzt bereinigt gespeichert statt stillschweigend verworfen',
+    },
+    {
       version: '0.68',
       date: '2026-07-15',
       en: 'v0.68: Cleaner ADIF exports and a way to update your own callsign.\n- New "Request callsign change" card in Personal Settings — upload a licence scan, an admin approves or declines\n- Approved changes update your callsign live in every open session, no re-login\n- ADIF now carries the contest running number in STX/SRX; CSV gains nr_sent and nr_received columns\n- FT8/FT4/PSK31/PSK63 written as proper MODE+SUBMODE pairs, lighthouses via SIG/SIG_INFO — strict importers stop rejecting records\n- CONTEST_ID only for known ADIF contests; local activities land in NOTES instead of failing import\n- MY_GRIDSQUARE from your contest QTH is now emitted on every QSO\n- Names with umlauts (Jörg, José) go into the ADIF _INTL fields so LotW/eQSL show them correctly',
