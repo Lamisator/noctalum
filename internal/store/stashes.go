@@ -40,27 +40,27 @@ type Stash struct {
 func (s *Store) migrateStashes() error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS qso_stashes (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			contest_id INTEGER NOT NULL,
-			user_id INTEGER NOT NULL,
-			created_at TEXT NOT NULL,
-			callsign TEXT NOT NULL DEFAULT '',
-			name TEXT NOT NULL DEFAULT '',
-			rst_sent TEXT NOT NULL DEFAULT '',
+			id           BIGSERIAL PRIMARY KEY,
+			contest_id   BIGINT NOT NULL,
+			user_id      BIGINT NOT NULL,
+			created_at   TIMESTAMPTZ NOT NULL,
+			callsign     TEXT NOT NULL DEFAULT '',
+			name         TEXT NOT NULL DEFAULT '',
+			rst_sent     TEXT NOT NULL DEFAULT '',
 			rst_received TEXT NOT NULL DEFAULT '',
-			nr_received INTEGER NOT NULL DEFAULT 0,
-			nr_sent INTEGER NOT NULL DEFAULT 0,
-			mode TEXT NOT NULL DEFAULT '',
-			band TEXT NOT NULL DEFAULT '',
-			freq_hz INTEGER NOT NULL DEFAULT 0,
-			dok TEXT NOT NULL DEFAULT '',
-			locator TEXT NOT NULL DEFAULT '',
-			itu_zone TEXT NOT NULL DEFAULT '',
-			cq_zone TEXT NOT NULL DEFAULT '',
-			notes TEXT NOT NULL DEFAULT '',
-			lighthouse TEXT NOT NULL DEFAULT '',
-			utc_time TEXT NOT NULL DEFAULT '',
-			extras TEXT NOT NULL DEFAULT ''
+			nr_received  BIGINT NOT NULL DEFAULT 0,
+			nr_sent      BIGINT NOT NULL DEFAULT 0,
+			mode         TEXT NOT NULL DEFAULT '',
+			band         TEXT NOT NULL DEFAULT '',
+			freq_hz      BIGINT NOT NULL DEFAULT 0,
+			dok          TEXT NOT NULL DEFAULT '',
+			locator      TEXT NOT NULL DEFAULT '',
+			itu_zone     TEXT NOT NULL DEFAULT '',
+			cq_zone      TEXT NOT NULL DEFAULT '',
+			notes        TEXT NOT NULL DEFAULT '',
+			lighthouse   TEXT NOT NULL DEFAULT '',
+			utc_time     TEXT NOT NULL DEFAULT '',
+			extras       TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_qso_stashes_contest_user ON qso_stashes(contest_id, user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_qso_stashes_created_at ON qso_stashes(created_at)`,
@@ -80,22 +80,22 @@ func (s *Store) CreateStash(in *Stash) (*Stash, error) {
 	} else {
 		in.CreatedAt = in.CreatedAt.UTC()
 	}
-	res, err := s.db.Exec(
+	var id int64
+	err := s.db.QueryRow(
 		`INSERT INTO qso_stashes
 			(contest_id, user_id, created_at, callsign, name, rst_sent, rst_received,
 			 nr_received, nr_sent, mode, band, freq_hz, dok, locator, itu_zone, cq_zone,
 			 notes, lighthouse, utc_time, extras)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		in.ContestID, in.UserID, in.CreatedAt.Format(time.RFC3339),
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
+		in.ContestID, in.UserID, in.CreatedAt,
 		in.Callsign, in.Name, in.RSTSent, in.RSTReceived,
 		in.NrReceived, in.NrSent, in.Mode, in.Band, in.FreqHz,
 		in.DOK, in.Locator, in.ITUZone, in.CQZone,
 		in.Notes, in.Lighthouse, in.UTCTime, in.Extras,
-	)
+	).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
 	in.ID = id
 	return in, nil
 }
@@ -107,7 +107,7 @@ func (s *Store) ListStashes(contestID, userID int64) ([]Stash, error) {
 		        nr_received, nr_sent, mode, band, freq_hz, dok, locator, itu_zone, cq_zone,
 		        notes, lighthouse, utc_time, extras
 		 FROM qso_stashes
-		 WHERE contest_id = ? AND user_id = ?
+		 WHERE contest_id = $1 AND user_id = $2
 		 ORDER BY created_at DESC, id DESC`,
 		contestID, userID)
 	if err != nil {
@@ -117,15 +117,14 @@ func (s *Store) ListStashes(contestID, userID int64) ([]Stash, error) {
 	var out []Stash
 	for rows.Next() {
 		var st Stash
-		var createdAt string
-		if err := rows.Scan(&st.ID, &st.ContestID, &st.UserID, &createdAt,
+		if err := rows.Scan(&st.ID, &st.ContestID, &st.UserID, &st.CreatedAt,
 			&st.Callsign, &st.Name, &st.RSTSent, &st.RSTReceived,
 			&st.NrReceived, &st.NrSent, &st.Mode, &st.Band, &st.FreqHz,
 			&st.DOK, &st.Locator, &st.ITUZone, &st.CQZone,
 			&st.Notes, &st.Lighthouse, &st.UTCTime, &st.Extras); err != nil {
 			return nil, err
 		}
-		st.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		st.CreatedAt = st.CreatedAt.UTC()
 		out = append(out, st)
 	}
 	return out, rows.Err()
@@ -137,10 +136,9 @@ func (s *Store) GetStash(id, userID int64) (*Stash, error) {
 		`SELECT id, contest_id, user_id, created_at, callsign, name, rst_sent, rst_received,
 		        nr_received, nr_sent, mode, band, freq_hz, dok, locator, itu_zone, cq_zone,
 		        notes, lighthouse, utc_time, extras
-		 FROM qso_stashes WHERE id = ? AND user_id = ?`, id, userID)
+		 FROM qso_stashes WHERE id = $1 AND user_id = $2`, id, userID)
 	var st Stash
-	var createdAt string
-	if err := row.Scan(&st.ID, &st.ContestID, &st.UserID, &createdAt,
+	if err := row.Scan(&st.ID, &st.ContestID, &st.UserID, &st.CreatedAt,
 		&st.Callsign, &st.Name, &st.RSTSent, &st.RSTReceived,
 		&st.NrReceived, &st.NrSent, &st.Mode, &st.Band, &st.FreqHz,
 		&st.DOK, &st.Locator, &st.ITUZone, &st.CQZone,
@@ -150,14 +148,14 @@ func (s *Store) GetStash(id, userID int64) (*Stash, error) {
 		}
 		return nil, err
 	}
-	st.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	st.CreatedAt = st.CreatedAt.UTC()
 	return &st, nil
 }
 
 // DeleteStash removes a stash; only the owning user may delete it.
 // Returns ErrStashNotFound if no row matched.
 func (s *Store) DeleteStash(id, userID int64) error {
-	res, err := s.db.Exec(`DELETE FROM qso_stashes WHERE id = ? AND user_id = ?`, id, userID)
+	res, err := s.db.Exec(`DELETE FROM qso_stashes WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return err
 	}
@@ -174,9 +172,9 @@ func (s *Store) PruneExpiredStashes(contestID, userID int64, maxAge time.Duratio
 	if maxAge <= 0 {
 		return nil, nil
 	}
-	cutoff := time.Now().UTC().Add(-maxAge).Format(time.RFC3339)
+	cutoff := time.Now().UTC().Add(-maxAge)
 	rows, err := s.db.Query(
-		`SELECT id FROM qso_stashes WHERE contest_id = ? AND user_id = ? AND created_at < ?`,
+		`SELECT id FROM qso_stashes WHERE contest_id = $1 AND user_id = $2 AND created_at < $3`,
 		contestID, userID, cutoff)
 	if err != nil {
 		return nil, err
@@ -198,7 +196,7 @@ func (s *Store) PruneExpiredStashes(contestID, userID int64, maxAge time.Duratio
 		return nil, nil
 	}
 	if _, err := s.db.Exec(
-		`DELETE FROM qso_stashes WHERE contest_id = ? AND user_id = ? AND created_at < ?`,
+		`DELETE FROM qso_stashes WHERE contest_id = $1 AND user_id = $2 AND created_at < $3`,
 		contestID, userID, cutoff); err != nil {
 		return nil, err
 	}

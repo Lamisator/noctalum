@@ -17,11 +17,22 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
-	dbPath := flag.String("db", "noctalum.db", "SQLite database file path")
+	// DATABASE_URL takes precedence over -db so the docker-compose stack can
+	// inject the postgres:// connection string via env without a wrapper.
+	dbDSN := flag.String("db", "", "PostgreSQL DSN (postgres://user:pass@host:5432/db?sslmode=disable). If empty, DATABASE_URL env is used.")
+	dataDir := flag.String("data-dir", "/var/lib/noctalum", "directory for on-disk runtime state (sounds, callsign_proofs, shutdown_trigger)")
 	downloadsDir := flag.String("downloads-dir", "", "directory to serve helper downloads from (optional)")
 	flag.Parse()
 
-	st, err := store.Open(*dbPath)
+	dsn := *dbDSN
+	if dsn == "" {
+		dsn = os.Getenv("DATABASE_URL")
+	}
+	if dsn == "" {
+		log.Fatal("no database DSN configured: set -db or the DATABASE_URL env var")
+	}
+
+	st, err := store.Open(dsn)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
@@ -34,14 +45,14 @@ func main() {
 	if *downloadsDir != "" {
 		srv.SetDownloadsDir(*downloadsDir)
 	}
-	// Derive sounds directory from db location so no extra flag is needed.
-	srv.SetSoundsDir(filepath.Join(filepath.Dir(*dbPath), "sounds"))
-	// Callsign-change-request proof uploads live next to the sounds dir
-	// under the db directory (single deploy target for all runtime state).
-	srv.SetCallsignProofsDir(filepath.Join(filepath.Dir(*dbPath), "callsign_proofs"))
-	// Derive shutdown trigger path the same way — the deploy script writes
-	// the countdown value here instead of calling an unauthenticated HTTP endpoint.
-	srv.SetShutdownTriggerPath(filepath.Join(filepath.Dir(*dbPath), "shutdown_trigger"))
+	// The runtime file-based state (sounds, callsign proofs, shutdown
+	// trigger) used to be derived from the SQLite file's parent directory.
+	// With Postgres there is no local db file, so an explicit -data-dir
+	// carries that role. All three subpaths live under it so the deploy
+	// script can bind-mount a single volume for user data.
+	srv.SetSoundsDir(filepath.Join(*dataDir, "sounds"))
+	srv.SetCallsignProofsDir(filepath.Join(*dataDir, "callsign_proofs"))
+	srv.SetShutdownTriggerPath(filepath.Join(*dataDir, "shutdown_trigger"))
 
 	httpSrv := &http.Server{
 		Addr:              *addr,
@@ -50,7 +61,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("Noctalum listening on %s (db=%s)", *addr, *dbPath)
+		log.Printf("Noctalum listening on %s (data-dir=%s)", *addr, *dataDir)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}

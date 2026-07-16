@@ -18,12 +18,12 @@ var ErrShareNotFound = errors.New("share not found")
 // per-operator fields (station_call, station_id, qth) are intentionally NOT
 // part of the snapshot — the importing operator supplies their own.
 type ContestShare struct {
-	Token         string    `json:"token"`
-	ContestID     int64     `json:"contest_id"`
-	OwnerUserID   int64     `json:"owner_user_id"`
-	SourceName    string    `json:"source_name"`
-	Payload       string    `json:"payload"` // JSON-encoded SharePayload
-	CreatedAt     time.Time `json:"created_at"`
+	Token       string    `json:"token"`
+	ContestID   int64     `json:"contest_id"`
+	OwnerUserID int64     `json:"owner_user_id"`
+	SourceName  string    `json:"source_name"`
+	Payload     string    `json:"payload"` // JSON-encoded SharePayload
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // SharePayload is what gets serialised into ContestShare.Payload — exactly
@@ -42,12 +42,12 @@ type SharePayload struct {
 func (s *Store) migrateShares() error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS contest_shares (
-			token TEXT PRIMARY KEY,
-			contest_id INTEGER NOT NULL,
-			owner_user_id INTEGER NOT NULL,
-			source_name TEXT NOT NULL,
-			payload TEXT NOT NULL,
-			created_at TEXT NOT NULL
+			token         TEXT PRIMARY KEY,
+			contest_id    BIGINT NOT NULL,
+			owner_user_id BIGINT NOT NULL,
+			source_name   TEXT NOT NULL,
+			payload       TEXT NOT NULL,
+			created_at    TIMESTAMPTZ NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_contest_shares_contest ON contest_shares(contest_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_contest_shares_owner ON contest_shares(owner_user_id)`,
@@ -102,8 +102,8 @@ func (s *Store) CreateShare(contestID, ownerUserID int64, sourceName, payload st
 	}
 	now := time.Now().UTC()
 	_, err = s.db.Exec(
-		`INSERT INTO contest_shares (token, contest_id, owner_user_id, source_name, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		token, contestID, ownerUserID, strings.TrimSpace(sourceName), payload, now.Format(time.RFC3339),
+		`INSERT INTO contest_shares (token, contest_id, owner_user_id, source_name, payload, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+		token, contestID, ownerUserID, strings.TrimSpace(sourceName), payload, now,
 	)
 	if err != nil {
 		return nil, err
@@ -121,25 +121,24 @@ func (s *Store) CreateShare(contestID, ownerUserID int64, sourceName, payload st
 // GetShare returns a single share by token, or ErrShareNotFound.
 func (s *Store) GetShare(token string) (*ContestShare, error) {
 	row := s.db.QueryRow(
-		`SELECT token, contest_id, owner_user_id, source_name, payload, created_at FROM contest_shares WHERE token = ?`,
+		`SELECT token, contest_id, owner_user_id, source_name, payload, created_at FROM contest_shares WHERE token = $1`,
 		token,
 	)
 	var sh ContestShare
-	var t string
-	if err := row.Scan(&sh.Token, &sh.ContestID, &sh.OwnerUserID, &sh.SourceName, &sh.Payload, &t); err != nil {
+	if err := row.Scan(&sh.Token, &sh.ContestID, &sh.OwnerUserID, &sh.SourceName, &sh.Payload, &sh.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrShareNotFound
 		}
 		return nil, err
 	}
-	sh.CreatedAt, _ = time.Parse(time.RFC3339, t)
+	sh.CreatedAt = sh.CreatedAt.UTC()
 	return &sh, nil
 }
 
 // ListSharesByContest returns every active share for a contest, newest first.
 func (s *Store) ListSharesByContest(contestID int64) ([]ContestShare, error) {
 	rows, err := s.db.Query(
-		`SELECT token, contest_id, owner_user_id, source_name, payload, created_at FROM contest_shares WHERE contest_id = ? ORDER BY created_at DESC`,
+		`SELECT token, contest_id, owner_user_id, source_name, payload, created_at FROM contest_shares WHERE contest_id = $1 ORDER BY created_at DESC`,
 		contestID,
 	)
 	if err != nil {
@@ -149,11 +148,10 @@ func (s *Store) ListSharesByContest(contestID int64) ([]ContestShare, error) {
 	var out []ContestShare
 	for rows.Next() {
 		var sh ContestShare
-		var t string
-		if err := rows.Scan(&sh.Token, &sh.ContestID, &sh.OwnerUserID, &sh.SourceName, &sh.Payload, &t); err != nil {
+		if err := rows.Scan(&sh.Token, &sh.ContestID, &sh.OwnerUserID, &sh.SourceName, &sh.Payload, &sh.CreatedAt); err != nil {
 			return nil, err
 		}
-		sh.CreatedAt, _ = time.Parse(time.RFC3339, t)
+		sh.CreatedAt = sh.CreatedAt.UTC()
 		out = append(out, sh)
 	}
 	return out, rows.Err()
@@ -162,7 +160,7 @@ func (s *Store) ListSharesByContest(contestID int64) ([]ContestShare, error) {
 // DeleteShare removes a share.  Returns ErrShareNotFound if the token doesn't
 // exist; the caller is expected to authorise the delete before invoking.
 func (s *Store) DeleteShare(token string) error {
-	res, err := s.db.Exec(`DELETE FROM contest_shares WHERE token = ?`, token)
+	res, err := s.db.Exec(`DELETE FROM contest_shares WHERE token = $1`, token)
 	if err != nil {
 		return err
 	}
@@ -176,6 +174,6 @@ func (s *Store) DeleteShare(token string) error {
 // DeleteSharesForContest removes every share that points at a contest.
 // Called automatically when the source contest is deleted.
 func (s *Store) DeleteSharesForContest(contestID int64) error {
-	_, err := s.db.Exec(`DELETE FROM contest_shares WHERE contest_id = ?`, contestID)
+	_, err := s.db.Exec(`DELETE FROM contest_shares WHERE contest_id = $1`, contestID)
 	return err
 }

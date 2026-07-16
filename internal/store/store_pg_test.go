@@ -1,0 +1,228 @@
+package store_test
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/noctalum/noctalum/internal/store"
+)
+
+// openScratchDB returns a Store connected to a fresh, uniquely-named
+// database that the test can pollute freely. Requires
+// NOCTALUM_TEST_DATABASE_URL to point at a Postgres role with CREATEDB
+// privilege (e.g. postgres://noctalum:noctalum@localhost:5432/postgres).
+// If the env var is unset, the test is skipped so this file doesn't break
+// CI environments without a live Postgres.
+func openScratchDB(t *testing.T) *store.Store {
+	t.Helper()
+	adminDSN := os.Getenv("NOCTALUM_TEST_DATABASE_URL")
+	if adminDSN == "" {
+		t.Skip("NOCTALUM_TEST_DATABASE_URL not set; skipping Postgres integration test")
+	}
+	admin, err := sql.Open("pgx", adminDSN)
+	if err != nil {
+		t.Fatalf("open admin db: %v", err)
+	}
+	name := fmt.Sprintf("noctalum_it_%d", time.Now().UnixNano())
+	if _, err := admin.Exec("CREATE DATABASE " + name); err != nil {
+		admin.Close()
+		t.Fatalf("create scratch db: %v", err)
+	}
+	admin.Close()
+
+	// Derive the scratch DSN by swapping the database name in the DSN
+	// path. Works for both URL-form and libpq-form DSNs (the latter would
+	// need a different substitution — we only handle URL form here since
+	// that's what CI and the deploy stack use).
+	scratchDSN := swapDBName(adminDSN, name)
+	st, err := store.Open(scratchDSN)
+	if err != nil {
+		t.Fatalf("open scratch store: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = st.Close()
+		admin, err := sql.Open("pgx", adminDSN)
+		if err != nil {
+			return
+		}
+		defer admin.Close()
+		// FORCE terminates any lingering connections so the DROP succeeds
+		// even if some background goroutine is still holding a session.
+		_, _ = admin.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)")
+	})
+	return st
+}
+
+// swapDBName replaces the database name in a postgres:// URL. Assumes the
+// URL is in URL form (postgres://user:pass@host[:port]/dbname?params) —
+// which matches what NOCTALUM_TEST_DATABASE_URL is expected to hold.
+func swapDBName(dsn, newName string) string {
+	q := ""
+	if i := strings.IndexByte(dsn, '?'); i >= 0 {
+		q = dsn[i:]
+		dsn = dsn[:i]
+	}
+	// Strip everything from the last "/" onwards (the old database name)
+	// then append the new one.
+	i := strings.LastIndexByte(dsn, '/')
+	if i < 0 {
+		return dsn + "/" + newName + q
+	}
+	return dsn[:i+1] + newName + q
+}
+
+// TestPostgresSchemaAndRoundTrips exercises every store subsystem against a
+// real Postgres to catch dialect regressions the unit tests can't see.
+// Rows are asserted end-to-end (insert → scan) so any type-mapping or
+// placeholder mistake surfaces immediately.
+func TestPostgresSchemaAndRoundTrips(t *testing.T) {
+	st := openScratchDB(t)
+
+	if err := st.EnsureBuiltinRoles([]string{"feature_requests.submit"}); err != nil {
+		t.Fatalf("ensure roles: %v", err)
+	}
+
+	// Users + roles + unique-violation error mapping.
+	u, err := st.CreateUser("alice", "DL0TEST", "supersecret1234", []string{"admin", "user"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if u.ID == 0 {
+		t.Fatal("expected non-zero user id from RETURNING")
+	}
+	if _, err := st.CreateUser("alice", "X", "otherpassword", nil); !errors.Is(err, store.ErrUsernameTaken) {
+		t.Fatalf("duplicate CreateUser should return ErrUsernameTaken, got %v", err)
+	}
+
+	// Contests + access + participants — both ON CONFLICT DO NOTHING paths.
+	c, err := st.CreateContest("Test Contest", "DL0TEST", "JN49XX", []string{"20m", "40m"}, "obj", "OP1", false, u.ID, "", "", "", true, 60, "kHz")
+	if err != nil {
+		t.Fatalf("create contest: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := st.GrantContestAccess(c.ID, u.ID); err != nil {
+			t.Fatalf("grant access (call %d): %v", i, err)
+		}
+		if err := st.AddContestParticipant(c.ID, u.ID, "owner", "active"); err != nil {
+			t.Fatalf("add participant (call %d): %v", i, err)
+		}
+	}
+	if _, err := st.CreateContest("Test Contest", "X", "", nil, "", "", false, u.ID, "", "", "", true, 60, "kHz"); err == nil {
+		t.Fatal("duplicate contest name should fail")
+	}
+
+	// QSOs — insert, list, get, update, delete.
+	now := time.Now().UTC().Truncate(time.Second)
+	q := &store.QSO{
+		ContestID: c.ID, Time: now, Callsign: "dl8aa", Name: "Jörg",
+		Band: "40m", FreqHz: 7050000, Mode: "SSB",
+		RSTSent: "59", RSTReceived: "59", NrSent: 1, NrReceived: 2,
+		Operator: "dm2lap", StationCall: "dm2lap", Notes: "hi",
+	}
+	id, err := st.InsertQSO(q)
+	if err != nil {
+		t.Fatalf("insert qso: %v", err)
+	}
+	got, err := st.GetQSO(id)
+	if err != nil {
+		t.Fatalf("get qso: %v", err)
+	}
+	if got.Callsign != "DL8AA" {
+		t.Errorf("callsign should be uppercased on insert; got %q", got.Callsign)
+	}
+	if !got.Time.Equal(now) {
+		t.Errorf("time round-trip mismatch: want %v got %v", now, got.Time)
+	}
+	if got.Name != "Jörg" {
+		t.Errorf("umlaut lost in name round-trip: %q", got.Name)
+	}
+
+	// Duplicate detection uses the composite index + time window.
+	dup, err := st.FindDuplicate(c.ID, "dl8aa", "40m", "SSB", time.Hour)
+	if err != nil || !dup {
+		t.Fatalf("expected duplicate to be found, got dup=%v err=%v", dup, err)
+	}
+
+	// Sessions — round-trip an upsert.
+	sess := store.SessionRow{ID: "sess-1", UserID: u.ID, CSRFToken: "a", CreatedAt: now, LastSeen: now, ExpiresAt: now.Add(time.Hour)}
+	if err := st.SaveSession(sess); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	sess.CSRFToken = "b"
+	if err := st.SaveSession(sess); err != nil {
+		t.Fatalf("re-save session (upsert): %v", err)
+	}
+	rows, err := st.LoadSessions()
+	if err != nil || len(rows) != 1 || rows[0].CSRFToken != "b" {
+		t.Fatalf("session upsert did not update: rows=%+v err=%v", rows, err)
+	}
+
+	// Callsign cache upsert.
+	if err := st.UpsertCallsignDOK("dl8aa", "h01"); err != nil {
+		t.Fatalf("upsert cache: %v", err)
+	}
+	if err := st.UpsertCallsignDOK("dl8aa", "h02"); err != nil {
+		t.Fatalf("re-upsert cache: %v", err)
+	}
+	if dok := st.GetCachedDOK("DL8AA"); dok != "H02" {
+		t.Errorf("cache upsert did not update dok; got %q", dok)
+	}
+
+	// Cluster spot prune (make_interval semantics).
+	if err := st.SaveClusterSpot(store.ClusterSpot{Time: "12:00Z", DX: "DL8AA", Freq: "7050", Band: "40m", Mode: "SSB"}); err != nil {
+		t.Fatalf("save spot: %v", err)
+	}
+	if err := st.PruneClusterSpots(30); err != nil {
+		t.Fatalf("prune spots (30d): %v", err)
+	}
+	spots, _ := st.LoadRecentClusterSpots(5)
+	if len(spots) != 1 {
+		t.Errorf("expected 1 spot after prune with 30d retention; got %d", len(spots))
+	}
+	// Prune with 0 days should wipe every non-future row.
+	if err := st.PruneClusterSpots(0); err != nil {
+		t.Fatalf("prune spots (0d): %v", err)
+	}
+	spots, _ = st.LoadRecentClusterSpots(5)
+	if len(spots) != 0 {
+		t.Errorf("expected 0 spots after 0d prune; got %d", len(spots))
+	}
+
+	// Audit log filter builder (LIKE → ILIKE + positional placeholders).
+	if err := st.InsertAuditLog(store.AuditInfo, "login", "alice", "127.0.0.1", "welcome", "127.0.0.1"); err != nil {
+		t.Fatalf("audit insert: %v", err)
+	}
+	entries, total, err := st.ListAuditLogs(store.AuditFilter{Search: "welcome", Limit: 10})
+	if err != nil {
+		t.Fatalf("audit filter: %v", err)
+	}
+	if total != 1 || len(entries) != 1 || entries[0].Action != "login" {
+		t.Errorf("audit filter mismatch: total=%d entries=%+v", total, entries)
+	}
+
+	// Feature request insert + list.
+	fr, err := st.InsertFeatureRequest("alice", "test")
+	if err != nil {
+		t.Fatalf("fr insert: %v", err)
+	}
+	frs, err := st.ListFeatureRequestsByUser("alice")
+	if err != nil || len(frs) != 1 || frs[0].ID != fr.ID {
+		t.Fatalf("fr list mismatch: err=%v frs=%+v", err, frs)
+	}
+
+	// DeleteQSO cleanup.
+	if err := st.DeleteQSO(id); err != nil {
+		t.Fatalf("delete qso: %v", err)
+	}
+	if _, err := st.GetQSO(id); err == nil {
+		t.Error("expected deleted QSO to be missing")
+	}
+}

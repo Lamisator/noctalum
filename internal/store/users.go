@@ -15,18 +15,18 @@ import (
 
 // User is one account that can log in to the application.
 type User struct {
-	ID               int64      `json:"id"`
-	Username         string     `json:"username"`
-	Callsign         string     `json:"callsign"`
-	PasswordHash     string     `json:"-"`
-	HelperToken      string     `json:"-"` // per-user helper auth token, never sent to the browser in user lists
-	FailedAttempts   int        `json:"failed_attempts"`
-	LockedUntil      *time.Time `json:"locked_until,omitempty"`
-	Disabled         bool       `json:"disabled"`
-	CreatedAt        time.Time  `json:"created_at"`
-	LastActivityAt   *time.Time `json:"last_activity_at,omitempty"`
-	Language         string     `json:"language"`
-	LastSeenVersion  string     `json:"last_seen_version"`
+	ID             int64      `json:"id"`
+	Username       string     `json:"username"`
+	Callsign       string     `json:"callsign"`
+	PasswordHash   string     `json:"-"`
+	HelperToken    string     `json:"-"` // per-user helper auth token, never sent to the browser in user lists
+	FailedAttempts int        `json:"failed_attempts"`
+	LockedUntil    *time.Time `json:"locked_until,omitempty"`
+	Disabled       bool       `json:"disabled"`
+	CreatedAt      time.Time  `json:"created_at"`
+	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
+	Language       string     `json:"language"`
+	LastSeenVersion string    `json:"last_seen_version"`
 	// TimeInputMode controls how the QSO entry form's optional date/time field
 	// interprets the value the operator types: "utc" (default — current
 	// behaviour, the typed value is treated as UTC and stored as-is) or
@@ -34,14 +34,14 @@ type User struct {
 	// and convert to UTC at submit / from UTC at edit-load). The setting is
 	// per-user because operators in different time zones can share an
 	// installation. Storage of QSO.time is always UTC regardless.
-	TimeInputMode    string     `json:"time_input_mode"`
+	TimeInputMode string `json:"time_input_mode"`
 	// Theme is the operator's preferred colour scheme: "dark" (default —
 	// the original Material-inspired dark theme with light-blue accents) or
 	// "light" (white background, near-black text, stronger blue accent
 	// for outdoor / direct-sunlight use, FR #65).
-	Theme            string     `json:"theme"`
-	Roles            []string   `json:"roles"`
-	Permissions      []string   `json:"permissions"`
+	Theme       string   `json:"theme"`
+	Roles       []string `json:"roles"`
+	Permissions []string `json:"permissions"`
 }
 
 func generateHelperToken() string {
@@ -72,24 +72,30 @@ var ErrRoleNameTaken = errors.New("role name already taken")
 func (s *Store) migrateUsers() error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS users (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			username TEXT NOT NULL UNIQUE,
-			callsign TEXT NOT NULL,
-			password_hash TEXT NOT NULL,
-			failed_attempts INTEGER NOT NULL DEFAULT 0,
-			locked_until TEXT,
-			disabled INTEGER NOT NULL DEFAULT 0,
-			created_at TEXT NOT NULL
+			id                BIGSERIAL PRIMARY KEY,
+			username          TEXT NOT NULL UNIQUE,
+			callsign          TEXT NOT NULL,
+			password_hash     TEXT NOT NULL,
+			helper_token      TEXT NOT NULL DEFAULT '',
+			failed_attempts   INTEGER NOT NULL DEFAULT 0,
+			locked_until      TIMESTAMPTZ,
+			disabled          BOOLEAN NOT NULL DEFAULT false,
+			created_at        TIMESTAMPTZ NOT NULL,
+			last_activity_at  TIMESTAMPTZ,
+			language          TEXT NOT NULL DEFAULT '',
+			last_seen_version TEXT NOT NULL DEFAULT '',
+			time_input_mode   TEXT NOT NULL DEFAULT 'utc',
+			theme             TEXT NOT NULL DEFAULT 'dark'
 		)`,
 		`CREATE TABLE IF NOT EXISTS roles (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL UNIQUE,
+			id          BIGSERIAL PRIMARY KEY,
+			name        TEXT NOT NULL UNIQUE,
 			permissions TEXT NOT NULL DEFAULT '',
-			is_builtin INTEGER NOT NULL DEFAULT 0
+			is_builtin  BOOLEAN NOT NULL DEFAULT false
 		)`,
 		`CREATE TABLE IF NOT EXISTS user_roles (
-			user_id INTEGER NOT NULL,
-			role_id INTEGER NOT NULL,
+			user_id BIGINT NOT NULL,
+			role_id BIGINT NOT NULL,
 			PRIMARY KEY (user_id, role_id),
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 			FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
@@ -100,18 +106,6 @@ func (s *Store) migrateUsers() error {
 			return fmt.Errorf("migrate users: %w", err)
 		}
 	}
-	// Add helper_token column if not present, then populate any empty slots.
-	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN helper_token TEXT NOT NULL DEFAULT ''`)
-	_, err := s.db.Exec(
-		`UPDATE users SET helper_token = lower(hex(randomblob(24))) WHERE helper_token = ''`)
-	if err != nil {
-		return err
-	}
-	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN last_activity_at TEXT NOT NULL DEFAULT ''`)
-	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT ''`)
-	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN last_seen_version TEXT NOT NULL DEFAULT ''`)
-	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN time_input_mode TEXT NOT NULL DEFAULT 'utc'`)
-	_, _ = s.db.Exec(`ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'dark'`)
 	return nil
 }
 
@@ -128,8 +122,8 @@ func (s *Store) EnsureBuiltinRoles(userPerms []string) error {
 func (s *Store) upsertBuiltinRole(name string, perms []string) error {
 	csv := strings.Join(perms, ",")
 	_, err := s.db.Exec(
-		`INSERT INTO roles (name, permissions, is_builtin) VALUES (?, ?, 1)
-		 ON CONFLICT(name) DO UPDATE SET is_builtin=1`,
+		`INSERT INTO roles (name, permissions, is_builtin) VALUES ($1, $2, true)
+		 ON CONFLICT(name) DO UPDATE SET is_builtin=true`,
 		name, csv)
 	return err
 }
@@ -159,17 +153,17 @@ func (s *Store) CreateUser(username, callsign, plainPassword string, roleNames [
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(
+	var id int64
+	err = tx.QueryRow(
 		`INSERT INTO users (username, callsign, password_hash, helper_token, created_at)
-		 VALUES (?, ?, ?, ?, ?)`,
-		username, callsign, string(hash), generateHelperToken(), time.Now().UTC().Format(time.RFC3339))
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		username, callsign, string(hash), generateHelperToken(), time.Now().UTC()).Scan(&id)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if isUniqueViolation(err) {
 			return User{}, ErrUsernameTaken
 		}
 		return User{}, err
 	}
-	id, _ := res.LastInsertId()
 
 	if err := assignRolesTx(tx, id, roleNames); err != nil {
 		return User{}, err
@@ -190,8 +184,8 @@ func (s *Store) SetPassword(userID int64, plainPassword string) error {
 		return err
 	}
 	_, err = s.db.Exec(
-		`UPDATE users SET password_hash = ?, failed_attempts = 0, locked_until = NULL
-		 WHERE id = ?`, string(hash), userID)
+		`UPDATE users SET password_hash = $1, failed_attempts = 0, locked_until = NULL
+		 WHERE id = $2`, string(hash), userID)
 	return err
 }
 
@@ -202,7 +196,7 @@ func (s *Store) SetUserRoles(userID int64, roleNames []string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM user_roles WHERE user_id = ?`, userID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM user_roles WHERE user_id = $1`, userID); err != nil {
 		return err
 	}
 	if err := assignRolesTx(tx, userID, roleNames); err != nil {
@@ -214,7 +208,7 @@ func (s *Store) SetUserRoles(userID int64, roleNames []string) error {
 func assignRolesTx(tx *sql.Tx, userID int64, roleNames []string) error {
 	for _, n := range roleNames {
 		var rid int64
-		err := tx.QueryRow(`SELECT id FROM roles WHERE name = ?`, n).Scan(&rid)
+		err := tx.QueryRow(`SELECT id FROM roles WHERE name = $1`, n).Scan(&rid)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}
@@ -222,7 +216,7 @@ func assignRolesTx(tx *sql.Tx, userID int64, roleNames []string) error {
 			return err
 		}
 		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)`,
+			`INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 			userID, rid); err != nil {
 			return err
 		}
@@ -232,13 +226,13 @@ func assignRolesTx(tx *sql.Tx, userID int64, roleNames []string) error {
 
 // SetLastSeenVersion records the app version the user acknowledged in the "What's New" dialog.
 func (s *Store) SetLastSeenVersion(userID int64, version string) error {
-	_, err := s.db.Exec(`UPDATE users SET last_seen_version = ? WHERE id = ?`, version, userID)
+	_, err := s.db.Exec(`UPDATE users SET last_seen_version = $1 WHERE id = $2`, version, userID)
 	return err
 }
 
 // SetLanguage updates a user's preferred language code (e.g. "en", "de").
 func (s *Store) SetLanguage(userID int64, language string) error {
-	_, err := s.db.Exec(`UPDATE users SET language = ? WHERE id = ?`, language, userID)
+	_, err := s.db.Exec(`UPDATE users SET language = $1 WHERE id = $2`, language, userID)
 	return err
 }
 
@@ -248,7 +242,7 @@ func (s *Store) SetLanguage(userID int64, language string) error {
 // to UTC on submit). Any other value is rejected by the HTTP handler;
 // existing rows default to "utc" via the column DEFAULT in migrateUsers.
 func (s *Store) SetTimeInputMode(userID int64, mode string) error {
-	_, err := s.db.Exec(`UPDATE users SET time_input_mode = ? WHERE id = ?`, mode, userID)
+	_, err := s.db.Exec(`UPDATE users SET time_input_mode = $1 WHERE id = $2`, mode, userID)
 	return err
 }
 
@@ -257,41 +251,37 @@ func (s *Store) SetTimeInputMode(userID int64, mode string) error {
 // direct-sunlight use). The HTTP handler rejects anything else;
 // existing rows default to "dark" via the migrateUsers column DEFAULT.
 func (s *Store) SetTheme(userID int64, theme string) error {
-	_, err := s.db.Exec(`UPDATE users SET theme = ? WHERE id = ?`, theme, userID)
+	_, err := s.db.Exec(`UPDATE users SET theme = $1 WHERE id = $2`, theme, userID)
 	return err
 }
 
 // SetCallsign updates a user's callsign.
 func (s *Store) SetCallsign(userID int64, callsign string) error {
-	_, err := s.db.Exec(`UPDATE users SET callsign = ? WHERE id = ?`,
+	_, err := s.db.Exec(`UPDATE users SET callsign = $1 WHERE id = $2`,
 		strings.ToUpper(callsign), userID)
 	return err
 }
 
 // SetDisabled toggles a user's disabled flag.
 func (s *Store) SetDisabled(userID int64, disabled bool) error {
-	d := 0
-	if disabled {
-		d = 1
-	}
-	_, err := s.db.Exec(`UPDATE users SET disabled = ? WHERE id = ?`, d, userID)
+	_, err := s.db.Exec(`UPDATE users SET disabled = $1 WHERE id = $2`, disabled, userID)
 	return err
 }
 
 // DeleteUser removes a user account.
 func (s *Store) DeleteUser(userID int64) error {
-	_, err := s.db.Exec(`DELETE FROM users WHERE id = ?`, userID)
+	_, err := s.db.Exec(`DELETE FROM users WHERE id = $1`, userID)
 	return err
 }
 
 // GetUserByID returns a user with roles + computed permissions populated.
 func (s *Store) GetUserByID(id int64) (User, error) {
-	return s.getUser(`id = ?`, id)
+	return s.getUser(`id = $1`, id)
 }
 
 // GetUserByUsername returns a user by their (lowercased) username.
 func (s *Store) GetUserByUsername(username string) (User, error) {
-	return s.getUser(`username = ?`, strings.ToLower(strings.TrimSpace(username)))
+	return s.getUser(`username = $1`, strings.ToLower(strings.TrimSpace(username)))
 }
 
 func (s *Store) getUser(where string, arg interface{}) (User, error) {
@@ -299,31 +289,25 @@ func (s *Store) getUser(where string, arg interface{}) (User, error) {
 		`SELECT id, username, callsign, password_hash, helper_token, failed_attempts,
 		        locked_until, disabled, created_at, last_activity_at, language, last_seen_version, time_input_mode, theme FROM users WHERE `+where, arg)
 	var u User
-	var lockStr sql.NullString
-	var createdStr, lastActStr, lang, lastSeenVer, timeMode, theme string
-	var disabledInt int
+	var lockedUntil, lastActivityAt sql.NullTime
 	err := row.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash, &u.HelperToken,
-		&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr, &lang, &lastSeenVer, &timeMode, &theme)
+		&u.FailedAttempts, &lockedUntil, &u.Disabled, &u.CreatedAt, &lastActivityAt,
+		&u.Language, &u.LastSeenVersion, &u.TimeInputMode, &u.Theme)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
 	if err != nil {
 		return User{}, err
 	}
-	if lockStr.Valid && lockStr.String != "" {
-		t, _ := time.Parse(time.RFC3339, lockStr.String)
+	if lockedUntil.Valid {
+		t := lockedUntil.Time.UTC()
 		u.LockedUntil = &t
 	}
-	u.Disabled = disabledInt != 0
-	u.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
-	if lastActStr != "" {
-		t, _ := time.Parse(time.RFC3339, lastActStr)
+	u.CreatedAt = u.CreatedAt.UTC()
+	if lastActivityAt.Valid {
+		t := lastActivityAt.Time.UTC()
 		u.LastActivityAt = &t
 	}
-	u.Language = lang
-	u.LastSeenVersion = lastSeenVer
-	u.TimeInputMode = timeMode
-	u.Theme = theme
 
 	roles, perms, err := s.userRolesAndPermissions(u.ID)
 	if err != nil {
@@ -347,25 +331,21 @@ func (s *Store) ListUsers() ([]User, error) {
 	var out []User
 	for rows.Next() {
 		var u User
-		var lockStr sql.NullString
-		var createdStr, lastActStr, lang, lastSeenVer string
-		var disabledInt int
+		var lockedUntil, lastActivityAt sql.NullTime
 		if err := rows.Scan(&u.ID, &u.Username, &u.Callsign, &u.PasswordHash, &u.HelperToken,
-			&u.FailedAttempts, &lockStr, &disabledInt, &createdStr, &lastActStr, &lang, &lastSeenVer); err != nil {
+			&u.FailedAttempts, &lockedUntil, &u.Disabled, &u.CreatedAt, &lastActivityAt,
+			&u.Language, &u.LastSeenVersion); err != nil {
 			return nil, err
 		}
-		if lockStr.Valid && lockStr.String != "" {
-			t, _ := time.Parse(time.RFC3339, lockStr.String)
+		if lockedUntil.Valid {
+			t := lockedUntil.Time.UTC()
 			u.LockedUntil = &t
 		}
-		u.Disabled = disabledInt != 0
-		u.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
-		if lastActStr != "" {
-			t, _ := time.Parse(time.RFC3339, lastActStr)
+		u.CreatedAt = u.CreatedAt.UTC()
+		if lastActivityAt.Valid {
+			t := lastActivityAt.Time.UTC()
 			u.LastActivityAt = &t
 		}
-		u.Language = lang
-		u.LastSeenVersion = lastSeenVer
 		out = append(out, u)
 	}
 	if err := rows.Err(); err != nil {
@@ -386,7 +366,7 @@ func (s *Store) userRolesAndPermissions(userID int64) ([]string, []string, error
 	rows, err := s.db.Query(
 		`SELECT r.name, r.permissions FROM roles r
 		 JOIN user_roles ur ON ur.role_id = r.id
-		 WHERE ur.user_id = ? ORDER BY r.name`, userID)
+		 WHERE ur.user_id = $1 ORDER BY r.name`, userID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -427,7 +407,7 @@ func (s *Store) RecordLoginFailure(userID int64, threshold int, lockoutFor time.
 	}
 	defer tx.Rollback()
 	var failed int
-	if err := tx.QueryRow(`SELECT failed_attempts FROM users WHERE id = ?`, userID).Scan(&failed); err != nil {
+	if err := tx.QueryRow(`SELECT failed_attempts FROM users WHERE id = $1`, userID).Scan(&failed); err != nil {
 		return 0, nil, err
 	}
 	failed++
@@ -436,13 +416,13 @@ func (s *Store) RecordLoginFailure(userID int64, threshold int, lockoutFor time.
 		t := time.Now().UTC().Add(lockoutFor)
 		lockedAt = &t
 		if _, err := tx.Exec(
-			`UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?`,
-			failed, t.Format(time.RFC3339), userID); err != nil {
+			`UPDATE users SET failed_attempts = $1, locked_until = $2 WHERE id = $3`,
+			failed, t, userID); err != nil {
 			return 0, nil, err
 		}
 	} else {
 		if _, err := tx.Exec(
-			`UPDATE users SET failed_attempts = ? WHERE id = ?`,
+			`UPDATE users SET failed_attempts = $1 WHERE id = $2`,
 			failed, userID); err != nil {
 			return 0, nil, err
 		}
@@ -453,7 +433,7 @@ func (s *Store) RecordLoginFailure(userID int64, threshold int, lockoutFor time.
 // ClearLoginFailures resets a user's failure counter and lockout (call on success).
 func (s *Store) ClearLoginFailures(userID int64) error {
 	_, err := s.db.Exec(
-		`UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?`, userID)
+		`UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = $1`, userID)
 	return err
 }
 
@@ -473,11 +453,9 @@ func (s *Store) ListRoles() ([]Role, error) {
 	for rows.Next() {
 		var r Role
 		var perms string
-		var bi int
-		if err := rows.Scan(&r.ID, &r.Name, &perms, &bi); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &perms, &r.IsBuiltin); err != nil {
 			return nil, err
 		}
-		r.IsBuiltin = bi != 0
 		for _, p := range strings.Split(perms, ",") {
 			p = strings.TrimSpace(p)
 			if p != "" {
@@ -491,19 +469,17 @@ func (s *Store) ListRoles() ([]Role, error) {
 
 // GetRoleByName looks up a role.
 func (s *Store) GetRoleByName(name string) (Role, error) {
-	row := s.db.QueryRow(`SELECT id, name, permissions, is_builtin FROM roles WHERE name = ?`,
+	row := s.db.QueryRow(`SELECT id, name, permissions, is_builtin FROM roles WHERE name = $1`,
 		strings.ToLower(strings.TrimSpace(name)))
 	var r Role
 	var perms string
-	var bi int
-	err := row.Scan(&r.ID, &r.Name, &perms, &bi)
+	err := row.Scan(&r.ID, &r.Name, &perms, &r.IsBuiltin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Role{}, ErrNotFound
 	}
 	if err != nil {
 		return Role{}, err
 	}
-	r.IsBuiltin = bi != 0
 	for _, p := range strings.Split(perms, ",") {
 		p = strings.TrimSpace(p)
 		if p != "" {
@@ -520,16 +496,16 @@ func (s *Store) CreateRole(name string, permissions []string) (Role, error) {
 		return Role{}, errors.New("role name required")
 	}
 	csv := strings.Join(permissions, ",")
-	res, err := s.db.Exec(
-		`INSERT INTO roles (name, permissions, is_builtin) VALUES (?, ?, 0)`,
-		name, csv)
+	var id int64
+	err := s.db.QueryRow(
+		`INSERT INTO roles (name, permissions, is_builtin) VALUES ($1, $2, false) RETURNING id`,
+		name, csv).Scan(&id)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if isUniqueViolation(err) {
 			return Role{}, ErrRoleNameTaken
 		}
 		return Role{}, err
 	}
-	id, _ := res.LastInsertId()
 	return Role{ID: id, Name: name, Permissions: permissions}, nil
 }
 
@@ -544,7 +520,7 @@ func (s *Store) UpdateRolePermissions(roleID int64, permissions []string) error 
 		return errors.New("the admin role's permissions cannot be modified")
 	}
 	csv := strings.Join(permissions, ",")
-	_, err = s.db.Exec(`UPDATE roles SET permissions = ? WHERE id = ?`, csv, roleID)
+	_, err = s.db.Exec(`UPDATE roles SET permissions = $1 WHERE id = $2`, csv, roleID)
 	return err
 }
 
@@ -557,7 +533,7 @@ func (s *Store) DeleteRole(roleID int64) error {
 	if role.IsBuiltin {
 		return errors.New("built-in roles cannot be deleted")
 	}
-	_, err = s.db.Exec(`DELETE FROM roles WHERE id = ?`, roleID)
+	_, err = s.db.Exec(`DELETE FROM roles WHERE id = $1`, roleID)
 	return err
 }
 
@@ -565,18 +541,16 @@ func (s *Store) DeleteRole(roleID int64) error {
 func (s *Store) GetRoleByID(id int64) (Role, error) { return s.getRoleByID(id) }
 
 func (s *Store) getRoleByID(id int64) (Role, error) {
-	row := s.db.QueryRow(`SELECT id, name, permissions, is_builtin FROM roles WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, name, permissions, is_builtin FROM roles WHERE id = $1`, id)
 	var r Role
 	var perms string
-	var bi int
-	err := row.Scan(&r.ID, &r.Name, &perms, &bi)
+	err := row.Scan(&r.ID, &r.Name, &perms, &r.IsBuiltin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Role{}, ErrNotFound
 	}
 	if err != nil {
 		return Role{}, err
 	}
-	r.IsBuiltin = bi != 0
 	for _, p := range strings.Split(perms, ",") {
 		p = strings.TrimSpace(p)
 		if p != "" {
@@ -589,8 +563,8 @@ func (s *Store) getRoleByID(id int64) (Role, error) {
 // TouchUserActivity records the current UTC time as last_activity_at for the given user.
 func (s *Store) TouchUserActivity(userID int64) error {
 	_, err := s.db.Exec(
-		`UPDATE users SET last_activity_at = ? WHERE id = ?`,
-		time.Now().UTC().Format(time.RFC3339), userID)
+		`UPDATE users SET last_activity_at = $1 WHERE id = $2`,
+		time.Now().UTC(), userID)
 	return err
 }
 
@@ -599,14 +573,14 @@ func (s *Store) GetUserByHelperToken(token string) (User, error) {
 	if token == "" {
 		return User{}, ErrNotFound
 	}
-	return s.getUser(`helper_token = ?`, token)
+	return s.getUser(`helper_token = $1`, token)
 }
 
 // RegenerateHelperToken generates a fresh token for the given user, persists it,
 // and returns the new value.
 func (s *Store) RegenerateHelperToken(userID int64) (string, error) {
 	tok := generateHelperToken()
-	_, err := s.db.Exec(`UPDATE users SET helper_token = ? WHERE id = ?`, tok, userID)
+	_, err := s.db.Exec(`UPDATE users SET helper_token = $1 WHERE id = $2`, tok, userID)
 	if err != nil {
 		return "", err
 	}

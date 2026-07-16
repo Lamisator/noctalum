@@ -32,18 +32,18 @@ type CallsignRequest struct {
 
 func (s *Store) migrateCallsignRequests() error {
 	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS callsign_requests (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id INTEGER NOT NULL,
-		current_callsign TEXT NOT NULL,
+		id                 BIGSERIAL PRIMARY KEY,
+		user_id            BIGINT NOT NULL,
+		current_callsign   TEXT NOT NULL,
 		requested_callsign TEXT NOT NULL,
-		proof_filename TEXT NOT NULL,
-		proof_mime TEXT NOT NULL,
-		proof_size INTEGER NOT NULL,
-		status TEXT NOT NULL DEFAULT 'pending',
-		admin_note TEXT NOT NULL DEFAULT '',
-		created_at TEXT NOT NULL,
-		decided_by INTEGER,
-		decided_at TEXT,
+		proof_filename     TEXT NOT NULL,
+		proof_mime         TEXT NOT NULL,
+		proof_size         BIGINT NOT NULL,
+		status             TEXT NOT NULL DEFAULT 'pending',
+		admin_note         TEXT NOT NULL DEFAULT '',
+		created_at         TIMESTAMPTZ NOT NULL,
+		decided_by         BIGINT,
+		decided_at         TIMESTAMPTZ,
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	)`)
 	if err != nil {
@@ -59,18 +59,17 @@ func (s *Store) migrateCallsignRequests() error {
 
 // InsertCallsignRequest stores a new pending request and returns the row id.
 func (s *Store) InsertCallsignRequest(userID int64, currentCall, requestedCall, filename, mime string, size int64) (int64, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.Exec(
+	var id int64
+	err := s.db.QueryRow(
 		`INSERT INTO callsign_requests (user_id, current_callsign, requested_callsign,
 			proof_filename, proof_mime, proof_size, status, admin_note, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'pending', '', ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, 'pending', '', $7) RETURNING id`,
 		userID, strings.ToUpper(currentCall), strings.ToUpper(requestedCall),
-		filename, mime, size, now,
-	)
+		filename, mime, size, time.Now().UTC(),
+	).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
-	id, _ := res.LastInsertId()
 	return id, nil
 }
 
@@ -78,12 +77,12 @@ func (s *Store) InsertCallsignRequest(userID int64, currentCall, requestedCall, 
 // any (ErrNotFound otherwise). Used to enforce one-in-flight per user and to
 // render the "your request is pending review" hint in Personal Settings.
 func (s *Store) GetPendingCallsignRequestByUser(userID int64) (CallsignRequest, error) {
-	return s.getCallsignRequest(`cr.user_id = ? AND cr.status = 'pending'`, userID)
+	return s.getCallsignRequest(`cr.user_id = $1 AND cr.status = 'pending'`, userID)
 }
 
 // GetCallsignRequestByID fetches a single request (with username resolved).
 func (s *Store) GetCallsignRequestByID(id int64) (CallsignRequest, error) {
-	return s.getCallsignRequest(`cr.id = ?`, id)
+	return s.getCallsignRequest(`cr.id = $1`, id)
 }
 
 func (s *Store) getCallsignRequest(where string, arg interface{}) (CallsignRequest, error) {
@@ -133,11 +132,10 @@ func (s *Store) DecideCallsignRequest(id, decidedBy int64, status, note string) 
 	if status != "approved" && status != "rejected" {
 		return errors.New("status must be 'approved' or 'rejected'")
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := s.db.Exec(
-		`UPDATE callsign_requests SET status = ?, admin_note = ?, decided_by = ?, decided_at = ?
-		 WHERE id = ? AND status = 'pending'`,
-		status, note, decidedBy, now, id,
+		`UPDATE callsign_requests SET status = $1, admin_note = $2, decided_by = $3, decided_at = $4
+		 WHERE id = $5 AND status = 'pending'`,
+		status, note, decidedBy, time.Now().UTC(), id,
 	)
 	if err != nil {
 		return err
@@ -155,26 +153,25 @@ type rowScanner interface {
 
 func scanCallsignRequest(r rowScanner) (CallsignRequest, error) {
 	var cr CallsignRequest
-	var createdAt string
 	var decidedByN sql.NullInt64
-	var decidedAtN sql.NullString
+	var decidedAtN sql.NullTime
 	var decidedByName sql.NullString
 	err := r.Scan(&cr.ID, &cr.UserID, &cr.Username, &cr.CurrentCallsign, &cr.RequestedCallsign,
 		&cr.ProofFilename, &cr.ProofMime, &cr.ProofSize, &cr.Status, &cr.AdminNote,
-		&createdAt, &decidedByN, &decidedAtN, &decidedByName)
+		&cr.CreatedAt, &decidedByN, &decidedAtN, &decidedByName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return cr, ErrNotFound
 	}
 	if err != nil {
 		return cr, err
 	}
-	cr.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	cr.CreatedAt = cr.CreatedAt.UTC()
 	if decidedByN.Valid {
 		v := decidedByN.Int64
 		cr.DecidedByUserID = &v
 	}
-	if decidedAtN.Valid && decidedAtN.String != "" {
-		t, _ := time.Parse(time.RFC3339, decidedAtN.String)
+	if decidedAtN.Valid {
+		t := decidedAtN.Time.UTC()
 		cr.DecidedAt = &t
 	}
 	if decidedByName.Valid {

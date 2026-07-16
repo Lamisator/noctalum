@@ -29,9 +29,9 @@ type AuditEntry struct {
 
 // AuditFilter controls which entries ListAuditLogs returns.
 type AuditFilter struct {
-	Level    string     // "" = all
-	Action   string     // "" = all
-	Search   string     // matched against actor, target, details
+	Level    string // "" = all
+	Action   string // "" = all
+	Search   string // matched against actor, target, details
 	Since    *time.Time
 	Until    *time.Time
 	SortBy   string // "timestamp"|"level"|"action"|"actor"|"target"|"ip"
@@ -45,14 +45,14 @@ const auditRetentionDays = 365
 func (s *Store) migrateAudit() error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS audit_log (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			timestamp TEXT NOT NULL,
-			level TEXT NOT NULL,
-			action TEXT NOT NULL,
-			actor TEXT NOT NULL DEFAULT '',
-			target TEXT NOT NULL DEFAULT '',
-			details TEXT NOT NULL DEFAULT '',
-			ip TEXT NOT NULL DEFAULT ''
+			id        BIGSERIAL PRIMARY KEY,
+			timestamp TIMESTAMPTZ NOT NULL,
+			level     TEXT NOT NULL,
+			action    TEXT NOT NULL,
+			actor     TEXT NOT NULL DEFAULT '',
+			target    TEXT NOT NULL DEFAULT '',
+			details   TEXT NOT NULL DEFAULT '',
+			ip        TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(timestamp DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_level ON audit_log(level)`,
@@ -71,18 +71,18 @@ func (s *Store) migrateAudit() error {
 // days are pruned so the table stays bounded without a background goroutine.
 func (s *Store) InsertAuditLog(level AuditLevel, action, actor, target, details, ip string) error {
 	now := time.Now().UTC()
-	res, err := s.db.Exec(
+	var id int64
+	err := s.db.QueryRow(
 		`INSERT INTO audit_log (timestamp, level, action, actor, target, details, ip)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		now.Format(time.RFC3339), string(level), action, actor, target, details, ip,
-	)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+		now, string(level), action, actor, target, details, ip,
+	).Scan(&id)
 	if err != nil {
 		return err
 	}
-	id, _ := res.LastInsertId()
 	if id%100 == 0 {
-		cutoff := now.AddDate(0, 0, -auditRetentionDays).Format(time.RFC3339)
-		_, _ = s.db.Exec(`DELETE FROM audit_log WHERE timestamp < ?`, cutoff)
+		cutoff := now.AddDate(0, 0, -auditRetentionDays)
+		_, _ = s.db.Exec(`DELETE FROM audit_log WHERE timestamp < $1`, cutoff)
 	}
 	return nil
 }
@@ -91,27 +91,34 @@ func (s *Store) InsertAuditLog(level AuditLevel, action, actor, target, details,
 func (s *Store) ListAuditLogs(f AuditFilter) ([]AuditEntry, int, error) {
 	var conds []string
 	var args []interface{}
+	next := 1
+	ph := func() string {
+		p := fmt.Sprintf("$%d", next)
+		next++
+		return p
+	}
 
 	if f.Level != "" {
-		conds = append(conds, "level = ?")
+		conds = append(conds, "level = "+ph())
 		args = append(args, f.Level)
 	}
 	if f.Action != "" {
-		conds = append(conds, "action = ?")
+		conds = append(conds, "action = "+ph())
 		args = append(args, f.Action)
 	}
 	if f.Search != "" {
-		conds = append(conds, "(actor LIKE ? OR target LIKE ? OR details LIKE ?)")
+		p1, p2, p3 := ph(), ph(), ph()
+		conds = append(conds, "(actor ILIKE "+p1+" OR target ILIKE "+p2+" OR details ILIKE "+p3+")")
 		pat := "%" + f.Search + "%"
 		args = append(args, pat, pat, pat)
 	}
 	if f.Since != nil {
-		conds = append(conds, "timestamp >= ?")
-		args = append(args, f.Since.UTC().Format(time.RFC3339))
+		conds = append(conds, "timestamp >= "+ph())
+		args = append(args, f.Since.UTC())
 	}
 	if f.Until != nil {
-		conds = append(conds, "timestamp <= ?")
-		args = append(args, f.Until.UTC().Format(time.RFC3339))
+		conds = append(conds, "timestamp <= "+ph())
+		args = append(args, f.Until.UTC())
 	}
 
 	where := ""
@@ -143,10 +150,12 @@ func (s *Store) ListAuditLogs(f AuditFilter) ([]AuditEntry, int, error) {
 		offset = 0
 	}
 
+	limitPh := ph()
+	offsetPh := ph()
 	q := fmt.Sprintf(
 		`SELECT id, timestamp, level, action, actor, target, details, ip
-		 FROM audit_log %s ORDER BY %s %s, id DESC LIMIT ? OFFSET ?`,
-		where, sortCol, dir,
+		 FROM audit_log %s ORDER BY %s %s, id DESC LIMIT %s OFFSET %s`,
+		where, sortCol, dir, limitPh, offsetPh,
 	)
 	rows, err := s.db.Query(q, append(args, limit, offset)...)
 	if err != nil {
@@ -157,11 +166,10 @@ func (s *Store) ListAuditLogs(f AuditFilter) ([]AuditEntry, int, error) {
 	var out []AuditEntry
 	for rows.Next() {
 		var e AuditEntry
-		var ts string
-		if err := rows.Scan(&e.ID, &ts, &e.Level, &e.Action, &e.Actor, &e.Target, &e.Details, &e.IP); err != nil {
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.Level, &e.Action, &e.Actor, &e.Target, &e.Details, &e.IP); err != nil {
 			return nil, 0, err
 		}
-		e.Timestamp, _ = time.Parse(time.RFC3339, ts)
+		e.Timestamp = e.Timestamp.UTC()
 		out = append(out, e)
 	}
 	return out, total, rows.Err()

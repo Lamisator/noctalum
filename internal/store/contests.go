@@ -6,31 +6,33 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var ErrContestNotFound = errors.New("contest not found")
 
 // Contest represents a single ham radio contest event.
 type Contest struct {
-	ID           int64     `json:"id"`
-	Name         string    `json:"name"`
-	StationCall  string    `json:"station_call"`
-	StationID    string    `json:"station_id"` // contest-specific operator/station identifier
-	QTH          string    `json:"qth"`        // Maidenhead locator of the station
-	Status       string    `json:"status"`     // "open" | "finished"
-	Bands        []string  `json:"bands"`      // active bands for this contest
-	Objective    string    `json:"objective"`  // markdown text
-	Private      bool      `json:"private"`    // owner-only contest
-	OwnerUserID  int64     `json:"owner_user_id"`
-	CustomFields     string     `json:"custom_fields"`      // JSON-encoded array of {name,label,type,required,order}
-	QSOLayout        string     `json:"qso_layout"`         // JSON-encoded {cols, items:[{key,x,y,w}]} for the New QSO mask
-	LogColumns       string     `json:"log_columns"`        // JSON-encoded ordered array of {key,on} for log table columns
-	AccessRestricted bool       `json:"access_restricted"`  // when true, only access-listed users / owners / admins can see & enter
-	NrPadded         bool       `json:"nr_padded"`          // display serial numbers zero-padded to 3 digits
-	StashExpiryMinutes int64    `json:"stash_expiry_minutes"` // auto-delete stashed pre-QSOs after this many minutes (default 60)
-	FreqUnit         string     `json:"freq_unit"`          // display unit for frequency: "Hz", "kHz", "MHz", "GHz" (default "kHz")
-	CreatedAt        time.Time  `json:"created_at"`
-	LastActivityAt   *time.Time `json:"last_activity_at"` // time of the most recent QSO; nil if no QSOs logged
+	ID                 int64      `json:"id"`
+	Name               string     `json:"name"`
+	StationCall        string     `json:"station_call"`
+	StationID          string     `json:"station_id"` // contest-specific operator/station identifier
+	QTH                string     `json:"qth"`        // Maidenhead locator of the station
+	Status             string     `json:"status"`     // "open" | "finished"
+	Bands              []string   `json:"bands"`      // active bands for this contest
+	Objective          string     `json:"objective"`  // markdown text
+	Private            bool       `json:"private"`    // owner-only contest
+	OwnerUserID        int64      `json:"owner_user_id"`
+	CustomFields       string     `json:"custom_fields"`        // JSON-encoded array of {name,label,type,required,order}
+	QSOLayout          string     `json:"qso_layout"`           // JSON-encoded {cols, items:[{key,x,y,w}]} for the New QSO mask
+	LogColumns         string     `json:"log_columns"`          // JSON-encoded ordered array of {key,on} for log table columns
+	AccessRestricted   bool       `json:"access_restricted"`    // when true, only access-listed users / owners / admins can see & enter
+	NrPadded           bool       `json:"nr_padded"`            // display serial numbers zero-padded to 3 digits
+	StashExpiryMinutes int64      `json:"stash_expiry_minutes"` // auto-delete stashed pre-QSOs after this many minutes (default 60)
+	FreqUnit           string     `json:"freq_unit"`            // display unit for frequency: "Hz", "kHz", "MHz", "GHz" (default "kHz")
+	CreatedAt          time.Time  `json:"created_at"`
+	LastActivityAt     *time.Time `json:"last_activity_at"` // time of the most recent QSO; nil if no QSOs logged
 }
 
 // ContestAccessUser carries the user information returned for contest access list entries.
@@ -48,109 +50,58 @@ func bandsFromString(s string) []string {
 	return strings.Split(s, ",")
 }
 
+// isUniqueViolation reports whether err is a Postgres unique-constraint
+// violation (SQLSTATE 23505). Callers use it to translate driver errors
+// into the package's typed errors (ErrUsernameTaken, ErrRoleNameTaken,
+// "contest name already in use", …).
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
 func (s *Store) migrateContests() error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS contests (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL UNIQUE,
-			station_call TEXT NOT NULL,
-			status TEXT NOT NULL DEFAULT 'open',
-			created_at TEXT NOT NULL
+			id                   BIGSERIAL PRIMARY KEY,
+			name                 TEXT NOT NULL UNIQUE,
+			station_call         TEXT NOT NULL,
+			qth                  TEXT NOT NULL DEFAULT '',
+			bands                TEXT NOT NULL DEFAULT '',
+			objective            TEXT NOT NULL DEFAULT '',
+			status               TEXT NOT NULL DEFAULT 'open',
+			station_id           TEXT NOT NULL DEFAULT '',
+			private              BOOLEAN NOT NULL DEFAULT false,
+			owner_user_id        BIGINT NOT NULL DEFAULT 0,
+			custom_fields        TEXT NOT NULL DEFAULT '',
+			qso_layout           TEXT NOT NULL DEFAULT '',
+			log_columns          TEXT NOT NULL DEFAULT '',
+			access_restricted    BOOLEAN NOT NULL DEFAULT false,
+			nr_padded            BOOLEAN NOT NULL DEFAULT true,
+			stash_expiry_minutes BIGINT NOT NULL DEFAULT 60,
+			freq_unit            TEXT NOT NULL DEFAULT 'kHz',
+			created_at           TIMESTAMPTZ NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_contests_status ON contests(status)`,
+		`CREATE TABLE IF NOT EXISTS contest_access (
+			contest_id BIGINT NOT NULL,
+			user_id    BIGINT NOT NULL,
+			PRIMARY KEY (contest_id, user_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS contest_participants (
+			contest_id BIGINT      NOT NULL,
+			user_id    BIGINT      NOT NULL,
+			role       TEXT        NOT NULL DEFAULT 'user',
+			status     TEXT        NOT NULL DEFAULT 'pending',
+			joined_at  TIMESTAMPTZ NOT NULL,
+			PRIMARY KEY (contest_id, user_id)
+		)`,
 	}
 	for _, q := range stmts {
 		if _, err := s.db.Exec(q); err != nil {
 			return fmt.Errorf("migrate contests: %w", err)
 		}
 	}
-	if err := s.addColumnIfMissing("contests", "qth", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return fmt.Errorf("migrate contests qth: %w", err)
-	}
-	if err := s.addColumnIfMissing("contests", "bands", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return fmt.Errorf("migrate contests bands: %w", err)
-	}
-	if err := s.addColumnIfMissing("contests", "objective", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return fmt.Errorf("migrate contests objective: %w", err)
-	}
-	if err := s.addColumnIfMissing("contests", "station_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return fmt.Errorf("migrate contests station_id: %w", err)
-	}
-	if err := s.addColumnIfMissing("contests", "private", "INTEGER NOT NULL DEFAULT 0"); err != nil {
-		return fmt.Errorf("migrate contests private: %w", err)
-	}
-	if err := s.addColumnIfMissing("contests", "owner_user_id", "INTEGER NOT NULL DEFAULT 0"); err != nil {
-		return fmt.Errorf("migrate contests owner_user_id: %w", err)
-	}
-	if err := s.addColumnIfMissing("contests", "custom_fields", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return fmt.Errorf("migrate contests custom_fields: %w", err)
-	}
-	if err := s.addColumnIfMissing("contests", "qso_layout", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return fmt.Errorf("migrate contests qso_layout: %w", err)
-	}
-	if err := s.addColumnIfMissing("contests", "log_columns", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return fmt.Errorf("migrate contests log_columns: %w", err)
-	}
-	if err := s.addColumnIfMissing("contests", "access_restricted", "INTEGER NOT NULL DEFAULT 0"); err != nil {
-		return fmt.Errorf("migrate contests access_restricted: %w", err)
-	}
-	if err := s.addColumnIfMissing("contests", "nr_padded", "INTEGER NOT NULL DEFAULT 1"); err != nil {
-		return fmt.Errorf("migrate contests nr_padded: %w", err)
-	}
-	if err := s.addColumnIfMissing("contests", "stash_expiry_minutes", "INTEGER NOT NULL DEFAULT 60"); err != nil {
-		return fmt.Errorf("migrate contests stash_expiry_minutes: %w", err)
-	}
-	if err := s.addColumnIfMissing("contests", "freq_unit", "TEXT NOT NULL DEFAULT 'kHz'"); err != nil {
-		return fmt.Errorf("migrate contests freq_unit: %w", err)
-	}
-	if err := s.addColumnIfMissing("qsos", "extras", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return fmt.Errorf("migrate qsos extras: %w", err)
-	}
-	if err := s.addColumnIfMissing("qsos", "contest_id", "INTEGER"); err != nil {
-		return fmt.Errorf("migrate qsos contest_id: %w", err)
-	}
-	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS contest_access (
-		contest_id INTEGER NOT NULL,
-		user_id    INTEGER NOT NULL,
-		PRIMARY KEY (contest_id, user_id)
-	)`); err != nil {
-		return err
-	}
-	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS contest_participants (
-		contest_id INTEGER NOT NULL,
-		user_id    INTEGER NOT NULL,
-		role       TEXT    NOT NULL DEFAULT 'user',
-		status     TEXT    NOT NULL DEFAULT 'pending',
-		joined_at  TEXT    NOT NULL,
-		PRIMARY KEY (contest_id, user_id)
-	)`)
-	return err
-}
-
-func (s *Store) addColumnIfMissing(table, column, colType string) error {
-	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notNull int
-		var dflt sql.NullString
-		var pk int
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
-			return err
-		}
-		if strings.EqualFold(name, column) {
-			return nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	_, err = s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, colType))
-	return err
+	return nil
 }
 
 // CreateContest inserts a new contest in 'open' status.
@@ -159,14 +110,6 @@ func (s *Store) CreateContest(name, stationCall, qth string, bands []string, obj
 	stationCall = strings.ToUpper(strings.TrimSpace(stationCall))
 	qth = strings.ToUpper(strings.TrimSpace(qth))
 	stationID = strings.TrimSpace(stationID)
-	priv := 0
-	if private {
-		priv = 1
-	}
-	nrp := 1
-	if !nrPadded {
-		nrp = 0
-	}
 	if stashExpiryMinutes <= 0 {
 		stashExpiryMinutes = 60
 	}
@@ -174,17 +117,18 @@ func (s *Store) CreateContest(name, stationCall, qth string, bands []string, obj
 		freqUnit = "kHz"
 	}
 	now := time.Now().UTC()
-	res, err := s.db.Exec(
-		`INSERT INTO contests (name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, nr_padded, stash_expiry_minutes, freq_unit, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		name, stationCall, qth, bandsToString(bands), objective, stationID, priv, ownerUserID, customFields, qsoLayout, logColumns, nrp, stashExpiryMinutes, freqUnit, now.Format(time.RFC3339),
-	)
+	var id int64
+	err := s.db.QueryRow(
+		`INSERT INTO contests (name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, nr_padded, stash_expiry_minutes, freq_unit, created_at)
+		 VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
+		name, stationCall, qth, bandsToString(bands), objective, stationID, private, ownerUserID, customFields, qsoLayout, logColumns, nrPadded, stashExpiryMinutes, freqUnit, now,
+	).Scan(&id)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if isUniqueViolation(err) {
 			return nil, errors.New("contest name already in use")
 		}
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
 	return &Contest{ID: id, Name: name, StationCall: stationCall, QTH: qth, Bands: bands, Objective: objective, Status: "open", StationID: stationID, Private: private, OwnerUserID: ownerUserID, CustomFields: customFields, QSOLayout: qsoLayout, LogColumns: logColumns, NrPadded: nrPadded, StashExpiryMinutes: stashExpiryMinutes, FreqUnit: freqUnit, CreatedAt: now}, nil
 }
 
@@ -205,19 +149,15 @@ func (s *Store) ListContests() ([]Contest, error) {
 	var out []Contest
 	for rows.Next() {
 		var c Contest
-		var t, bandsStr string
-		var priv, ar, nrp int
-		var lastAct sql.NullString
-		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &ar, &nrp, &c.StashExpiryMinutes, &c.FreqUnit, &t, &lastAct); err != nil {
+		var bandsStr string
+		var lastAct sql.NullTime
+		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.AccessRestricted, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &c.CreatedAt, &lastAct); err != nil {
 			return nil, err
 		}
-		c.Private = priv != 0
-		c.AccessRestricted = ar != 0
-		c.NrPadded = nrp != 0
 		c.Bands = bandsFromString(bandsStr)
-		c.CreatedAt, _ = time.Parse(time.RFC3339, t)
-		if lastAct.Valid && lastAct.String != "" {
-			la, _ := time.Parse(time.RFC3339, lastAct.String)
+		c.CreatedAt = c.CreatedAt.UTC()
+		if lastAct.Valid {
+			la := lastAct.Time.UTC()
 			c.LastActivityAt = &la
 		}
 		out = append(out, c)
@@ -228,30 +168,22 @@ func (s *Store) ListContests() ([]Contest, error) {
 // GetContest returns a single contest by ID.
 func (s *Store) GetContest(id int64) (*Contest, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, access_restricted, nr_padded, stash_expiry_minutes, freq_unit, created_at FROM contests WHERE id = ?`, id)
+		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, access_restricted, nr_padded, stash_expiry_minutes, freq_unit, created_at FROM contests WHERE id = $1`, id)
 	var c Contest
-	var t, bandsStr string
-	var priv, ar, nrp int
-	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &priv, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &ar, &nrp, &c.StashExpiryMinutes, &c.FreqUnit, &t); err != nil {
+	var bandsStr string
+	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.AccessRestricted, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &c.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrContestNotFound
 		}
 		return nil, err
 	}
-	c.Private = priv != 0
-	c.AccessRestricted = ar != 0
-	c.NrPadded = nrp != 0
 	c.Bands = bandsFromString(bandsStr)
-	c.CreatedAt, _ = time.Parse(time.RFC3339, t)
+	c.CreatedAt = c.CreatedAt.UTC()
 	return &c, nil
 }
 
 // UpdateContest updates name, station_call, qth, bands, objective and status of an existing contest.
 func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, bands []string, objective, stationID, customFields, qsoLayout, logColumns string, nrPadded bool, stashExpiryMinutes int64, freqUnit string) error {
-	nrp := 1
-	if !nrPadded {
-		nrp = 0
-	}
 	if stashExpiryMinutes <= 0 {
 		stashExpiryMinutes = 60
 	}
@@ -259,10 +191,10 @@ func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, b
 		freqUnit = "kHz"
 	}
 	_, err := s.db.Exec(
-		`UPDATE contests SET name = ?, station_call = ?, qth = ?, bands = ?, objective = ?, status = ?, station_id = ?, custom_fields = ?, qso_layout = ?, log_columns = ?, nr_padded = ?, stash_expiry_minutes = ?, freq_unit = ? WHERE id = ?`,
+		`UPDATE contests SET name = $1, station_call = $2, qth = $3, bands = $4, objective = $5, status = $6, station_id = $7, custom_fields = $8, qso_layout = $9, log_columns = $10, nr_padded = $11, stash_expiry_minutes = $12, freq_unit = $13 WHERE id = $14`,
 		strings.TrimSpace(name), strings.ToUpper(strings.TrimSpace(stationCall)),
 		strings.ToUpper(strings.TrimSpace(qth)), bandsToString(bands), objective, status,
-		strings.TrimSpace(stationID), customFields, qsoLayout, logColumns, nrp, stashExpiryMinutes, freqUnit, id,
+		strings.TrimSpace(stationID), customFields, qsoLayout, logColumns, nrPadded, stashExpiryMinutes, freqUnit, id,
 	)
 	return err
 }
@@ -299,41 +231,43 @@ func (s *Store) DuplicateContest(srcID int64, newName string, ownerUserID int64)
 // DeleteContest removes a contest, its access list, participants, and any
 // outstanding share tokens that point at it.
 func (s *Store) DeleteContest(id int64) error {
-	if _, err := s.db.Exec(`DELETE FROM contest_access WHERE contest_id = ?`, id); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM contest_access WHERE contest_id = $1`, id); err != nil {
 		return err
 	}
-	if _, err := s.db.Exec(`DELETE FROM contest_participants WHERE contest_id = ?`, id); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM contest_participants WHERE contest_id = $1`, id); err != nil {
 		return err
 	}
 	if err := s.DeleteSharesForContest(id); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`DELETE FROM contests WHERE id = ?`, id)
+	_, err := s.db.Exec(`DELETE FROM contests WHERE id = $1`, id)
 	return err
 }
 
 // GrantContestAccess gives a user access to a private contest.
 func (s *Store) GrantContestAccess(contestID, userID int64) error {
-	_, err := s.db.Exec(`INSERT OR IGNORE INTO contest_access (contest_id, user_id) VALUES (?, ?)`, contestID, userID)
+	_, err := s.db.Exec(
+		`INSERT INTO contest_access (contest_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		contestID, userID)
 	return err
 }
 
 // RevokeContestAccess removes a user's access to a private contest.
 func (s *Store) RevokeContestAccess(contestID, userID int64) error {
-	_, err := s.db.Exec(`DELETE FROM contest_access WHERE contest_id = ? AND user_id = ?`, contestID, userID)
+	_, err := s.db.Exec(`DELETE FROM contest_access WHERE contest_id = $1 AND user_id = $2`, contestID, userID)
 	return err
 }
 
 // HasContestAccess returns true if the user has been explicitly granted access.
 func (s *Store) HasContestAccess(contestID, userID int64) (bool, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM contest_access WHERE contest_id = ? AND user_id = ?`, contestID, userID).Scan(&n)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM contest_access WHERE contest_id = $1 AND user_id = $2`, contestID, userID).Scan(&n)
 	return n > 0, err
 }
 
 // GetContestAccessList returns all user IDs that have been granted access to a contest.
 func (s *Store) GetContestAccessList(contestID int64) ([]int64, error) {
-	rows, err := s.db.Query(`SELECT user_id FROM contest_access WHERE contest_id = ?`, contestID)
+	rows, err := s.db.Query(`SELECT user_id FROM contest_access WHERE contest_id = $1`, contestID)
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +289,7 @@ func (s *Store) GetContestAccessUsers(contestID int64) ([]ContestAccessUser, err
 		`SELECT u.id, u.username, u.callsign
 		 FROM contest_access ca
 		 JOIN users u ON u.id = ca.user_id
-		 WHERE ca.contest_id = ?
+		 WHERE ca.contest_id = $1
 		 ORDER BY u.username`, contestID)
 	if err != nil {
 		return nil, err
@@ -374,11 +308,7 @@ func (s *Store) GetContestAccessUsers(contestID int64) ([]ContestAccessUser, err
 
 // SetContestAccessRestricted enables or disables access restriction for a contest.
 func (s *Store) SetContestAccessRestricted(contestID int64, restricted bool) error {
-	v := 0
-	if restricted {
-		v = 1
-	}
-	_, err := s.db.Exec(`UPDATE contests SET access_restricted = ? WHERE id = ?`, v, contestID)
+	_, err := s.db.Exec(`UPDATE contests SET access_restricted = $1 WHERE id = $2`, restricted, contestID)
 	return err
 }
 
@@ -407,20 +337,18 @@ type ContestParticipant struct {
 
 // AddContestParticipant inserts a participant with the given role and status.
 func (s *Store) AddContestParticipant(contestID, userID int64, role, status string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO contest_participants (contest_id, user_id, role, status, joined_at) VALUES (?, ?, ?, ?, ?)`,
-		contestID, userID, role, status, now,
+		`INSERT INTO contest_participants (contest_id, user_id, role, status, joined_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+		contestID, userID, role, status, time.Now().UTC(),
 	)
 	return err
 }
 
 // RequestContestParticipant inserts the user as a pending participant if not already present.
 func (s *Store) RequestContestParticipant(contestID, userID int64) error {
-	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO contest_participants (contest_id, user_id, role, status, joined_at) VALUES (?, ?, 'user', 'pending', ?)`,
-		contestID, userID, now,
+		`INSERT INTO contest_participants (contest_id, user_id, role, status, joined_at) VALUES ($1, $2, 'user', 'pending', $3) ON CONFLICT DO NOTHING`,
+		contestID, userID, time.Now().UTC(),
 	)
 	return err
 }
@@ -431,7 +359,7 @@ func (s *Store) GetContestParticipants(contestID int64) ([]ContestParticipant, e
 		`SELECT cp.contest_id, cp.user_id, u.username, u.callsign, cp.role, cp.status, cp.joined_at
 		 FROM contest_participants cp
 		 JOIN users u ON u.id = cp.user_id
-		 WHERE cp.contest_id = ?
+		 WHERE cp.contest_id = $1
 		 ORDER BY cp.role DESC, u.username`, contestID)
 	if err != nil {
 		return nil, err
@@ -440,11 +368,10 @@ func (s *Store) GetContestParticipants(contestID int64) ([]ContestParticipant, e
 	var out []ContestParticipant
 	for rows.Next() {
 		var p ContestParticipant
-		var jat string
-		if err := rows.Scan(&p.ContestID, &p.UserID, &p.Username, &p.Callsign, &p.Role, &p.Status, &jat); err != nil {
+		if err := rows.Scan(&p.ContestID, &p.UserID, &p.Username, &p.Callsign, &p.Role, &p.Status, &p.JoinedAt); err != nil {
 			return nil, err
 		}
-		p.JoinedAt, _ = time.Parse(time.RFC3339, jat)
+		p.JoinedAt = p.JoinedAt.UTC()
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -456,23 +383,22 @@ func (s *Store) GetContestParticipant(contestID, userID int64) (*ContestParticip
 		`SELECT cp.contest_id, cp.user_id, u.username, u.callsign, cp.role, cp.status, cp.joined_at
 		 FROM contest_participants cp
 		 JOIN users u ON u.id = cp.user_id
-		 WHERE cp.contest_id = ? AND cp.user_id = ?`, contestID, userID)
+		 WHERE cp.contest_id = $1 AND cp.user_id = $2`, contestID, userID)
 	var p ContestParticipant
-	var jat string
-	if err := row.Scan(&p.ContestID, &p.UserID, &p.Username, &p.Callsign, &p.Role, &p.Status, &jat); err != nil {
+	if err := row.Scan(&p.ContestID, &p.UserID, &p.Username, &p.Callsign, &p.Role, &p.Status, &p.JoinedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	p.JoinedAt, _ = time.Parse(time.RFC3339, jat)
+	p.JoinedAt = p.JoinedAt.UTC()
 	return &p, nil
 }
 
 // UpdateContestParticipant changes role and/or status for an existing participant.
 func (s *Store) UpdateContestParticipant(contestID, userID int64, role, status string) error {
 	_, err := s.db.Exec(
-		`UPDATE contest_participants SET role = ?, status = ? WHERE contest_id = ? AND user_id = ?`,
+		`UPDATE contest_participants SET role = $1, status = $2 WHERE contest_id = $3 AND user_id = $4`,
 		role, status, contestID, userID,
 	)
 	return err
@@ -480,7 +406,7 @@ func (s *Store) UpdateContestParticipant(contestID, userID int64, role, status s
 
 // RemoveContestParticipant deletes a participant from a contest.
 func (s *Store) RemoveContestParticipant(contestID, userID int64) error {
-	_, err := s.db.Exec(`DELETE FROM contest_participants WHERE contest_id = ? AND user_id = ?`, contestID, userID)
+	_, err := s.db.Exec(`DELETE FROM contest_participants WHERE contest_id = $1 AND user_id = $2`, contestID, userID)
 	return err
 }
 
@@ -490,7 +416,7 @@ func (s *Store) GetUserParticipations(userID int64) (map[int64]ContestParticipan
 		`SELECT cp.contest_id, cp.user_id, u.username, u.callsign, cp.role, cp.status, cp.joined_at
 		 FROM contest_participants cp
 		 JOIN users u ON u.id = cp.user_id
-		 WHERE cp.user_id = ?`, userID)
+		 WHERE cp.user_id = $1`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -498,11 +424,10 @@ func (s *Store) GetUserParticipations(userID int64) (map[int64]ContestParticipan
 	out := make(map[int64]ContestParticipant)
 	for rows.Next() {
 		var p ContestParticipant
-		var jat string
-		if err := rows.Scan(&p.ContestID, &p.UserID, &p.Username, &p.Callsign, &p.Role, &p.Status, &jat); err != nil {
+		if err := rows.Scan(&p.ContestID, &p.UserID, &p.Username, &p.Callsign, &p.Role, &p.Status, &p.JoinedAt); err != nil {
 			return nil, err
 		}
-		p.JoinedAt, _ = time.Parse(time.RFC3339, jat)
+		p.JoinedAt = p.JoinedAt.UTC()
 		out[p.ContestID] = p
 	}
 	return out, rows.Err()

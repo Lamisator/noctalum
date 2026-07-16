@@ -13,7 +13,7 @@ import (
 
 // PasskeyCredential is a stored WebAuthn credential with metadata.
 type PasskeyCredential struct {
-	ID        string    // base64url of credential.ID
+	ID        string // base64url of credential.ID
 	UserID    int64
 	Name      string
 	CreatedAt time.Time
@@ -22,16 +22,16 @@ type PasskeyCredential struct {
 func (s *Store) migratePasskeys() error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS webauthn_credentials (
-			id TEXT PRIMARY KEY,
-			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-			name TEXT NOT NULL DEFAULT '',
-			data TEXT NOT NULL,
-			created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+			id         TEXT PRIMARY KEY,
+			user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			name       TEXT NOT NULL DEFAULT '',
+			data       TEXT NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS webauthn_sessions (
-			id TEXT PRIMARY KEY,
-			data TEXT NOT NULL,
-			expires_at TEXT NOT NULL
+			id         TEXT PRIMARY KEY,
+			data       TEXT NOT NULL,
+			expires_at TIMESTAMPTZ NOT NULL
 		)`,
 	}
 	for _, q := range stmts {
@@ -45,7 +45,7 @@ func (s *Store) migratePasskeys() error {
 // GetPasskeyCredentials returns all webauthn.Credential objects for a user.
 func (s *Store) GetPasskeyCredentials(userID int64) ([]webauthn.Credential, error) {
 	rows, err := s.db.Query(
-		`SELECT data FROM webauthn_credentials WHERE user_id = ?`, userID)
+		`SELECT data FROM webauthn_credentials WHERE user_id = $1`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (s *Store) GetPasskeyCredentials(userID int64) ([]webauthn.Credential, erro
 // ListPasskeyCredentials returns credential metadata (for the management UI).
 func (s *Store) ListPasskeyCredentials(userID int64) ([]PasskeyCredential, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, created_at FROM webauthn_credentials WHERE user_id = ? ORDER BY created_at`, userID)
+		`SELECT id, name, created_at FROM webauthn_credentials WHERE user_id = $1 ORDER BY created_at`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -76,12 +76,11 @@ func (s *Store) ListPasskeyCredentials(userID int64) ([]PasskeyCredential, error
 	var out []PasskeyCredential
 	for rows.Next() {
 		var pc PasskeyCredential
-		var ts string
-		if err := rows.Scan(&pc.ID, &pc.Name, &ts); err != nil {
+		if err := rows.Scan(&pc.ID, &pc.Name, &pc.CreatedAt); err != nil {
 			return nil, err
 		}
 		pc.UserID = userID
-		pc.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+		pc.CreatedAt = pc.CreatedAt.UTC()
 		out = append(out, pc)
 	}
 	return out, rows.Err()
@@ -95,8 +94,8 @@ func (s *Store) SavePasskeyCredential(userID int64, name string, cred *webauthn.
 	}
 	id := base64.RawURLEncoding.EncodeToString(cred.ID)
 	_, err = s.db.Exec(
-		`INSERT INTO webauthn_credentials (id, user_id, name, data, created_at) VALUES (?, ?, ?, ?, ?)`,
-		id, userID, name, string(raw), time.Now().UTC().Format(time.RFC3339))
+		`INSERT INTO webauthn_credentials (id, user_id, name, data, created_at) VALUES ($1, $2, $3, $4, $5)`,
+		id, userID, name, string(raw), time.Now().UTC())
 	return err
 }
 
@@ -108,14 +107,14 @@ func (s *Store) UpdatePasskeyCredential(cred *webauthn.Credential) error {
 	}
 	id := base64.RawURLEncoding.EncodeToString(cred.ID)
 	_, err = s.db.Exec(
-		`UPDATE webauthn_credentials SET data = ? WHERE id = ?`, string(raw), id)
+		`UPDATE webauthn_credentials SET data = $1 WHERE id = $2`, string(raw), id)
 	return err
 }
 
 // DeletePasskeyCredential removes a credential.  userID scopes deletion to the owner.
 func (s *Store) DeletePasskeyCredential(credID string, userID int64) error {
 	_, err := s.db.Exec(
-		`DELETE FROM webauthn_credentials WHERE id = ? AND user_id = ?`, credID, userID)
+		`DELETE FROM webauthn_credentials WHERE id = $1 AND user_id = $2`, credID, userID)
 	return err
 }
 
@@ -126,22 +125,23 @@ func (s *Store) SavePasskeySession(id string, data *webauthn.SessionData, expire
 		return err
 	}
 	_, err = s.db.Exec(
-		`INSERT OR REPLACE INTO webauthn_sessions (id, data, expires_at) VALUES (?, ?, ?)`,
-		id, string(raw), expiresAt.UTC().Format(time.RFC3339))
+		`INSERT INTO webauthn_sessions (id, data, expires_at) VALUES ($1, $2, $3)
+		 ON CONFLICT(id) DO UPDATE SET data = EXCLUDED.data, expires_at = EXCLUDED.expires_at`,
+		id, string(raw), expiresAt.UTC())
 	return err
 }
 
 // GetPasskeySession retrieves and deletes a WebAuthn session (single-use).
 func (s *Store) GetPasskeySession(id string) (*webauthn.SessionData, error) {
 	row := s.db.QueryRow(
-		`SELECT data, expires_at FROM webauthn_sessions WHERE id = ?`, id)
-	var raw, expiresStr string
-	if err := row.Scan(&raw, &expiresStr); errors.Is(err, sql.ErrNoRows) {
+		`SELECT data, expires_at FROM webauthn_sessions WHERE id = $1`, id)
+	var raw string
+	var expires time.Time
+	if err := row.Scan(&raw, &expires); errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	} else if err != nil {
 		return nil, err
 	}
-	expires, _ := time.Parse(time.RFC3339, expiresStr)
 	if time.Now().After(expires) {
 		_ = s.DeletePasskeySession(id)
 		return nil, ErrNotFound
@@ -156,13 +156,12 @@ func (s *Store) GetPasskeySession(id string) (*webauthn.SessionData, error) {
 
 // DeletePasskeySession removes a WebAuthn session.
 func (s *Store) DeletePasskeySession(id string) error {
-	_, err := s.db.Exec(`DELETE FROM webauthn_sessions WHERE id = ?`, id)
+	_, err := s.db.Exec(`DELETE FROM webauthn_sessions WHERE id = $1`, id)
 	return err
 }
 
 // PrunePasskeySessions deletes all expired sessions.
 func (s *Store) PrunePasskeySessions() error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := s.db.Exec(`DELETE FROM webauthn_sessions WHERE expires_at < ?`, now)
+	_, err := s.db.Exec(`DELETE FROM webauthn_sessions WHERE expires_at < $1`, time.Now().UTC())
 	return err
 }

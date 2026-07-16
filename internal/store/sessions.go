@@ -17,12 +17,12 @@ type SessionRow struct {
 func (s *Store) migrateSessions() error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS sessions (
-			id TEXT PRIMARY KEY,
-			user_id INTEGER NOT NULL,
+			id         TEXT PRIMARY KEY,
+			user_id    BIGINT NOT NULL,
 			csrf_token TEXT NOT NULL,
-			created_at TEXT NOT NULL,
-			last_seen TEXT NOT NULL,
-			expires_at TEXT NOT NULL
+			created_at TIMESTAMPTZ NOT NULL,
+			last_seen  TIMESTAMPTZ NOT NULL,
+			expires_at TIMESTAMPTZ NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)`,
@@ -38,12 +38,16 @@ func (s *Store) migrateSessions() error {
 // SaveSession inserts or replaces a session record.
 func (s *Store) SaveSession(row SessionRow) error {
 	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO sessions (id, user_id, csrf_token, created_at, last_seen, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sessions (id, user_id, csrf_token, created_at, last_seen, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 ON CONFLICT(id) DO UPDATE SET
+		    user_id    = EXCLUDED.user_id,
+		    csrf_token = EXCLUDED.csrf_token,
+		    created_at = EXCLUDED.created_at,
+		    last_seen  = EXCLUDED.last_seen,
+		    expires_at = EXCLUDED.expires_at`,
 		row.ID, row.UserID, row.CSRFToken,
-		row.CreatedAt.UTC().Format(time.RFC3339),
-		row.LastSeen.UTC().Format(time.RFC3339),
-		row.ExpiresAt.UTC().Format(time.RFC3339),
+		row.CreatedAt.UTC(), row.LastSeen.UTC(), row.ExpiresAt.UTC(),
 	)
 	return err
 }
@@ -51,20 +55,17 @@ func (s *Store) SaveSession(row SessionRow) error {
 // TouchSession updates last_seen and expires_at for a session.
 func (s *Store) TouchSession(id string, lastSeen, expiresAt time.Time) error {
 	_, err := s.db.Exec(
-		`UPDATE sessions SET last_seen = ?, expires_at = ? WHERE id = ?`,
-		lastSeen.UTC().Format(time.RFC3339),
-		expiresAt.UTC().Format(time.RFC3339),
-		id,
+		`UPDATE sessions SET last_seen = $1, expires_at = $2 WHERE id = $3`,
+		lastSeen.UTC(), expiresAt.UTC(), id,
 	)
 	return err
 }
 
 // LoadSessions returns all non-expired session records.
 func (s *Store) LoadSessions() ([]SessionRow, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
 	rows, err := s.db.Query(
 		`SELECT id, user_id, csrf_token, created_at, last_seen, expires_at
-		 FROM sessions WHERE expires_at > ?`, now)
+		 FROM sessions WHERE expires_at > $1`, time.Now().UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -72,13 +73,12 @@ func (s *Store) LoadSessions() ([]SessionRow, error) {
 	var out []SessionRow
 	for rows.Next() {
 		var r SessionRow
-		var createdAt, lastSeen, expiresAt string
-		if err := rows.Scan(&r.ID, &r.UserID, &r.CSRFToken, &createdAt, &lastSeen, &expiresAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.UserID, &r.CSRFToken, &r.CreatedAt, &r.LastSeen, &r.ExpiresAt); err != nil {
 			return nil, err
 		}
-		r.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		r.LastSeen, _ = time.Parse(time.RFC3339, lastSeen)
-		r.ExpiresAt, _ = time.Parse(time.RFC3339, expiresAt)
+		r.CreatedAt = r.CreatedAt.UTC()
+		r.LastSeen = r.LastSeen.UTC()
+		r.ExpiresAt = r.ExpiresAt.UTC()
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -86,19 +86,18 @@ func (s *Store) LoadSessions() ([]SessionRow, error) {
 
 // DeleteSession removes a single session.
 func (s *Store) DeleteSession(id string) error {
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE id = $1`, id)
 	return err
 }
 
 // DeleteSessionsForUser removes all sessions belonging to a user.
 func (s *Store) DeleteSessionsForUser(userID int64) error {
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, userID)
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE user_id = $1`, userID)
 	return err
 }
 
 // DeleteExpiredSessions prunes sessions whose expires_at is in the past.
 func (s *Store) DeleteExpiredSessions() error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE expires_at <= ?`, now)
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE expires_at <= $1`, time.Now().UTC())
 	return err
 }
