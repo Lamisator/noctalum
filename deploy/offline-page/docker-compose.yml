@@ -1,0 +1,28 @@
+# Standalone fallback page for log.dm2lap.com. Runs independently
+# of the Noctalum stack so it stays up when the app is stopped or
+# restarted. Traefik picks this router only when noctalum's own
+# router is gone: identical Host() rule, but priority=1 loses to
+# noctalum's default (~22, computed from rule length).
+services:
+  offline:
+    image: nginx:alpine
+    container_name: noctalum-offline
+    restart: unless-stopped
+    volumes:
+      - ./index.html:/usr/share/nginx/html/index.html:ro
+      - ./noctalum.png:/usr/share/nginx/html/noctalum.png:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.noctalum-offline.rule=Host(`log.dm2lap.com`)
+      - traefik.http.routers.noctalum-offline.entrypoints=websecure
+      - traefik.http.routers.noctalum-offline.tls=true
+      - traefik.http.routers.noctalum-offline.priority=1
+      - traefik.http.services.noctalum-offline.loadbalancer.server.port=80
+
+networks:
+  proxy:
+    external: true

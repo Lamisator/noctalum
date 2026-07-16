@@ -58,6 +58,12 @@ services:
       - traefik.http.routers.noctalum.rule=Host(`log.dm2lap.com`)
       - traefik.http.routers.noctalum.entrypoints=websecure
       - traefik.http.routers.noctalum.tls=true
+      # Explicit priority so the standalone offline-page container
+      # (deploy/offline-page/, same Host() rule, priority=1) loses
+      # this router when noctalum is up. Without this we'd rely on
+      # Traefik's default of len(rule) — correct today but silently
+      # brittle if either rule ever changes.
+      - traefik.http.routers.noctalum.priority=100
       - traefik.http.services.noctalum.loadbalancer.server.port=8675
 
 networks:
