@@ -1,5 +1,78 @@
 # Noctalum Changelog
 
+## v0.70 — 2026-07-16 — Automatic daily database backups, deploy hardening
+
+- **Automatic daily database backups with deduplication and
+  configurable retention.** New `internal/backup/` package with a
+  schema-agnostic native Go SQL dumper (Kahn's algorithm on
+  `pg_constraint` for FK-safe INSERT ordering — avoids needing
+  `SET session_replication_role = replica` which would require
+  SUPERUSER) and a Manager that streams each dump through gzip +
+  sha256 in one pass. Files are named
+  `noctalum-<ts>-<12hex>-{auto|manual}.sql.gz`; if a Take() run
+  produces the same 12-hex content hash as an existing file the
+  temp is discarded — identical data doesn't produce duplicate
+  files even if the scheduler triggers close together. An hourly
+  scheduler goroutine takes a fresh backup when the newest is
+  older than 24 h, then prunes anything past
+  `Settings.BackupRetentionDays` (default 30, `0` = keep forever).
+  Reads happen under a REPEATABLE READ read-only snapshot so live
+  writers aren't blocked.
+- **Admin UI: backup list + manual take + download + delete.** New
+  "Backups" nav pill (perm-gated behind the new `backups.manage`
+  permission — regular admins inherit it via the `*` wildcard,
+  everyone else needs it explicitly). Screen lists every backup
+  with date / kind / size / hash-prefix / download / delete
+  buttons, plus a "Take backup now" primary action. Delete goes
+  through the standard confirm modal and audit-logs at warn level.
+  Restore is intentionally **not** offered as a button — a
+  collapsible "How do I restore a backup?" section shows the SSH
+  recipe (`docker compose stop noctalum && zcat *.sql.gz | docker
+  exec -i noctalum-postgres psql ...`) instead. Keeping the "one
+  click to wipe the DB and reload from snapshot" out of the UI
+  removes a category of catastrophic misclicks. Full EN/DE i18n
+  with the DE side in the informal `du` form.
+- **Retention setting in Global Settings.** New "Database backups"
+  fieldset (perm-gated on `backups.manage`) with a Retention (days)
+  input. Value round-trips through `Settings.BackupRetentionDays`.
+  The scheduler goroutine re-reads the setting on every tick so a
+  change in the UI takes effect within an hour without a restart.
+  Both `/api/settings` GET and PUT gate the field on
+  `backups.manage` rather than `settings.write` so retention can
+  be delegated separately from the rest of the global-settings
+  surface.
+- **New `/backups` bind mount** on the `noctalum` service in both
+  compose files, `-backups-dir` flag on the server binary
+  (default `/backups`, empty disables the feature).
+  `Store.DB() *sql.DB` accessor added so the backup package can
+  reach pg_catalog / information_schema without a second
+  connection pool.
+- **`fix(server)`: stale `shutdown_trigger` cleared at startup.**
+  Symptom on the v0.69 cutover — the new container picked up the
+  file the previous instance never finished processing, broadcast
+  a phantom deploy_warning, and SIGTERM'd itself 30 s later
+  (docker's `restart: unless-stopped` recovered it). Root cause
+  lived in `deploy.sh` (see next bullet), but the app-side guard
+  is the belt-and-suspenders half: `SetShutdownTriggerPath` now
+  `os.Stat`+`os.Remove`s any pre-existing trigger file before
+  starting the polling goroutine and logs the removal so operators
+  can spot it. A file existing at startup is by definition stale.
+- **`fix(deploy)`: shutdown detection uses `docker inspect`, not
+  `curl`.** The old poll shelled out to
+  `curl http://localhost:8675/api/me` over SSH, but the prod
+  compose file never publishes 8675 to the host (Traefik fronts
+  it) — the poll failed on the first attempt, the while loop
+  exited as "server stopped," and `docker compose down` fired
+  before the app had even started its countdown. Replaced with a
+  `docker inspect --format='{{.State.StartedAt}}' noctalum` check:
+  snapshot the timestamp before writing the trigger, poll every
+  2 s inside a single SSH session, exit when the value changes
+  (the app SIGTERM'd, docker restarted the container, which bumps
+  `StartedAt`). Timeout at countdown+15 s so we don't hang if the
+  restart never happens. The 30 s user warning now actually plays
+  out end-to-end during deploys.
+- `programVersion` bumped to `0.70`.
+
 ## v0.69 — 2026-07-16 — PostgreSQL storage backend, ADIF export refinements
 
 - **Storage backend migrated from SQLite to PostgreSQL 16.** The
