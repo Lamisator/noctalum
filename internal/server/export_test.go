@@ -207,7 +207,9 @@ func TestExportADIFUnknownContestPreservesExistingNotes(t *testing.T) {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "Contest: Local Fun Run\nS9+20 into JN49") {
+	// ADIF 3.1.5 MultilineString line breaks must be CR/LF, so the prefix
+	// / notes join uses "\r\n" — not bare "\n".
+	if !strings.Contains(out, "Contest: Local Fun Run\r\nS9+20 into JN49") {
 		t.Errorf("existing NOTES must be preserved after the contest fallback: %q", out)
 	}
 }
@@ -286,6 +288,83 @@ func TestExportADIFNotesIntlForUmlauts(t *testing.T) {
 	}
 	if strings.Contains(out, "<NOTES:") {
 		t.Errorf("plain <NOTES> emitted for non-ASCII value: %q", out)
+	}
+}
+
+// FR #67 (dl8aa): the header must declare ADIF 3.1.5, because we emit
+// IntlString length as a *byte* count — that is only spec-conformant from
+// 3.1.5 onwards (earlier versions define the length as character count).
+func TestExportADIFHeaderVersion(t *testing.T) {
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, "Noctalum", "test", "", ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "<ADIF_VER:5>3.1.5") {
+		t.Errorf("ADIF_VER must be 3.1.5 to match our byte-length IntlString emission: %q", out)
+	}
+}
+
+// The partner's GRIDSQUARE should be uppercased so it matches the LotW /
+// eQSL / DXCC convention and round-trips through those services without
+// case-normalisation surprises.
+func TestExportADIFUppercasesGridsquare(t *testing.T) {
+	q := sampleQSO()
+	q.Locator = "jo52ab"
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "<GRIDSQUARE:6>JO52AB") {
+		t.Errorf("GRIDSQUARE must be uppercased in ADIF output: %q", out)
+	}
+	if strings.Contains(out, "jo52ab") {
+		t.Errorf("lowercase locator leaked into GRIDSQUARE: %q", out)
+	}
+}
+
+// A custom field named after a standard ADIF tag (e.g. STATE, POTA_REF)
+// should be emitted as that standard tag, NOT wrapped in
+// APP_<PROGRAMID>_ — otherwise award trackers (LotW, POTA, eQSL) never
+// see the value under the tag they actually query.
+func TestExportADIFCustomFieldPromotedToStandardTag(t *testing.T) {
+	q := sampleQSO()
+	q.Extras = `{"State":"NY","MyClub":"OV L01"}`
+	cfJSON := `[{"name":"State","type":"text"},{"name":"MyClub","type":"text"}]`
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", cfJSON, ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	// STATE is a standard ADIF tag — emit as-is.
+	if !strings.Contains(out, "<STATE:2>NY") {
+		t.Errorf("custom field 'State' should emit as standard <STATE> tag: %q", out)
+	}
+	if strings.Contains(out, "APP_NOCTALUM_STATE") {
+		t.Errorf("custom field 'State' must NOT double up as APP_NOCTALUM_STATE: %q", out)
+	}
+	// MyClub is not standard — must fall back to APP_ prefix.
+	if !strings.Contains(out, "<APP_NOCTALUM_MYCLUB:6>OV L01") {
+		t.Errorf("non-standard custom field must use APP_ prefix: %q", out)
+	}
+}
+
+// Bare LF line endings inside NOTES violate ADIF 3.1.5
+// MultilineString semantics — normaliseCRLF must upgrade them to CR/LF
+// before emission (regardless of whether the source used LF, CR, or CRLF).
+func TestExportADIFNotesLineEndingsAreCRLF(t *testing.T) {
+	q := sampleQSO()
+	q.ContestName = "" // don't let the contest fallback rewrite NOTES
+	q.Notes = "line one\nline two\rline three\r\nline four"
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	want := "line one\r\nline two\r\nline three\r\nline four"
+	if !strings.Contains(out, want) {
+		t.Errorf("NOTES line endings must all be CR/LF: %q", out)
 	}
 }
 

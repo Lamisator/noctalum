@@ -45,7 +45,12 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 	if _, err := io.WriteString(w, header); err != nil {
 		return err
 	}
-	writeField(w, "ADIF_VER", "3.1.4")
+	// ADIF 3.1.5 is the first spec version that defines IntlString /
+	// IntlMultilineString lengths as *bytes* (UTF-8) rather than characters —
+	// which is what `len(value)` gives us for the _INTL fields below.
+	// Declaring 3.1.4 while emitting byte lengths would violate that
+	// version's length rule and could confuse strict importers.
+	writeField(w, "ADIF_VER", "3.1.5")
 	writeField(w, "PROGRAMID", programID)
 	writeField(w, "PROGRAMVERSION", programVersion)
 	writeField(w, "CREATED_TIMESTAMP", time.Now().UTC().Format("20060102 150405"))
@@ -96,7 +101,11 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 			writeField(w, "DARC_DOK", strings.ToUpper(q.DOK))
 		}
 		if q.Locator != "" {
-			writeField(w, "GRIDSQUARE", q.Locator)
+			// Uppercase to match MY_GRIDSQUARE and the LotW/eQSL/DXCC
+			// convention. Mixed-case locators are technically legal per
+			// spec but some award trackers normalise on upload — emit
+			// them upper already so re-imports round-trip cleanly.
+			writeField(w, "GRIDSQUARE", strings.ToUpper(q.Locator))
 		}
 		if q.ITUZone != "" {
 			writeField(w, "ITUZ", q.ITUZone)
@@ -134,7 +143,10 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 				if notes == "" {
 					notes = prefix
 				} else {
-					notes = prefix + "\n" + notes
+					// MultilineString / IntlMultilineString line breaks
+					// are CR/LF per ADIF 3.1.5 §Data Types — bare LF is
+					// technically non-conforming.
+					notes = prefix + "\r\n" + notes
 				}
 			}
 		}
@@ -145,6 +157,7 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 			// LotW/eQSL importers expect. UTF-8 payloads (umlauts,
 			// non-Latin scripts) go into NOTES_INTL — the plain NOTES
 			// field is ASCII-only per spec.
+			notes = normaliseCRLF(notes)
 			if hasNonASCII(notes) {
 				writeField(w, "NOTES_INTL", notes)
 			} else {
@@ -161,7 +174,18 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 				if val == "" {
 					continue
 				}
-				writeField(w, appPrefix+adifFieldName(cf.Name), val)
+				// If the operator named their custom field after a
+				// standard ADIF tag (e.g. "STATE", "POTA_REF"), emit
+				// it under that standard tag so award trackers can
+				// consume it directly. Anything not in the standard
+				// enum falls back to APP_<PROGRAMID>_<NAME> — that's
+				// the ADIF-defined escape hatch for application-
+				// specific data.
+				tag := adifFieldName(cf.Name)
+				if _, std := adifStandardFields[tag]; !std {
+					tag = appPrefix + tag
+				}
+				writeField(w, tag, val)
 			}
 		}
 		if _, err := io.WriteString(w, "<EOR>\n\n"); err != nil {
@@ -181,6 +205,20 @@ func hasNonASCII(s string) bool {
 		}
 	}
 	return false
+}
+
+// normaliseCRLF rewrites all line breaks in s to CR/LF pairs, which is the
+// line-separator ADIF 3.1.5 requires inside MultilineString and
+// IntlMultilineString fields. Bare LF or CR alone are technically
+// non-conforming; some strict validators reject the record.
+func normaliseCRLF(s string) string {
+	if !strings.ContainsAny(s, "\r\n") {
+		return s
+	}
+	// Collapse existing CR/LF and stray CRs first so we don't double-up.
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return strings.ReplaceAll(s, "\n", "\r\n")
 }
 
 func writeField(w io.Writer, name, value string) {
@@ -290,6 +328,127 @@ func normaliseContestKey(s string) string {
 func adifContestID(name string) (string, bool) {
 	id, ok := adifContestIDs[normaliseContestKey(name)]
 	return id, ok
+}
+
+// adifStandardFields is the set of ADIF 3.1.5 QSO field names we recognise
+// when deciding whether a custom field should be emitted as a standard tag
+// or wrapped in APP_<PROGRAMID>_. Keys are the canonical upper-case tag
+// names (matching what adifFieldName produces from operator input).
+//
+// The set is intentionally broad — it covers every field an operator is
+// realistically likely to add via the custom-fields editor. Fields we
+// already emit ourselves from dedicated QSO columns (CALL, NAME, MODE,
+// BAND, FREQ, RST_*, GRIDSQUARE, ITUZ, CQZ, STX, SRX, OPERATOR,
+// STATION_CALLSIGN, MY_GRIDSQUARE, SIG, SIG_INFO, DARC_DOK, CONTEST_ID,
+// NOTES, NAME_INTL, NOTES_INTL) are deliberately *excluded*: if a user
+// tries to re-declare one of those, letting it slip through the standard
+// path would double-emit the tag with a bogus (and probably empty) value.
+// Keeping them out forces the collision back into the APP_ namespace where
+// it is at worst ignored by importers.
+var adifStandardFields = map[string]struct{}{
+	"ADDRESS": {}, "ADDRESS_INTL": {}, "AGE": {},
+	"A_INDEX":   {},
+	"ANT_AZ":    {},
+	"ANT_EL":    {},
+	"ANT_PATH":  {},
+	"ARRL_SECT": {},
+	"AWARD_GRANTED": {}, "AWARD_SUBMITTED": {},
+	"CHECK":            {},
+	"CLASS":            {},
+	"CLUBLOG_QSO_UPLOAD_DATE":   {},
+	"CLUBLOG_QSO_UPLOAD_STATUS": {},
+	"CNTY":                      {},
+	"COMMENT":                   {}, "COMMENT_INTL": {},
+	"CONTACTED_OP": {},
+	"COUNTRY":      {}, "COUNTRY_INTL": {},
+	"CREDIT_GRANTED": {}, "CREDIT_SUBMITTED": {},
+	"DISTANCE":  {},
+	"DXCC":      {},
+	"EMAIL":     {},
+	"EQ_CALL":   {},
+	"EQSL_QSLRDATE": {}, "EQSL_QSLSDATE": {},
+	"EQSL_QSL_RCVD": {}, "EQSL_QSL_SENT": {},
+	"FISTS": {}, "FISTS_CC": {},
+	"FORCE_INIT": {},
+	"FREQ_RX":    {},
+	"GRIDSQUARE_EXT": {},
+	"GUEST_OP":       {},
+	"HRDLOG_QSO_UPLOAD_DATE":   {},
+	"HRDLOG_QSO_UPLOAD_STATUS": {},
+	"IOTA":                     {}, "IOTA_ISLAND_ID": {},
+	"K_INDEX":     {},
+	"LAT":         {},
+	"LON":         {},
+	"LOTW_QSLRDATE": {}, "LOTW_QSLSDATE": {},
+	"LOTW_QSL_RCVD": {}, "LOTW_QSL_SENT": {},
+	"MAX_BURSTS": {},
+	"MS_SHOWER":  {},
+	"MY_ANTENNA": {}, "MY_ANTENNA_INTL": {},
+	"MY_ARRL_SECT": {},
+	"MY_CITY":      {}, "MY_CITY_INTL": {},
+	"MY_CNTY":    {},
+	"MY_COUNTRY": {}, "MY_COUNTRY_INTL": {},
+	"MY_CQ_ZONE": {},
+	"MY_DXCC":    {},
+	"MY_FISTS":   {},
+	"MY_IOTA":    {}, "MY_IOTA_ISLAND_ID": {},
+	"MY_ITU_ZONE": {},
+	"MY_LAT":      {},
+	"MY_LON":      {},
+	"MY_NAME":     {}, "MY_NAME_INTL": {},
+	"MY_POSTAL_CODE": {}, "MY_POSTAL_CODE_INTL": {},
+	"MY_POTA_REF":    {},
+	"MY_RIG":         {}, "MY_RIG_INTL": {},
+	"MY_SIG": {}, "MY_SIG_INFO": {}, "MY_SIG_INFO_INTL": {}, "MY_SIG_INTL": {},
+	"MY_SOTA_REF": {},
+	"MY_STATE":    {},
+	"MY_STREET":   {}, "MY_STREET_INTL": {},
+	"MY_USACA_COUNTIES": {},
+	"MY_VUCC_GRIDS":     {},
+	"MY_WWFF_REF":       {},
+	"NR_BURSTS":         {},
+	"NR_PINGS":          {},
+	"OWNER_CALLSIGN":    {},
+	"PFX":               {},
+	"POTA_REF":          {},
+	"PRECEDENCE":        {},
+	"PROP_MODE":         {},
+	"PUBLIC_KEY":        {},
+	"QRZCOM_QSO_UPLOAD_DATE":   {},
+	"QRZCOM_QSO_UPLOAD_STATUS": {},
+	"QSLMSG":                   {}, "QSLMSG_INTL": {},
+	"QSLRDATE":  {},
+	"QSLSDATE":  {},
+	"QSL_RCVD":  {}, "QSL_RCVD_VIA": {},
+	"QSL_SENT":  {}, "QSL_SENT_VIA": {},
+	"QSL_VIA":   {},
+	"QSO_COMPLETE": {},
+	"QSO_RANDOM":   {},
+	"QTH":          {}, "QTH_INTL": {},
+	"REGION": {},
+	"RIG":    {}, "RIG_INTL": {},
+	"RX_PWR":       {},
+	"SAT_MODE":     {},
+	"SAT_NAME":     {},
+	"SFI":          {},
+	"SILENT_KEY":   {},
+	"SKCC":         {},
+	"SOTA_REF":     {},
+	"SRX_STRING":   {},
+	"STATE":        {},
+	"STATION_CALLSIGN_INTL": {},
+	"STX_STRING":    {},
+	"SUBMODE":       {},
+	"SWL":           {},
+	"TEN_TEN":       {},
+	"TIME_OFF":      {},
+	"TX_PWR":        {},
+	"UKSMG":         {},
+	"USACA_COUNTIES": {},
+	"VE_PROV":        {},
+	"VUCC_GRIDS":     {},
+	"WEB":            {},
+	"WWFF_REF":       {},
 }
 
 // adifModeSubmode maps our internal mode string to the (MODE, SUBMODE) pair
