@@ -57,6 +57,7 @@ func main() {
 	srv.SetSoundsDir(filepath.Join(*dataDir, "sounds"))
 	srv.SetCallsignProofsDir(filepath.Join(*dataDir, "callsign_proofs"))
 	srv.SetShutdownTriggerPath(filepath.Join(*dataDir, "shutdown_trigger"))
+	srv.SetRestoreTriggerPath(filepath.Join(*dataDir, "restore_trigger"))
 	srv.SetBackupsDir(*backupsDir)
 
 	httpSrv := &http.Server{

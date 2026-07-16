@@ -1,0 +1,15 @@
+# Service unit — activated by noctalum-restore.path when the app writes
+# /srv/docker/noctalum/data/restore_trigger. Executes noctalum-restore.sh
+# which stops the app container, loads the requested backup via psql,
+# deletes the trigger, and starts the app back up.
+#
+# oneshot semantics + RemainAfterExit=no so multiple restore requests
+# during systemd's lifetime each re-fire cleanly.
+[Unit]
+Description=Restore a Noctalum PostgreSQL backup requested from the UI
+
+[Service]
+Type=oneshot
+ExecStart=/etc/systemd/system/noctalum-restore.sh
+StandardOutput=journal
+StandardError=journal

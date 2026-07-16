@@ -69,10 +69,16 @@ type Server struct {
 	soundsDir           string
 	callsignProofsDir   string
 	shutdownTriggerPath string
+	// restoreTriggerPath is the file the app writes when an operator
+	// triggers a database restore from the UI; a host-side systemd
+	// path unit (deploy/systemd/noctalum-restore.*) watches it,
+	// stops the container, runs the actual psql load, and starts
+	// the container back up. Empty disables the restore endpoint.
+	restoreTriggerPath string
 	// backups is optional — nil disables the /api/backups endpoints
 	// and the daily scheduler. Set via SetBackupsDir at startup.
-	backups          *backup.Manager
-	backupsCancel    context.CancelFunc // stops the daily scheduler on Shutdown
+	backups       *backup.Manager
+	backupsCancel context.CancelFunc // stops the daily scheduler on Shutdown
 }
 
 // SetSoundsDir configures the directory where custom chat sounds are stored.
@@ -95,6 +101,17 @@ func (s *Server) SetCallsignProofsDir(dir string) {
 
 // SetDownloadsDir configures a directory whose files are served at /downloads/.
 func (s *Server) SetDownloadsDir(dir string) { s.downloadsDir = dir }
+
+// SetRestoreTriggerPath enables the "restore from UI" endpoint. When
+// an operator with backups.manage POSTs /api/backups/<name>/restore,
+// the server writes a JSON trigger file at this path; a host-side
+// systemd path unit watches it and does the actual container
+// stop / psql-load / container start cycle. See
+// deploy/systemd/noctalum-restore.* for the host-side pieces.
+//
+// Empty path disables the restore endpoint (503). Useful for dev
+// setups without systemd.
+func (s *Server) SetRestoreTriggerPath(path string) { s.restoreTriggerPath = path }
 
 // SetBackupsDir enables the automatic-backup subsystem. Backups (gzipped
 // SQL dumps) are written to dir; the daily scheduler goroutine starts

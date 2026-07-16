@@ -1,0 +1,26 @@
+# Path unit — fires noctalum-restore.service whenever the app writes a
+# restore-trigger file. See noctalum-restore.service for what happens
+# next.
+#
+# Install via ./deploy.sh (which copies these units on every deploy and
+# `systemctl enable --now`s them) — or by hand:
+#
+#   sudo cp deploy/systemd/noctalum-restore.{path,service,sh} /etc/systemd/system/
+#   sudo chmod +x /etc/systemd/system/noctalum-restore.sh
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now noctalum-restore.path
+#
+# PathModified (not PathExists) is deliberate: an atomically-renamed
+# trigger fires this event exactly once when the rename completes,
+# which is what the app's os.Rename() produces. PathExists would keep
+# re-firing every second while the file sits around.
+[Unit]
+Description=Watch for Noctalum database-restore trigger files
+After=docker.service
+
+[Path]
+PathModified=/srv/docker/noctalum/data/restore_trigger
+Unit=noctalum-restore.service
+
+[Install]
+WantedBy=multi-user.target

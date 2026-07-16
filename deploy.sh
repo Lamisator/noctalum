@@ -86,6 +86,26 @@ echo "Copying docker-compose.yml..."
 # off Traefik if deployed.
 scp -i "$SSH_KEY" "$ROOT/docker-compose.prod.yml" "$SSH_HOST:$REMOTE_WORK_DIR/docker-compose.yml"
 
+echo "Installing systemd restore hook..."
+# UI-triggered database restore is done by a host-side systemd unit
+# (see deploy/systemd/noctalum-restore.*): the app writes a JSON
+# trigger file to $REMOTE_WORK_DIR/data/restore_trigger, a
+# PathModified path unit picks it up, and the service unit executes
+# a shell script that stops the container, feeds the .sql.gz into
+# psql, and starts the container back up.
+#
+# We copy the units on every deploy (idempotent — `systemctl enable`
+# on an already-enabled unit is a no-op, and daemon-reload only reads
+# unit files that actually changed) so the on-disk versions always
+# match what shipped with the app binary.
+scp -i "$SSH_KEY" \
+  "$ROOT/deploy/systemd/noctalum-restore.path" \
+  "$ROOT/deploy/systemd/noctalum-restore.service" \
+  "$ROOT/deploy/systemd/noctalum-restore.sh" \
+  "$SSH_HOST:/etc/systemd/system/"
+ssh -i "$SSH_KEY" "$SSH_HOST" \
+  "chmod +x /etc/systemd/system/noctalum-restore.sh && systemctl daemon-reload && systemctl enable --now noctalum-restore.path"
+
 # Trigger a graceful shutdown: write the countdown (in seconds) to the trigger
 # file that the server polls every 2 s.  The server broadcasts a deploy_warning
 # to all connected users, then sends itself SIGTERM after the countdown elapses.

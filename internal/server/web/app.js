@@ -4885,6 +4885,7 @@
         <td><code style="font-size:11px">${escHtml(b.hash || '')}</code></td>
         <td>
           <a class="primary" style="width:auto;font-size:12px;padding:4px 10px;text-decoration:none;display:inline-block" href="/api/backups/${encodeURIComponent(b.name)}" download>${escHtml(t('backups.download'))}</a>
+          <button class="danger bk-restore-btn" data-name="${escHtml(b.name)}" style="width:auto;font-size:12px;padding:4px 10px;margin-left:4px">${escHtml(t('backups.restore'))}</button>
           <button class="ghost bk-delete-btn" data-name="${escHtml(b.name)}" style="width:auto;font-size:12px;padding:4px 10px;margin-left:4px">${escHtml(t('backups.delete'))}</button>
         </td>`;
       tbody.appendChild(tr);
@@ -4900,6 +4901,56 @@
         else showAlert(t('backups.deleteFailed'));
       });
     });
+    tbody.querySelectorAll('.bk-restore-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => openRestoreModal(e.currentTarget.getAttribute('data-name')));
+    });
+  }
+
+  // Type-to-confirm restore modal. Restore is the single most
+  // destructive operation in the app (wipes the live DB, no undo),
+  // so the button stays disabled until the operator types the target
+  // filename verbatim — the same discipline GitHub / AWS impose for
+  // repo/instance deletion. On submit we POST /api/backups/<name>/
+  // restore; the server takes a safety backup, broadcasts
+  // restore_starting to every browser, then writes the systemd
+  // trigger file. This browser sees its own broadcast and drops into
+  // the standard "deploy" overlay + polling flow.
+  function openRestoreModal(name) {
+    showModal(`
+      <h3>${escHtml(t('backups.restoreTitle'))}</h3>
+      <p>${escHtml(t('backups.restoreWarning'))}</p>
+      <p><code style="font-size:12px;word-break:break-all">${escHtml(name)}</code></p>
+      <p class="muted small">${escHtml(t('backups.restoreSafetyNote'))}</p>
+      <label>${escHtml(t('backups.restoreConfirmLabel'))}</label>
+      <input name="confirm" autocomplete="off" placeholder="${escHtml(name)}" />
+      <div class="modal-err error"></div>
+      <div class="modal-actions">
+        <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
+        <button type="submit" class="danger" id="bk-restore-submit" disabled>${escHtml(t('backups.restoreConfirmButton'))}</button>
+      </div>
+    `, async (form) => {
+      if (form.confirm.value.trim() !== name) {
+        throw new Error(t('backups.restoreConfirmMismatch'));
+      }
+      const res = await api('/api/backups/' + encodeURIComponent(name) + '/restore', { method: 'POST' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || t('backups.restoreFailed'));
+      }
+      // Success path: server broadcasts restore_starting on the WS,
+      // which triggers the deploy-overlay via the ws handler. No
+      // additional client-side action needed here.
+    });
+    // Enable submit only when the typed value matches the filename.
+    setTimeout(() => {
+      const form = document.querySelector('#modal-card form');
+      if (!form) return;
+      const btn = form.querySelector('#bk-restore-submit');
+      const input = form.querySelector('input[name=confirm]');
+      const check = () => { btn.disabled = input.value.trim() !== name; };
+      input.addEventListener('input', check);
+      check();
+    }, 10);
   }
   $('backups-refresh-btn')?.addEventListener('click', refreshBackups);
   $('backups-take-btn')?.addEventListener('click', async (e) => {
@@ -6982,6 +7033,25 @@
           }).catch(() => {});
           showDeployWarning(msg.payload?.seconds || 60);
           break;
+        case 'restore_starting':
+          // A UI-triggered database restore is starting. The host-side
+          // systemd unit will stop this container within a couple of
+          // seconds, feed the requested backup into psql, then start
+          // the container again. From the browser's POV it's the same
+          // "server goes down briefly then comes back" flow as a
+          // deploy — reuse the same modal + polling with a short
+          // countdown and restore-specific copy.
+          fetch('/api/ping').then(r => r.ok ? r.json() : null).then(j => {
+            if (j?.startup_id) {
+              _deployStartupId = j.startup_id;
+              try { sessionStorage.setItem('noctalum.deployStartupId', j.startup_id); } catch {}
+            }
+          }).catch(() => {});
+          showDeployWarning(5, {
+            title: t('backups.restoreStartingTitle'),
+            body: t('backups.restoreStartingBody', { filename: msg.payload?.backup_file || '' }),
+          });
+          break;
       }
     };
     ws.onclose = () => {
@@ -7089,13 +7159,13 @@
     _deployPollServer();
   }
 
-  function showDeployWarning(seconds) {
+  function showDeployWarning(seconds, opts) {
     _deployCountdown = seconds;
     _deployPhase = 'countdown';
     const titleEl = $('deploy-modal-title');
-    if (titleEl) titleEl.textContent = t('deploy.title');
+    if (titleEl) titleEl.textContent = (opts && opts.title) || t('deploy.title');
     const bodyEl = $('deploy-modal-body');
-    if (bodyEl) bodyEl.textContent = t('deploy.body');
+    if (bodyEl) bodyEl.textContent = (opts && opts.body) || t('deploy.body');
     _deployUpdateDisplays();
     $('deploy-modal').classList.remove('hidden');
     // Save deadline AFTER showing the modal so a storage error can't prevent display.
