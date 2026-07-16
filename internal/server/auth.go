@@ -39,11 +39,12 @@ const (
 	PermFeatureRequestsWrite  = "feature_requests.write" // submit a request
 	PermDOKEdit               = "dok.edit"               // manage DOK callsign cache
 	PermCallsignRequestsReview = "callsign_requests.review" // view/decide all callsign change requests
+	PermBackupsManage         = "backups.manage"            // list / trigger / download / delete DB backups
 )
 
 // AllPermissions is the canonical list (used by UI + role validation).
 var AllPermissions = []string{
-	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermRigRelease, PermRigSimulate, PermContestsManage, PermContestsCreatePrivate, PermContestsManagePrivate, PermContestAdmin, PermAuditLog, PermFeatureRequestsRead, PermFeatureRequestsWrite, PermDOKEdit, PermCallsignRequestsReview,
+	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermRigRelease, PermRigSimulate, PermContestsManage, PermContestsCreatePrivate, PermContestsManagePrivate, PermContestAdmin, PermAuditLog, PermFeatureRequestsRead, PermFeatureRequestsWrite, PermDOKEdit, PermCallsignRequestsReview, PermBackupsManage,
 }
 
 // DefaultUserRolePermissions are the permissions assigned to the built-in

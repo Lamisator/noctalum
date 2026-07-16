@@ -25,8 +25,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/noctalum/noctalum/internal/store"
 	"github.com/gorilla/websocket"
+	"github.com/noctalum/noctalum/internal/backup"
+	"github.com/noctalum/noctalum/internal/store"
 )
 
 const (
@@ -68,6 +69,10 @@ type Server struct {
 	soundsDir           string
 	callsignProofsDir   string
 	shutdownTriggerPath string
+	// backups is optional — nil disables the /api/backups endpoints
+	// and the daily scheduler. Set via SetBackupsDir at startup.
+	backups          *backup.Manager
+	backupsCancel    context.CancelFunc // stops the daily scheduler on Shutdown
 }
 
 // SetSoundsDir configures the directory where custom chat sounds are stored.
@@ -90,6 +95,35 @@ func (s *Server) SetCallsignProofsDir(dir string) {
 
 // SetDownloadsDir configures a directory whose files are served at /downloads/.
 func (s *Server) SetDownloadsDir(dir string) { s.downloadsDir = dir }
+
+// SetBackupsDir enables the automatic-backup subsystem. Backups (gzipped
+// SQL dumps) are written to dir; the daily scheduler goroutine starts
+// immediately and honours the current BackupRetentionDays setting on
+// every tick. Call Shutdown() to stop the goroutine cleanly.
+//
+// If dir is empty this is a no-op and the /api/backups endpoints stay
+// off — used by dev / test environments where backups aren't wanted.
+func (s *Server) SetBackupsDir(dir string) {
+	if dir == "" {
+		return
+	}
+	m, err := backup.New(s.store.DB(), dir)
+	if err != nil {
+		log.Printf("warning: could not enable backups (dir=%s): %v", dir, err)
+		return
+	}
+	s.backups = m
+	ctx, cancel := context.WithCancel(context.Background())
+	s.backupsCancel = cancel
+	go m.RunScheduler(ctx, func() time.Duration {
+		set, err := s.store.LoadSettings()
+		if err != nil || set.BackupRetentionDays <= 0 {
+			return 0 // disable pruning
+		}
+		return time.Duration(set.BackupRetentionDays) * 24 * time.Hour
+	})
+	log.Printf("backups enabled: dir=%s", dir)
+}
 
 // SetShutdownTriggerPath configures the file the server polls for a
 // deployment-triggered graceful shutdown.  When the file appears its contents
@@ -268,6 +302,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/audit", s.requirePerm(PermAuditLog, s.handleAuditLog))
 	mux.HandleFunc("/api/callsign-requests", s.requirePerm(PermCallsignRequestsReview, s.handleCallsignRequests))
 	mux.HandleFunc("/api/callsign-requests/", s.requirePerm(PermCallsignRequestsReview, s.handleCallsignRequestByID))
+	mux.HandleFunc("/api/backups", s.requirePerm(PermBackupsManage, s.handleBackups))
+	mux.HandleFunc("/api/backups/", s.requirePerm(PermBackupsManage, s.handleBackupByName))
 	mux.HandleFunc("/api/feature-requests", s.requireAuth(s.handleFeatureRequests))
 	mux.HandleFunc("/api/feature-requests/mine", s.requireAuth(s.handleMyFeatureRequests))
 	mux.HandleFunc("/api/feature-requests/", s.requireAuth(s.handleFeatureRequestByID))
@@ -289,8 +325,13 @@ func (s *Server) Routes() http.Handler {
 	return securityHeadersMiddleware(logMiddleware(mux))
 }
 
-// Shutdown is currently a no-op.
-func (s *Server) Shutdown() {}
+// Shutdown stops long-running server-owned goroutines (currently just
+// the backup scheduler; safe to call even if it was never started).
+func (s *Server) Shutdown() {
+	if s.backupsCancel != nil {
+		s.backupsCancel()
+	}
+}
 
 // ----- inbound websocket dispatch -----
 

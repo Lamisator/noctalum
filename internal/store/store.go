@@ -49,6 +49,10 @@ type Settings struct {
 	ClusterRetentionDays  int    `json:"cluster_retention_days"`
 	ChatSound             string `json:"chat_sound"` // "" | "beep" | "ding" | "chime"
 	PublicFeatureRequests bool   `json:"public_feature_requests"`
+	// BackupRetentionDays controls how many days of DB backups the
+	// scheduler keeps in /backups. 0 disables pruning (keep forever).
+	// Default: 30.
+	BackupRetentionDays int `json:"backup_retention_days"`
 }
 
 // DummyRig is a simulated transceiver configuration persisted in the database.
@@ -109,6 +113,12 @@ func Open(dsn string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// DB exposes the underlying *sql.DB for callers (currently:
+// internal/backup) that need to run schema-agnostic queries against
+// pg_catalog / information_schema. Anything using the typed store API
+// should keep going through the exported methods above.
+func (s *Store) DB() *sql.DB { return s.db }
 
 func (s *Store) migrate() error {
 	stmts := []string{
@@ -455,8 +465,9 @@ func (s *Store) DeleteFeatureRequest(id int64) error {
 // LoadSettings returns the persisted settings, falling back to defaults.
 func (s *Store) LoadSettings() (Settings, error) {
 	defaults := Settings{
-		DefaultMode: "SSB",
-		DefaultBand: "20m",
+		DefaultMode:         "SSB",
+		DefaultBand:         "20m",
+		BackupRetentionDays: 30,
 	}
 	rows, err := s.db.Query(`SELECT key, value FROM settings`)
 	if err != nil {
@@ -492,6 +503,13 @@ func (s *Store) LoadSettings() (Settings, error) {
 			out.ChatSound = v
 		case "public_feature_requests":
 			out.PublicFeatureRequests = v == "1" || v == "true"
+		case "backup_retention_days":
+			// 0 is a legal value meaning "keep forever" — allow it
+			// alongside positive integers; negative values are
+			// treated as "unset, use default".
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+				out.BackupRetentionDays = n
+			}
 		}
 	}
 	return out, rows.Err()
@@ -521,6 +539,11 @@ func (s *Store) SaveSettings(set Settings) error {
 		publicFR = "1"
 	}
 	pairs = append(pairs, [2]string{"public_feature_requests", publicFR})
+	// Always persist backup_retention_days so 0 (== "keep forever")
+	// is round-trippable through the settings UI.
+	if set.BackupRetentionDays >= 0 {
+		pairs = append(pairs, [2]string{"backup_retention_days", strconv.Itoa(set.BackupRetentionDays)})
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err

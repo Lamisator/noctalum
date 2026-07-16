@@ -22,6 +22,10 @@ func main() {
 	dbDSN := flag.String("db", "", "PostgreSQL DSN (postgres://user:pass@host:5432/db?sslmode=disable). If empty, DATABASE_URL env is used.")
 	dataDir := flag.String("data-dir", "/var/lib/noctalum", "directory for on-disk runtime state (sounds, callsign_proofs, shutdown_trigger)")
 	downloadsDir := flag.String("downloads-dir", "", "directory to serve helper downloads from (optional)")
+	// Empty backups-dir disables the /api/backups endpoints + daily
+	// scheduler — useful for local dev without wanting a growing
+	// pgdump collection on disk.
+	backupsDir := flag.String("backups-dir", "/backups", "directory where daily/manual DB backups are written (empty = disabled)")
 	flag.Parse()
 
 	dsn := *dbDSN
@@ -53,6 +57,7 @@ func main() {
 	srv.SetSoundsDir(filepath.Join(*dataDir, "sounds"))
 	srv.SetCallsignProofsDir(filepath.Join(*dataDir, "callsign_proofs"))
 	srv.SetShutdownTriggerPath(filepath.Join(*dataDir, "shutdown_trigger"))
+	srv.SetBackupsDir(*backupsDir)
 
 	httpSrv := &http.Server{
 		Addr:              *addr,
