@@ -44,6 +44,7 @@ services:
       - ./app/noctalum-server:/app/noctalum-server:ro
       - ./app/downloads:/downloads:ro
       - ./data:/data
+      - ./backups:/backups
       - /etc/ssl/certs:/etc/ssl/certs:ro
     depends_on:
       postgres:

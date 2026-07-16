@@ -96,6 +96,10 @@
         <span class="nav-pill-icon">&#128231;</span>
         <span data-i18n="contestScreen.callsignRequests">Callsign requests</span>
       </button>
+      <button id="backups-admin-btn" class="nav-pill-btn perm-required" data-perm="backups.manage">
+        <span class="nav-pill-icon">&#128190;</span>
+        <span data-i18n="contestScreen.backups">Backups</span>
+      </button>
       <button id="my-settings-nav-btn" class="nav-pill-btn">
         <span class="nav-pill-icon">&#9881;</span>
         <span data-i18n="contestScreen.personalSettings">Personal Settings</span>
@@ -235,6 +239,13 @@
         <label style="display:flex;align-items:center;gap:8px;margin-top:6px">
           <input id="gs-public-feature-requests" type="checkbox" style="width:auto;margin:0" />
           <span data-i18n="globalSettings.publicFeatureRequests">Make feature requests public to all logged-in users</span>
+        </label>
+      </fieldset>
+      <fieldset style="margin-top:16px" class="perm-required" data-perm="backups.manage">
+        <legend data-i18n="globalSettings.backupsTitle">Database backups</legend>
+        <p class="muted small" data-i18n="globalSettings.backupsHint">Automatic daily backups run in the background; older files are pruned after this many days. Set to 0 to keep every backup forever.</p>
+        <label style="margin-top:10px"><span data-i18n="globalSettings.backupRetention">Retention (days)</span>
+          <input id="gs-backup-retention" type="number" min="0" max="3650" style="max-width:80px" placeholder="30" />
         </label>
       </fieldset>
       <fieldset style="margin-top:16px">
@@ -923,6 +934,51 @@
       <div class="history-footer muted">
         <span id="cr-count"></span>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Database backups admin screen -->
+<div id="backups-admin-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="backups.title">Database backups</h1>
+  </div>
+  <div class="admin-screen-body">
+    <div class="card">
+      <p class="muted" data-i18n="backups.intro" style="margin-top:0">Automatic daily backups of the Postgres database, deduplicated by content hash and pruned after the configured retention window. Manual backups are welcome any time.</p>
+      <div class="history-header" style="margin-top:12px">
+        <h2 data-i18n="backups.listTitle">Available backups</h2>
+        <div style="display:flex;gap:8px">
+          <button type="button" id="backups-take-btn" class="primary" data-i18n="backups.takeNow">Take backup now</button>
+          <button type="button" id="backups-refresh-btn" class="ghost" data-i18n="common.refresh">Refresh</button>
+        </div>
+      </div>
+      <div id="backups-retention-line" class="muted small" style="margin-top:4px"></div>
+      <table id="backups-table">
+        <thead>
+          <tr>
+            <th data-i18n="backups.colDate">Created</th>
+            <th data-i18n="backups.colKind">Kind</th>
+            <th data-i18n="backups.colSize">Size</th>
+            <th data-i18n="backups.colHash">Hash</th>
+            <th data-i18n="backups.colActions">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="backups-tbody"></tbody>
+      </table>
+      <div class="history-footer muted">
+        <span id="backups-count"></span>
+      </div>
+      <details style="margin-top:16px">
+        <summary data-i18n="backups.restoreHelp" style="cursor:pointer">How do I restore a backup?</summary>
+        <div class="muted small" style="margin-top:8px" data-i18n="backups.restoreHelpBody">Restore is intentionally not available from the UI — restoring wipes the current database and reloads it from the snapshot, which is a rare and dangerous operation that belongs in an SSH session with the app stopped.</div>
+        <pre style="margin-top:8px;padding:8px;background:var(--bg-code,#1a1a1a);border-radius:4px;overflow-x:auto"><code># On the server, stop the app, then feed the dump into psql:
+docker compose stop noctalum
+zcat /srv/docker/noctalum/backups/&lt;file&gt;.sql.gz | \
+  docker exec -i noctalum-postgres psql -U noctalum -d noctalum
+docker compose start noctalum</code></pre>
+      </details>
     </div>
   </div>
 </div>

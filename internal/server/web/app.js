@@ -641,7 +641,7 @@
   function show(which) {
     ['setup-screen', 'login-screen', 'contest-screen', 'global-settings-screen',
      'contests-admin-screen', 'users-admin-screen', 'audit-admin-screen', 'featurerequests-admin-screen',
-     'callsign-requests-admin-screen',
+     'callsign-requests-admin-screen', 'backups-admin-screen',
      'my-featurerequests-screen', 'my-settings-screen', 'changelog-screen', 'dok-cache-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
     $(which).classList.remove('hidden');
     if (which === 'setup-screen') $('setup-username').focus();
@@ -734,6 +734,7 @@
   $('audit-admin-btn').addEventListener('click', () => { if (!hasPerm('audit.log')) return; showAdminScreen('audit-admin-screen', () => refreshAuditLog(true)); });
   $('featurerequests-admin-btn').addEventListener('click', () => { if (!hasPerm('feature_requests.read')) return; showAdminScreen('featurerequests-admin-screen', refreshFeatureRequests); });
   $('callsign-requests-admin-btn')?.addEventListener('click', () => { if (!hasPerm('callsign_requests.review')) return; showAdminScreen('callsign-requests-admin-screen', refreshCallsignRequests); });
+  $('backups-admin-btn')?.addEventListener('click', () => { if (!hasPerm('backups.manage')) return; showAdminScreen('backups-admin-screen', refreshBackups); });
 
   document.querySelectorAll('.admin-back-btn').forEach(btn => {
     btn.addEventListener('click', () => showContestScreen());
@@ -767,6 +768,10 @@
         $('gs-cluster-server').value = s.cluster_server || '';
         $('gs-cluster-call').value = s.cluster_call || '';
         $('gs-cluster-retention').value = s.cluster_retention_days || 7;
+        // BackupRetentionDays: allow 0 (means "keep forever") but
+        // fall back to 30 if the field is missing (older backend).
+        const bkRet = ('backup_retention_days' in s) ? s.backup_retention_days : 30;
+        if ($('gs-backup-retention')) $('gs-backup-retention').value = bkRet;
         currentSound = s.chat_sound || '';
         $('gs-public-feature-requests').checked = !!s.public_feature_requests;
         if ('qrz_username' in s) {
@@ -866,6 +871,13 @@
       chat_sound: $('gs-chat-sound').value,
       public_feature_requests: $('gs-public-feature-requests').checked,
     };
+    // Only include the backup retention field when the input exists
+    // (perm-required fieldset hides it for non-backup-managers).
+    const bkRetEl = $('gs-backup-retention');
+    if (bkRetEl && bkRetEl.value !== '') {
+      const bkRet = parseInt(bkRetEl.value);
+      if (!Number.isNaN(bkRet) && bkRet >= 0) body.backup_retention_days = bkRet;
+    }
     // Only include QRZ fields when the operator actually changed them in this
     // menu — server treats missing keys as "preserve current credentials".
     const qrzUser = $('gs-qrz-user').value.trim();
@@ -4832,6 +4844,92 @@
     });
   }
   $('cr-refresh-btn')?.addEventListener('click', refreshCallsignRequests);
+
+  // ----- database backups -----
+  async function refreshBackups() {
+    if (!hasPerm('backups.manage')) return;
+    const res = await api('/api/backups');
+    if (!res.ok) return;
+    const data = await res.json();
+    const list = data.backups || [];
+    const retention = data.backup_retention_days ?? 0;
+
+    // Retention line: "Retention: 30 days" or "Retention: keep forever"
+    const rline = $('backups-retention-line');
+    if (rline) {
+      const retentionText = retention > 0
+        ? t('backups.retentionLine', { days: retention })
+        : t('backups.retentionForever');
+      rline.textContent = retentionText;
+    }
+
+    const tbody = $('backups-tbody');
+    tbody.innerHTML = '';
+    const count = $('backups-count');
+    const n = list.length;
+    if (n === 0) {
+      count.textContent = t('backups.noBackups');
+    } else {
+      count.textContent = n === 1 ? t('backups.count', { n }) : t('backups.countPlural', { n });
+    }
+
+    for (const b of list) {
+      const tr = document.createElement('tr');
+      const created = new Date(b.created_at);
+      const kindLabel = b.auto ? t('backups.kindAuto') : t('backups.kindManual');
+      const kindClass = b.auto ? 'muted' : '';
+      tr.innerHTML = `
+        <td>${escHtml(created.toLocaleString())}</td>
+        <td class="${kindClass}">${escHtml(kindLabel)}</td>
+        <td>${escHtml(formatBytes(b.bytes))}</td>
+        <td><code style="font-size:11px">${escHtml(b.hash || '')}</code></td>
+        <td>
+          <a class="primary" style="width:auto;font-size:12px;padding:4px 10px;text-decoration:none;display:inline-block" href="/api/backups/${encodeURIComponent(b.name)}" download>${escHtml(t('backups.download'))}</a>
+          <button class="ghost bk-delete-btn" data-name="${escHtml(b.name)}" style="width:auto;font-size:12px;padding:4px 10px;margin-left:4px">${escHtml(t('backups.delete'))}</button>
+        </td>`;
+      tbody.appendChild(tr);
+    }
+
+    tbody.querySelectorAll('.bk-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const name = e.currentTarget.getAttribute('data-name');
+        const ok = await showConfirm(t('backups.deleteConfirm', { name }));
+        if (!ok) return;
+        const res = await api('/api/backups/' + encodeURIComponent(name), { method: 'DELETE' });
+        if (res.ok) refreshBackups();
+        else showAlert(t('backups.deleteFailed'));
+      });
+    });
+  }
+  $('backups-refresh-btn')?.addEventListener('click', refreshBackups);
+  $('backups-take-btn')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = t('backups.takingNow');
+    try {
+      const res = await api('/api/backups', { method: 'POST' });
+      if (res.ok) {
+        await refreshBackups();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showAlert(t('backups.takeFailed', { error: err.error || res.status }));
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  });
+
+  // formatBytes returns a short human-readable size (e.g. "812 kB",
+  // "3.4 MB"). Small enough that we don't need a formatter library.
+  function formatBytes(n) {
+    if (!n && n !== 0) return '';
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' kB';
+    if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  }
 
   // ----- dummy TRX management -----
   async function loadDummyRigs() {

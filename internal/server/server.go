@@ -1278,6 +1278,12 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			out["cluster_server"] = s.settings.ClusterServer
 			out["cluster_retention_days"] = s.settings.ClusterRetentionDays
 		}
+		if HasPermission(sess.Permissions, PermBackupsManage) {
+			// Also surface the retention setting to backup managers
+			// so the "Retention" input in the Global Settings screen
+			// pre-fills — even if they don't have settings.write.
+			out["backup_retention_days"] = s.settings.BackupRetentionDays
+		}
 		writeJSON(w, http.StatusOK, out)
 	case http.MethodPut:
 		if !HasPermission(sess.Permissions, PermSettingsWrite) {
@@ -1300,6 +1306,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			ClusterRetentionDays  *int    `json:"cluster_retention_days"`
 			ChatSound             *string `json:"chat_sound"`
 			PublicFeatureRequests *bool   `json:"public_feature_requests"`
+			BackupRetentionDays   *int    `json:"backup_retention_days"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1329,6 +1336,13 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.PublicFeatureRequests != nil {
 			ns.PublicFeatureRequests = *in.PublicFeatureRequests
+		}
+		// BackupRetentionDays: only the backups-manage role can change
+		// it. 0 is a valid value (== "keep forever") so we accept any
+		// >= 0.
+		if in.BackupRetentionDays != nil && *in.BackupRetentionDays >= 0 &&
+			HasPermission(sess.Permissions, PermBackupsManage) {
+			ns.BackupRetentionDays = *in.BackupRetentionDays
 		}
 		if in.RegenHelperToken {
 			ns.HelperToken = newToken()
