@@ -97,8 +97,22 @@ func (s *Server) SetDownloadsDir(dir string) { s.downloadsDir = dir }
 // WebSocket event is broadcast to all connected browsers; and SIGTERM is sent
 // after the countdown elapses.  Only a caller with write access to this path
 // (i.e. SSH access to the host) can trigger a shutdown.
+//
+// Any trigger file present at *startup* is treated as stale and deleted
+// before the polling loop begins.  This handles the case where a deploy
+// wrote the file, `docker compose down` killed the old container before
+// it could process + delete it, and the new container would otherwise
+// immediately re-trigger its own shutdown — a phantom restart that
+// showed up on the v0.69 cutover.
 func (s *Server) SetShutdownTriggerPath(path string) {
 	s.shutdownTriggerPath = path
+	if _, err := os.Stat(path); err == nil {
+		if removeErr := os.Remove(path); removeErr != nil {
+			log.Printf("shutdown trigger: could not remove stale trigger at startup: %v", removeErr)
+		} else {
+			log.Printf("shutdown trigger: cleared stale trigger file at startup (%s)", path)
+		}
+	}
 	go s.shutdownTriggerLoop(context.Background())
 }
 
