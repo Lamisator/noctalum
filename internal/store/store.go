@@ -548,11 +548,17 @@ func (s *Store) SetHelperToken(tok string) error {
 
 // ----- cluster spots -----
 
-// SaveClusterSpot inserts a spot into the database.
+// SaveClusterSpot inserts a spot into the database. Every string field
+// goes through cleanStr() first — DX-cluster comments occasionally
+// arrive as Latin-1 (European operators typing accented characters
+// into a byte-oriented AR-cluster client) and Postgres rejects
+// non-UTF-8 payloads with SQLSTATE 22021, which would silently drop
+// the spot.
 func (s *Store) SaveClusterSpot(sp ClusterSpot) error {
 	_, err := s.db.Exec(
 		`INSERT INTO cluster_spots(time_str,dx,freq,band,mode,comment,spotter) VALUES($1,$2,$3,$4,$5,$6,$7)`,
-		sp.Time, sp.DX, sp.Freq, sp.Band, sp.Mode, sp.Comment, sp.Spotter)
+		cleanStr(sp.Time), cleanStr(sp.DX), cleanStr(sp.Freq),
+		cleanStr(sp.Band), cleanStr(sp.Mode), cleanStr(sp.Comment), cleanStr(sp.Spotter))
 	return err
 }
 
@@ -626,7 +632,7 @@ func (s *Store) InsertChatMessage(contestID int64, from, user, text, timeStr str
 	}
 	_, err = s.db.Exec(
 		`INSERT INTO chat_messages (contest_id, from_call, username, text, created_at) VALUES ($1, $2, $3, $4, $5)`,
-		contestID, from, user, text, ts,
+		contestID, cleanStr(from), cleanStr(user), cleanStr(text), ts,
 	)
 	return err
 }
@@ -715,12 +721,15 @@ func (s *Store) migrateCallsignCache() error {
 	return err
 }
 
-// UpsertCallsignDOK stores or updates the DOK for a callsign.
+// UpsertCallsignDOK stores or updates the DOK for a callsign. cleanStr()
+// covers the case where the upstream QRZ / DXCC lookup returns
+// non-UTF-8 bytes in a call-sign or DOK field — rare in practice but
+// Postgres would reject the whole INSERT.
 func (s *Store) UpsertCallsignDOK(callsign, dok string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO callsign_cache(callsign, dok, updated_at) VALUES($1, $2, $3)
 		 ON CONFLICT(callsign) DO UPDATE SET dok=EXCLUDED.dok, updated_at=EXCLUDED.updated_at`,
-		strings.ToUpper(callsign), strings.ToUpper(dok), time.Now().UTC(),
+		cleanStr(strings.ToUpper(callsign)), cleanStr(strings.ToUpper(dok)), time.Now().UTC(),
 	)
 	return err
 }

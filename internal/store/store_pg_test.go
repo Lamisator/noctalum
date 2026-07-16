@@ -226,3 +226,39 @@ func TestPostgresSchemaAndRoundTrips(t *testing.T) {
 		t.Error("expected deleted QSO to be missing")
 	}
 }
+
+// Regression: DX-cluster spots occasionally arrive as Latin-1
+// (European operators typing accented characters into a byte-oriented
+// AR-cluster client). SQLite silently stored the bad bytes; Postgres
+// rejects them with SQLSTATE 22021 and would drop the whole INSERT.
+// SaveClusterSpot now sanitises through cleanStr() so the spot lands
+// in the DB with the invalid bytes stripped, instead of vanishing.
+func TestSaveClusterSpotSanitisesInvalidUTF8(t *testing.T) {
+	st := openScratchDB(t)
+
+	// "6ème étape" mis-encoded as Latin-1: byte 0xE8 stands for 'è'
+	// in Latin-1 but is not a valid UTF-8 start byte.
+	badComment := "6\xe8me \xe9tape"
+	sp := store.ClusterSpot{
+		Time: "12:00Z", DX: "F8GGZ", Freq: "14150.0",
+		Band: "20m", Mode: "SSB", Comment: badComment, Spotter: "DL0X",
+	}
+	if err := st.SaveClusterSpot(sp); err != nil {
+		t.Fatalf("SaveClusterSpot rejected Latin-1 bytes — sanitiser not applied? %v", err)
+	}
+	spots, err := st.LoadRecentClusterSpots(1)
+	if err != nil || len(spots) != 1 {
+		t.Fatalf("expected 1 spot back, got %d (%v)", len(spots), err)
+	}
+	// The 0xE8 and 0xE9 bytes should have been stripped; what
+	// remains is a valid UTF-8 string. We don't require any
+	// particular replacement — just that it round-trips and
+	// contains none of the offending bytes.
+	got := spots[0].Comment
+	for i := 0; i < len(got); i++ {
+		if got[i] == 0xE8 || got[i] == 0xE9 {
+			t.Errorf("invalid Latin-1 byte still present in stored comment: %q", got)
+			break
+		}
+	}
+}

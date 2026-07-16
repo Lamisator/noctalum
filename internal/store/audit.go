@@ -72,10 +72,15 @@ func (s *Store) migrateAudit() error {
 func (s *Store) InsertAuditLog(level AuditLevel, action, actor, target, details, ip string) error {
 	now := time.Now().UTC()
 	var id int64
+	// cleanStr on the free-text fields: actor/target/details can
+	// carry arbitrary request-supplied data (IPs, callsigns, error
+	// messages), and Postgres rejects any non-UTF-8 byte across
+	// the whole INSERT. Failing an audit write for a stray byte
+	// would silently lose security-relevant records.
 	err := s.db.QueryRow(
 		`INSERT INTO audit_log (timestamp, level, action, actor, target, details, ip)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-		now, string(level), action, actor, target, details, ip,
+		now, string(level), cleanStr(action), cleanStr(actor), cleanStr(target), cleanStr(details), cleanStr(ip),
 	).Scan(&id)
 	if err != nil {
 		return err
