@@ -254,6 +254,75 @@ func TestManagerPruneRespectsRetention(t *testing.T) {
 	}
 }
 
+// TestSchedulerFiresOnAuditForAutoTakes verifies that the scheduler
+// path (Manager.tick) calls OnAudit for automatic backups AND for
+// retention prunes — so the server-side audit-log wiring gets fed
+// even when no HTTP request is involved.
+func TestSchedulerFiresOnAuditForAutoTakes(t *testing.T) {
+	_, raw, _ := openScratch(t)
+	dir := t.TempDir()
+	m, err := backup.New(raw, dir)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Capture events synchronously — tick() calls emit() inline so
+	// there's no async race here.
+	type event struct{ action, target, details string; isErr bool }
+	var events []event
+	m.OnAudit = func(action, target, details string, isError bool) {
+		events = append(events, event{action, target, details, isError})
+	}
+
+	// First take from an empty dir — should fire auto.
+	{
+		b, err := m.Take(context.Background(), true)
+		if err != nil {
+			t.Fatalf("seed take: %v", err)
+		}
+		// Backdate so the next tick treats it as expired.
+		past := time.Now().UTC().Add(-10 * 24 * time.Hour)
+		oldName := "noctalum-" + past.Format("20060102T150405Z") + "-" + b.Hash + "-auto.sql.gz"
+		if err := os.Rename(b.Path, filepath.Join(dir, oldName)); err != nil {
+			t.Fatalf("rename: %v", err)
+		}
+	}
+
+	// Nothing captured yet — Take() is called directly, not via tick.
+	if len(events) != 0 {
+		t.Errorf("direct Take() should NOT fire OnAudit; got %d events", len(events))
+	}
+
+	// One tick with 7-day retention — should take a fresh backup
+	// (newest is 10 days old) AND prune the old file.
+	// tick is unexported, but RunScheduler's initial call goes
+	// through it once immediately. Cancel right after to avoid the
+	// hourly loop.
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		m.RunScheduler(ctx, func() time.Duration { return 7 * 24 * time.Hour })
+		close(done)
+	}()
+	// Give the initial tick a moment to complete before cancelling.
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	<-done
+
+	// Expect exactly two events: one backup.auto (fresh take) and
+	// one backup.prune (removed the 10-day-old file). Order is
+	// take-then-prune per tick().
+	if len(events) != 2 {
+		t.Fatalf("expected 2 audit events (take + prune); got %d: %+v", len(events), events)
+	}
+	if events[0].action != "backup.auto" || events[0].isErr {
+		t.Errorf("first event should be a successful backup.auto; got %+v", events[0])
+	}
+	if events[1].action != "backup.prune" || events[1].isErr {
+		t.Errorf("second event should be a successful backup.prune; got %+v", events[1])
+	}
+}
+
 // TestGzipStream sanity-checks that the on-disk file actually is valid
 // gzip and its uncompressed body parses back as SQL — no need for a
 // full round-trip, just that the format we advertise is real. Seed one

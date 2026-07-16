@@ -56,6 +56,18 @@ type Manager struct {
 	db  *sql.DB
 	dir string
 	mu  sync.Mutex
+	// OnAudit, if non-nil, is invoked by RunScheduler() every time an
+	// automatic take or a retention prune completes (success OR
+	// failure). Server wires this to the audit-log store so scheduler-
+	// driven activity is visible in the same place as operator-driven
+	// activity. Callers that hit Take/Prune/Delete directly through
+	// the HTTP handler audit those in their own layer — the callback
+	// fires ONLY from the daily scheduler goroutine.
+	//
+	// action is the AuditBackup* constant. target is the backup
+	// filename (empty for prune). details is a short human-readable
+	// summary (byte count, hash, prune count, error message).
+	OnAudit func(action, target, details string, isError bool)
 }
 
 // New creates a Manager writing into dir. dir is created (mode 0o755)
@@ -268,14 +280,29 @@ func (m *Manager) tick(ctx context.Context, retention time.Duration) {
 	if shouldTake {
 		if b, err := m.Take(ctx, true); err != nil {
 			log.Printf("backup: automatic take failed: %v", err)
+			m.emit("backup.auto", "", "automatic take failed: "+err.Error(), true)
 		} else {
 			log.Printf("backup: automatic take succeeded (%s, %d bytes)", b.Name, b.Bytes)
+			m.emit("backup.auto", b.Name,
+				fmt.Sprintf("automatic daily backup, %d bytes, hash=%s", b.Bytes, b.Hash), false)
 		}
 	}
 	if n, err := m.Prune(retention); err != nil {
 		log.Printf("backup: prune failed: %v", err)
+		m.emit("backup.prune", "",
+			fmt.Sprintf("retention prune failed (retention=%s): %v", retention, err), true)
 	} else if n > 0 {
 		log.Printf("backup: pruned %d backup(s) older than %s", n, retention)
+		m.emit("backup.prune", "",
+			fmt.Sprintf("pruned %d backup(s) older than %s", n, retention), false)
+	}
+}
+
+// emit forwards an event to OnAudit if configured. Kept nil-safe so
+// unit tests and dev setups without a Server hookup don't panic.
+func (m *Manager) emit(action, target, details string, isError bool) {
+	if m.OnAudit != nil {
+		m.OnAudit(action, target, details, isError)
 	}
 }
 

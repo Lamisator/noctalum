@@ -55,6 +55,16 @@ const (
 	AuditCallsignRequestWithdraw = "callsign_request.withdraw"
 	AuditCallsignRequestApprove  = "callsign_request.approve"
 	AuditCallsignRequestReject   = "callsign_request.reject"
+	// Backup subsystem.  *.take / *.download / *.delete / *.restore are
+	// operator-initiated (HTTP handler audits them directly).  *.auto and
+	// *.prune are goroutine-driven and get emitted through the
+	// backup.Manager.OnAudit callback with actor="system".
+	AuditBackupTake     = "backup.take"
+	AuditBackupAuto     = "backup.auto"
+	AuditBackupDownload = "backup.download"
+	AuditBackupDelete   = "backup.delete"
+	AuditBackupPrune    = "backup.prune"
+	AuditBackupRestore  = "backup.restore"
 	AuditExport              = "export"
 	AuditAccessDenied        = "access.denied"
 )

@@ -130,6 +130,16 @@ func (s *Server) SetBackupsDir(dir string) {
 		return
 	}
 	s.backups = m
+	// Scheduler-driven backup activity (auto takes + retention prunes)
+	// gets audited as actor="system" — the HTTP handler audits the
+	// operator-initiated variants directly.
+	m.OnAudit = func(action, target, details string, isError bool) {
+		level := store.AuditInfo
+		if isError {
+			level = store.AuditError
+		}
+		_ = s.store.InsertAuditLog(level, action, "system", target, details, "")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.backupsCancel = cancel
 	go m.RunScheduler(ctx, func() time.Duration {
@@ -1405,6 +1415,23 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.QRZUsername != nil && *in.QRZUsername != "" {
 			appendDetail("qrz_username", *in.QRZUsername)
+		}
+		if in.ClusterRetentionDays != nil && *in.ClusterRetentionDays > 0 {
+			appendDetail("cluster_retention_days", strconv.Itoa(*in.ClusterRetentionDays))
+		}
+		if in.ChatSound != nil {
+			appendDetail("chat_sound", *in.ChatSound)
+		}
+		if in.PublicFeatureRequests != nil {
+			appendDetail("public_feature_requests", strconv.FormatBool(*in.PublicFeatureRequests))
+		}
+		// Retention is edited in the same "Global Settings" form but
+		// gated on backups.manage rather than settings.write — spell
+		// the new value out so the audit log makes it obvious who
+		// changed it and to what.
+		if in.BackupRetentionDays != nil && *in.BackupRetentionDays >= 0 &&
+			HasPermission(sess.Permissions, PermBackupsManage) {
+			appendDetail("backup_retention_days", strconv.Itoa(*in.BackupRetentionDays))
 		}
 		s.audit(r, store.AuditInfo, AuditSettingsChange, sess.Username, "", details)
 		out := map[string]any{"status": "ok"}

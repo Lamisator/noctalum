@@ -45,7 +45,7 @@ func (s *Server) handleBackups(w http.ResponseWriter, r *http.Request) {
 		if sess != nil {
 			actor = sess.Username
 		}
-		s.audit(r, store.AuditInfo, "backup.take", actor, b.Name,
+		s.audit(r, store.AuditInfo, AuditBackupTake, actor, b.Name,
 			fmt.Sprintf("manual backup, %d bytes, hash=%s", b.Bytes, b.Hash))
 		writeJSON(w, http.StatusCreated, b)
 	default:
@@ -112,7 +112,7 @@ func (s *Server) handleBackupByName(w http.ResponseWriter, r *http.Request) {
 		if sess != nil {
 			actor = sess.Username
 		}
-		s.audit(r, store.AuditInfo, "backup.download", actor, name, "")
+		s.audit(r, store.AuditInfo, AuditBackupDownload, actor, name, "")
 	case http.MethodDelete:
 		if err := s.backups.Delete(name); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -130,7 +130,7 @@ func (s *Server) handleBackupByName(w http.ResponseWriter, r *http.Request) {
 		// Warn-level because operators may want an alert when
 		// backups get removed (defensive posture — losing a
 		// backup accidentally is expensive to recover from).
-		s.audit(r, store.AuditWarn, "backup.delete", actor, name, "")
+		s.audit(r, store.AuditWarn, AuditBackupDelete, actor, name, "")
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.Header().Set("Allow", "GET, DELETE")
@@ -227,7 +227,7 @@ func (s *Server) handleBackupRestore(w http.ResponseWriter, r *http.Request, nam
 
 	// Error level: restore is a destructive, rarely-legitimate action.
 	// A cluster of these in the audit log should stand out.
-	s.audit(r, store.AuditError, "backup.restore", actor, name,
+	s.audit(r, store.AuditError, AuditBackupRestore, actor, name,
 		"safety backup: "+safety.Name)
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
