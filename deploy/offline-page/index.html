@@ -35,17 +35,181 @@
       min-height: 100vh;
       padding: 24px;
       background: radial-gradient(circle at 30% 20%, rgba(79, 195, 247, 0.08), transparent 60%), var(--bg);
+      position: relative;
+      overflow: hidden;
     }
+
+    /* ==== TV-static background ====
+       A small canvas is repainted every frame with random gray pixels,
+       stretched over the viewport with image-rendering: pixelated so
+       the noise stays chunky (real TV grain, not smooth). Sits ABOVE
+       the body's own background so it's actually visible — an earlier
+       version used negative z-index and got hidden behind the body
+       gradient. Card ends up at z-index 10 so it clears the overlay. */
+    #tv-static {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 0;
+      opacity: 0.35;
+      pointer-events: none;
+      image-rendering: pixelated;
+      image-rendering: -moz-crisp-edges;
+      /* Static plays for ~3 s then snaps out as the "signal locks"
+         and the test pattern takes over. steps(1) so it flicks off
+         rather than fading, which feels more like a real receiver. */
+      animation: static-out 3.4s steps(1) forwards;
+    }
+    @keyframes static-out {
+      0%, 88%   { opacity: 0.35; }
+      89%, 100% { opacity: 0; }
+    }
+
+    /* ==== SMPTE test pattern ====
+       Fades in at the moment the static drops. Seven 75%-intensity
+       colour bars via a single hard-stop linear-gradient, plus a
+       centred plate with the "TECHNICAL DIFFICULTIES / PLEASE STAND
+       BY" chyron. Sits at z-index 0 like the static, but its DOM
+       order + delayed opacity means it only appears once the static
+       is gone. */
+    #test-pattern {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0;
+      background: linear-gradient(
+        to right,
+        #c0c0c0 0        14.2857%,
+        #c0c000 14.2857% 28.5714%,
+        #00c0c0 28.5714% 42.8571%,
+        #00c000 42.8571% 57.1428%,
+        #c000c0 57.1428% 71.4285%,
+        #c00000 71.4285% 85.7142%,
+        #0000c0 85.7142% 100%
+      );
+      animation: pattern-in 3.4s steps(1) forwards;
+    }
+    @keyframes pattern-in {
+      0%, 88%   { opacity: 0; }
+      89%, 100% { opacity: 1; }
+    }
+
+    /* The chyron. Centered near the top so it doesn't fight the
+       info card in the middle. Black plates behind each line so the
+       text stays legible over any colour bar it lands on. */
+    .tp-chyron {
+      position: fixed;
+      top: 8vh;
+      left: 0;
+      right: 0;
+      z-index: 5;
+      pointer-events: none;
+      text-align: center;
+      opacity: 0;
+      color: #fff;
+      font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      animation: pattern-in 3.4s steps(1) forwards;
+    }
+    .tp-chyron .line {
+      display: inline-block;
+      background: #000;
+      padding: 8px 22px;
+      border: 2px solid #fff;
+      margin: 0 auto 8px;
+      text-shadow:
+        1.5px 0 0 rgba(239, 83, 80, 0.55),
+       -1.5px 0 0 rgba(79, 195, 247, 0.55);
+    }
+    .tp-chyron .line.primary {
+      font-size: clamp(20px, 4.4vw, 44px);
+      font-weight: 900;
+    }
+    .tp-chyron .line.secondary {
+      font-size: clamp(14px, 2.6vw, 24px);
+      font-weight: 700;
+      letter-spacing: 0.22em;
+    }
+
+    /* Horizontal scanlines: fine dark bands every 3px, evocative of
+       CRT interlacing. Sits above the noise, below the card. */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.35) 0px,
+        rgba(0, 0, 0, 0.35) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+    }
+
+    /* Rolling brightness bar — a soft horizontal band that scrolls
+       down the viewport once every few seconds, like the vertical
+       hold on an old TV going slightly out of sync. */
+    body::after {
+      content: '';
+      position: fixed;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 30vh;
+      z-index: 2;
+      pointer-events: none;
+      background: linear-gradient(
+        to bottom,
+        transparent 0%,
+        rgba(255, 255, 255, 0.06) 45%,
+        rgba(255, 255, 255, 0.09) 50%,
+        rgba(255, 255, 255, 0.06) 55%,
+        transparent 100%
+      );
+      animation: roll 7s linear infinite;
+    }
+    @keyframes roll {
+      0%   { transform: translateY(-40vh); }
+      100% { transform: translateY(140vh); }
+    }
+
+    /* Card. Made slightly translucent so the static ghosts through
+       just enough to read as a signal fault, but the text sits on a
+       solid enough plate to stay legible. A cyan glow around the
+       border echoes the "off-air" bug on old broadcast test cards. */
     .card {
-      background: var(--bg-elev);
+      background: rgba(28, 31, 36, 0.88);
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
       padding: 36px 40px 32px;
       border-radius: 12px;
-      box-shadow: var(--shadow);
+      box-shadow:
+        var(--shadow),
+        0 0 0 1px rgba(79, 195, 247, 0.08),
+        0 0 40px rgba(79, 195, 247, 0.06);
       border: 1px solid var(--border);
       width: 100%;
       max-width: 460px;
       text-align: center;
+      position: relative;
+      z-index: 10;
+      /* Subtle jitter — one-pixel horizontal shift on a slow, irregular
+         cadence, like a TV that keeps trying to lock the sync. */
+      animation: jitter 4.7s steps(1) infinite;
     }
+    @keyframes jitter {
+      0%, 100%   { transform: translate(0, 0); }
+      42%        { transform: translate(-1px, 0); }
+      42.5%      { transform: translate( 0, 0); }
+      74%        { transform: translate( 1px, 0); }
+      74.4%      { transform: translate( 0, 0); }
+    }
+
     .logo {
       width: 72px;
       height: 72px;
@@ -59,6 +223,11 @@
       font-size: 26px;
       font-weight: 600;
       letter-spacing: 0.01em;
+      /* Faint chromatic-aberration halo — red/blue offset shadows the
+         way a badly tuned CRT smears bright colours. */
+      text-shadow:
+        1px 0 0 rgba(239, 83, 80, 0.35),
+       -1px 0 0 rgba(79, 195, 247, 0.35);
     }
     .status-code {
       display: inline-block;
@@ -102,13 +271,34 @@
     .lang p.muted { color: var(--text-muted); font-size: 13px; }
     .lang a { color: var(--accent); text-decoration: none; }
     .lang a:hover { color: var(--accent-strong); text-decoration: underline; }
+
+    /* Respect user preference — a strobing/rolling background is a
+       migraine trigger and the WCAG 2.3.3 recommendation is to still
+       everything that isn't essential. Card stays; motion stops. */
+    @media (prefers-reduced-motion: reduce) {
+      #tv-static { display: none; }
+      body::before, body::after { animation: none; }
+      body::after { display: none; }
+      .card { animation: none; }
+      /* Skip the static-then-pattern flourish; jump straight to the
+         locked test pattern. */
+      #test-pattern { animation: none; opacity: 1; }
+      .tp-chyron    { animation: none; opacity: 1; }
+    }
   </style>
 </head>
 <body>
+  <canvas id="tv-static" aria-hidden="true"></canvas>
+  <div id="test-pattern" aria-hidden="true"></div>
+  <div class="tp-chyron" aria-hidden="true">
+    <div class="line primary">Technical Difficulties</div>
+    <br />
+    <div class="line secondary">Please Stand By</div>
+  </div>
   <main class="card" role="main">
     <img src="/noctalum.png" alt="Noctalum" class="logo" />
     <h1 class="brand">Noctalum</h1>
-    <div class="status-code">HTTP 504</div>
+    <div class="status-code">HTTP 504 · NO SIGNAL</div>
 
     <section class="lang" lang="en">
       <h2><span class="flag">EN</span> Temporarily offline</h2>
@@ -124,5 +314,43 @@
       <p class="muted">Falls das Problem bestehen bleibt, wende dich bitte an DM2LAP unter <a href="mailto:dm2lap@darc.de">dm2lap@darc.de</a>.</p>
     </section>
   </main>
+
+  <script>
+    // TV static: fill a small backing buffer with random gray pixels
+    // each frame. Buffer is intentionally low-res (160×120) — CSS
+    // stretches it to fullscreen with image-rendering: pixelated so
+    // each "grain" ends up ~8-12 device pixels across, which is what
+    // reads as TV static rather than fine film grain. Repainting a
+    // 160×120 ImageData at 60 fps is ~2% CPU on a modern laptop.
+    (function () {
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const canvas = document.getElementById('tv-static');
+      if (!canvas || !canvas.getContext) return;
+      const ctx = canvas.getContext('2d');
+      const W = 160, H = 120;
+      canvas.width = W;
+      canvas.height = H;
+      const img = ctx.createImageData(W, H);
+      const data = img.data;
+      // Stop painting once the CSS static-out animation has swapped
+      // the canvas out. Keep a small tail past the animation end so
+      // we don't cut mid-frame. Without this the RAF loop would keep
+      // burning ~2% CPU forever behind an invisible canvas.
+      const stopAt = performance.now() + 3800;
+      function frame(now) {
+        if (now > stopAt) return;
+        for (let i = 0; i < data.length; i += 4) {
+          // Slight bias toward mid-gray to avoid a solid-black look
+          // when tab is throttled and a few frames get identical seeds.
+          const v = 40 + (Math.random() * 200) | 0;
+          data[i] = data[i + 1] = data[i + 2] = v;
+          data[i + 3] = 255;
+        }
+        ctx.putImageData(img, 0, 0);
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    })();
+  </script>
 </body>
 </html>
