@@ -3820,7 +3820,10 @@
       try { applyCustomFieldsValues(JSON.parse(q.extras)); } catch {}
     }
     $('log-qso-btn').textContent = t('qso.saveEdit');
-    $('entry-panel-title').textContent = t('qso.editQSO');
+    // In read-only mode (closed contest) the mask is used purely for
+    // inspection — the save button is disabled by applyContestReadonly()
+    // and the panel title reflects that we're only viewing, not editing.
+    $('entry-panel-title').textContent = contestIsOpen() ? t('qso.editQSO') : t('qso.viewQSO');
     callsignFilter = null;
     renderQsos();
     updateDuplicateBadge();
@@ -4335,25 +4338,19 @@
         + `<td>${canDelete ? `<button class="del-btn" data-id="${Number(q.id)}">✕</button>` : ''}</td>`;
       tr.addEventListener('click', (e) => {
         if (e.target.closest('.del-btn')) return;
-        if (hasPerm('qso.write') && contestIsOpen()) {
-          cancelQsoEdit();
-          clearLeftPanel(); triggerQRZLookup(q.callsign);
-          loadQsoIntoForm(q);
-        } else {
-          // Read-only inspect (FR #62): show QRZ photo *and* the rest of the
-          // detail panel — country flag, locator, distance — for the clicked
-          // station, even when the contest is finished. The QSO entry form
-          // stays disabled (applyContestReadonly() disables every field);
-          // updating `currentTargetLocator` and re-running updateMap()
-          // re-draws the great-circle line and bearing distance so a
-          // finished log behaves like a browseable archive instead of a
-          // wall of plain text.
-          clearLeftPanel();
-          triggerQRZLookup(q.callsign);
-          updateCallCountry(q.callsign);
-          currentTargetLocator = q.locator || null;
-          updateMap();
-        }
+        const writable = hasPerm('qso.write') && contestIsOpen();
+        // Read-only inspect (FR #62): show QRZ photo *and* the rest of the
+        // detail panel — country flag, locator, distance — for the clicked
+        // station, even when the contest is finished. We populate the QSO
+        // mask so `triggerQRZLookup`'s staleness guard (which compares the
+        // fresh lookup's callsign against #q-call.value) accepts the reply;
+        // applyContestReadonly() has already disabled every form field and
+        // the save button, so the mask stays strictly non-editable.
+        cancelQsoEdit();
+        clearLeftPanel();
+        triggerQRZLookup(q.callsign);
+        loadQsoIntoForm(q);
+        if (!writable) applyContestReadonly();
       });
       tbody.appendChild(tr);
       shown++;
