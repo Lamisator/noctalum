@@ -1,5 +1,34 @@
 # Noctalum Changelog
 
+## v0.73 — 2026-07-17 — Cluster band filter follows contest switch; Go builder image refreshed
+
+- **Cluster band + mode dropdown now refreshes on contest switch.** The
+  cluster view's band selection dropdown used to keep the previous
+  contest's bands until `loadClusterSpots()` fired next (cluster-tab
+  activation, 60-second auto-refresh, or manual refresh). If the
+  operator opened the cluster tab straight after switching contests,
+  the filter offered bands the new contest doesn't even use. Fix:
+  `enterApp()` in `internal/server/web/app.js` now calls
+  `updateClusterFilters()` directly alongside the other per-contest UI
+  resets (`renderBandPills`, `renderObjective`, `renderCustomFields`),
+  so the `<select>` is rebuilt from the fresh `me.contest_bands` the
+  moment the switch lands. Preserved-selection edge case handled
+  cleanly: if the previously-selected band isn't present in the new
+  contest, reassigning `innerHTML` with no `selected` attribute makes
+  the browser fall back to the first option ("All bands"), and
+  `renderClusterSpots()` reads `.value` fresh from the DOM so the
+  filter clears without any explicit reset.
+- **Go builder image bumped to 1.25-bookworm.** The default
+  `GO_IMAGE` in `build.sh` plus the three inline `FROM` lines in
+  `build_gui_linux_amd64`, `build_gui_linux_arm64`, and
+  `build_gui_windows_amd64` all moved from `golang:1.22-bookworm` to
+  `golang:1.25-bookworm`; the `--image` usage example in the
+  top-of-file comment moved from `golang:1.23` to `golang:1.26`. Native
+  builds (which use whatever local Go toolchain is installed) are
+  unaffected. Dockerised builds pick up the newer stdlib, compiler
+  improvements, and security fixes shipped between 1.22 and 1.25.
+- `programVersion` bumped to `0.73`
+
 ## v0.72 — 2026-07-17 — Contest scheduling + closed-contest browsing, branded 504 page
 
 - **Contests can now carry an optional start and end date.** Two new

@@ -7979,6 +7979,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.73',
+      date: '2026-07-17',
+      en: 'v0.73: Cluster band filter follows the contest you\'re in.\n- Switching to a different contest now refreshes the cluster view\'s band dropdown right away instead of keeping stale bands\n- Behind the scenes: bumped the Go builder image to 1.25-bookworm — nothing changes for you, just a housekeeping refresh',
+      de: 'v0.73: Der Band-Filter in der Cluster-Ansicht folgt dem gewählten Contest.\n- Beim Wechsel in einen anderen Contest wird das Band-Dropdown in der Cluster-Ansicht jetzt sofort aktualisiert, statt alte Bänder stehen zu lassen\n- Im Hintergrund: das Go-Builder-Image steht jetzt auf 1.25-bookworm — für dich ändert sich nichts, nur eine Wartungsauffrischung',
+    },
+    {
       version: '0.72',
       date: '2026-07-17',
       en: 'v0.72: Contest scheduling by date + closed-contest browsing.\n- Contests can carry an optional start and end date; leave the end blank for a single-day contest, leave both blank to disable auto-close\n- Any dated contest is closed automatically the day after it ends (UTC); open UIs slide into read-only mode without a reload\n- Clicking a QSO in a closed contest again fills the mask read-only, so QRZ photo, country flag and bearing distance load like they should\n- Restore-a-backup modal actually accepts the type-to-confirm input now — the previous button did nothing\n- Automatic daily backup takes and retention prunes now show up in the audit log; retention edits also record their new value\n- Deploy is upload-first with a recovery trap and SSH keep-alive — a hung upload can no longer strand prod\n- New branded 504 page at log.dm2lap.com with contact address and a looping "TV losing signal" sequence when the server is down',
