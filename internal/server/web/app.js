@@ -1541,6 +1541,9 @@
     renderBandPills();
     renderObjective();
     renderCustomFields();
+    // Refresh cluster band/mode dropdowns so they reflect the newly selected contest's
+    // bands instead of retaining stale options from the previous contest.
+    updateClusterFilters();
     // Snap q-band to a valid contest band when the global default isn't available here.
     const cBands = contestBands();
     if (cBands.length) {
