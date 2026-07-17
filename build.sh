@@ -14,7 +14,7 @@
 #   ./build.sh --notifier-only          # only the Telegram-deploy notifier
 #   ./build.sh --no-gui                 # skip the GUI helper
 #   ./build.sh --target linux/amd64     # restrict to one OS/arch
-#   ./build.sh --image golang:1.23      # use a different builder image
+#   ./build.sh --image golang:1.26      # use a different builder image
 #   ./build.sh --native                 # use the local Go toolchain instead of Docker
 #                                       # (non-GUI: cross-compiles all targets;
 #                                       #  GUI: native platform only, CGO libs required)
@@ -27,7 +27,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-GO_IMAGE="${GO_IMAGE:-golang:1.22-bookworm}"
+GO_IMAGE="${GO_IMAGE:-golang:1.25-bookworm}"
 OUT_DIR="$ROOT/dist"
 CACHE_DIR="$ROOT/.build-cache"
 
@@ -341,7 +341,7 @@ build_gui_linux_amd64() {
   if ! "$RUNTIME" image inspect "$gui_image" >/dev/null 2>&1; then
     echo "    building $gui_image (one-time, ~3-4 min)"
     if ! "$RUNTIME" build -t "$gui_image" - <<'DOCKERFILE'
-FROM golang:1.22-bookworm
+FROM golang:1.25-bookworm
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
@@ -441,7 +441,7 @@ build_gui_linux_arm64() {
     echo "    If this fails, enable QEMU first:"
     echo "      docker run --rm --privileged multiarch/qemu-user-static --reset -p yes"
     if ! "$RUNTIME" build --platform linux/arm64 -t "$image" - <<'DOCKERFILE'
-FROM golang:1.22-bookworm
+FROM golang:1.25-bookworm
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
@@ -479,7 +479,7 @@ build_gui_windows_amd64() {
   if ! "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then
     echo "    building $image (one-time, ~3-5 min)"
     if ! "$RUNTIME" build -t "$image" - <<'DOCKERFILE'
-FROM golang:1.22-bookworm
+FROM golang:1.25-bookworm
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
