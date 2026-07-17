@@ -5118,6 +5118,53 @@
     return Array.from(document.querySelectorAll('#modal-band-grid .band-select-pill.selected')).map(p => p.dataset.band);
   }
 
+  // Contest start/end date pickers used by both create and edit modals.
+  // Values are ISO date strings ("YYYY-MM-DD") — an empty string means unset.
+  // Server-side, both dates are optional; leaving end blank makes it a
+  // single-day contest, leaving both blank disables auto-close.
+  function buildContestDatesHTML(startIso, endIso, readOnly) {
+    const d = readOnly ? ' disabled' : '';
+    const s = (startIso || '').substring(0, 10);
+    const e = (endIso || '').substring(0, 10);
+    return `<div class="contest-dates-row">
+        <label class="contest-dates-cell">
+          <span class="muted small">${escHtml(t('contestScreen.contestStartDate'))}</span>
+          <span class="contest-date-input-wrap">
+            <input type="date" name="start_date" value="${escHtml(s)}"${d} />
+            ${readOnly ? '' : `<button type="button" class="ghost small contest-date-clear" data-target="start_date" title="${escHtml(t('contestScreen.clearDate'))}">&times;</button>`}
+          </span>
+        </label>
+        <label class="contest-dates-cell">
+          <span class="muted small">${escHtml(t('contestScreen.contestEndDate'))}</span>
+          <span class="contest-date-input-wrap">
+            <input type="date" name="end_date" value="${escHtml(e)}"${d} />
+            ${readOnly ? '' : `<button type="button" class="ghost small contest-date-clear" data-target="end_date" title="${escHtml(t('contestScreen.clearDate'))}">&times;</button>`}
+          </span>
+        </label>
+      </div>
+      <p class="muted small" style="margin:2px 0 0">${escHtml(t('contestScreen.contestDatesHint'))}</p>`;
+  }
+
+  function attachContestDatesListeners() {
+    document.querySelectorAll('#modal-card .contest-date-clear').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const name = btn.dataset.target;
+        const inp = document.querySelector('#modal-card input[name="' + name + '"]');
+        if (inp) { inp.value = ''; inp.dispatchEvent(new Event('change')); }
+      });
+    });
+  }
+
+  // Rejects an invalid start/end pairing before submit. Returns an error
+  // string on failure or null when the values are usable (either or both
+  // may be empty — that's allowed).
+  function validateContestDates(form) {
+    const s = (form.start_date?.value || '').trim();
+    const e = (form.end_date?.value || '').trim();
+    if (s && e && e < s) return t('contestScreen.endBeforeStart');
+    return null;
+  }
+
   // Built-in contest presets (FR #58). Each preset pre-fills name, bands,
   // and one or more custom fields so an operator does not have to assemble
   // a recurring contest's exchange structure by hand. Add new presets here
@@ -5155,6 +5202,8 @@
         <label>${escHtml(t('contestScreen.qthLocator'))}</label>
         <input name="qth" placeholder="${escHtml(t('contestScreen.qthPlaceholder'))}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
         ${buildBandSelectHTML([])}
+        <label style="margin-top:10px">${escHtml(t('contestScreen.contestDates'))} <span class="muted small">${escHtml(t('contestScreen.contestDatesOptional'))}</span></label>
+        ${buildContestDatesHTML('', '')}
         ${canPriv ? `<label style="margin-top:10px"><input type="checkbox" name="private"${forcePrivate ? ' checked' : ''} /> ${escHtml(t('contestScreen.privateContest'))} <span class="muted small">${escHtml(t('contestScreen.privateOnlyYou'))}</span></label>` : ''}
         <label style="margin-top:10px"><input type="checkbox" name="nr_padded" checked /> ${escHtml(t('contestScreen.nrPadded'))}</label>
         <label style="margin-top:10px">${escHtml(t('contestScreen.customFields'))} <span class="muted small">${escHtml(t('contestScreen.customFieldsPerQSO'))}</span></label>
@@ -5173,6 +5222,8 @@
         </div>
       </form>
     `, async (form) => {
+      const dateErr = validateContestDates(form);
+      if (dateErr) throw new Error(dateErr);
       const res = await api('/api/contests', {
         method: 'POST',
         body: JSON.stringify({
@@ -5186,6 +5237,8 @@
           custom_fields: serializeCustomFieldsEditor(),
           qso_layout: serializeQSOLayout(),
           nr_padded: form.nr_padded.checked,
+          start_date: (form.start_date?.value || '').trim(),
+          end_date: (form.end_date?.value || '').trim(),
         }),
       });
       if (!res.ok) {
@@ -5201,6 +5254,7 @@
       }
     }, { wide: true });
     attachBandSelectListeners();
+    attachContestDatesListeners();
     attachCustomFieldsEditorListeners();
     attachLayoutEditorListeners('');
     const taC = document.querySelector('#modal-card textarea[name=objective]');
@@ -5284,6 +5338,8 @@
         <label>${escHtml(t('contestScreen.qthLocator'))}</label>
         <input name="qth" value="${escHtml(c.qth || '')}" placeholder="${escHtml(t('contestScreen.qthPlaceholder'))}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase"${d} />
         ${buildBandSelectHTML(c.bands || [])}
+        <label style="margin-top:10px">${escHtml(t('contestScreen.contestDates'))} <span class="muted small">${escHtml(t('contestScreen.contestDatesOptional'))}</span></label>
+        ${buildContestDatesHTML(c.start_date || '', c.end_date || '', readOnly)}
         <label style="margin-top:10px"><input type="checkbox" name="nr_padded" ${c.nr_padded !== false ? 'checked' : ''}${d} /> ${escHtml(t('contestScreen.nrPadded'))}</label>
         <label style="margin-top:10px">${escHtml(t('contestScreen.freqUnit'))}
           <select name="freq_unit"${d}>
@@ -5310,6 +5366,8 @@
         ${actionsHtml}
       </form>
     `, readOnly ? null : async (form) => {
+      const dateErr = validateContestDates(form);
+      if (dateErr) throw new Error(dateErr);
       const res = await api('/api/contests/' + c.id, {
         method: 'PUT',
         body: JSON.stringify({
@@ -5326,6 +5384,8 @@
           nr_padded: form.nr_padded.checked,
           stash_expiry_minutes: Math.max(1, parseInt(form.stash_expiry_minutes?.value || '60', 10) || 60),
           freq_unit: form.freq_unit?.value || 'kHz',
+          start_date: (form.start_date?.value || '').trim(),
+          end_date: (form.end_date?.value || '').trim(),
         }),
       });
       if (!res.ok) {
@@ -5345,6 +5405,7 @@
         });
       }
       attachBandSelectListeners();
+      attachContestDatesListeners();
       attachCustomFieldsEditorListeners();
       attachLayoutEditorListeners(c.qso_layout || '');
       initLogColDragDrop();

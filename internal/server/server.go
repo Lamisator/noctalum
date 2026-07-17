@@ -234,6 +234,7 @@ func New(st *store.Store) (*Server, error) {
 	startClusterClient(context.Background())
 	go s.clusterPruneLoop(context.Background())
 	go s.chatPruneLoop(context.Background())
+	go s.contestAutoCloseLoop(context.Background())
 
 	dummyRigs, err := st.ListDummyRigs()
 	if err != nil {
@@ -581,6 +582,25 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// parseOptionalDate accepts an ISO date string ("YYYY-MM-DD") or the leading
+// date portion of an ISO datetime ("YYYY-MM-DDTHH:MM:SSZ"), returning the
+// UTC-midnight time.Time it names.  An empty string yields (nil, nil) so
+// callers can distinguish "field not sent" from "invalid value".
+func parseOptionalDate(s string) (*time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	if len(s) > 10 {
+		s = s[:10]
+	}
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 func newToken() string {
@@ -1666,6 +1686,63 @@ func (s *Server) handleQRZTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "name": result.Name, "locator": result.Locator})
 }
 
+// contestAutoCloseLoop wakes hourly and flips any open contest whose scheduled
+// end date (or start date, for single-day contests) is already in the past
+// to 'finished'. Contests without any date remain open forever. Runs once at
+// startup so a server that was down when a contest expired still closes it
+// on the next boot.
+func (s *Server) contestAutoCloseLoop(ctx context.Context) {
+	s.autoCloseExpiredContests()
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.autoCloseExpiredContests()
+		}
+	}
+}
+
+// autoCloseExpiredContests performs one pass: flips due contests, refreshes
+// live sessions, and broadcasts contest_updated so open UIs move to the
+// read-only view without a page reload.
+func (s *Server) autoCloseExpiredContests() {
+	ids, err := s.store.AutoCloseExpiredContests(time.Now())
+	if err != nil {
+		log.Printf("contest auto-close: %v", err)
+		return
+	}
+	for _, id := range ids {
+		c, err := s.store.GetContest(id)
+		if err != nil {
+			log.Printf("contest auto-close: reload %d: %v", id, err)
+			continue
+		}
+		s.sessions.UpdateContestOnSessions(c.ID, c.Status, c.StationCall, c.Name, c.QTH, strings.Join(c.Bands, ","), c.Objective, c.StationID, c.Private, c.OwnerUserID, c.CustomFields, c.QSOLayout, c.LogColumns, c.NrPadded, c.FreqUnit)
+		s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
+			"id":                   c.ID,
+			"name":                 c.Name,
+			"station_call":         c.StationCall,
+			"station_id":           c.StationID,
+			"qth":                  c.QTH,
+			"status":               c.Status,
+			"bands":                c.Bands,
+			"objective":            c.Objective,
+			"custom_fields":        c.CustomFields,
+			"qso_layout":           c.QSOLayout,
+			"log_columns":          c.LogColumns,
+			"nr_padded":            c.NrPadded,
+			"stash_expiry_minutes": c.StashExpiryMinutes,
+			"freq_unit":            c.FreqUnit,
+			"start_date":           c.StartDate,
+			"end_date":             c.EndDate,
+		}})
+		log.Printf("contest %d (%q) auto-closed: scheduled end date passed", c.ID, c.Name)
+	}
+}
+
 // chatPruneLoop deletes chat messages older than 24 hours, running once per hour.
 func (s *Server) chatPruneLoop(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Hour)
@@ -2294,9 +2371,25 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			NrPadded           *bool    `json:"nr_padded"`
 			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
 			FreqUnit           string   `json:"freq_unit"`
+			StartDate          string   `json:"start_date"`
+			EndDate            string   `json:"end_date"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		startDateCreate, err := parseOptionalDate(in.StartDate)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid start_date")
+			return
+		}
+		endDateCreate, err := parseOptionalDate(in.EndDate)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid end_date")
+			return
+		}
+		if startDateCreate != nil && endDateCreate != nil && endDateCreate.Before(*startDateCreate) {
+			writeError(w, http.StatusBadRequest, "end_date must not be before start_date")
 			return
 		}
 		nrPaddedCreate := true
@@ -2339,7 +2432,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		if in.Private {
 			ownerID = sess.UserID
 		}
-		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, in.Private, ownerID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedCreate, stashExpiryCreate, in.FreqUnit)
+		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, in.Private, ownerID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedCreate, stashExpiryCreate, in.FreqUnit, startDateCreate, endDateCreate)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2921,9 +3014,25 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			NrPadded           *bool    `json:"nr_padded"`
 			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
 			FreqUnit           string   `json:"freq_unit"`
+			StartDate          string   `json:"start_date"`
+			EndDate            string   `json:"end_date"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		startDatePut, err := parseOptionalDate(in.StartDate)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid start_date")
+			return
+		}
+		endDatePut, err := parseOptionalDate(in.EndDate)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid end_date")
+			return
+		}
+		if startDatePut != nil && endDatePut != nil && endDatePut.Before(*startDatePut) {
+			writeError(w, http.StatusBadRequest, "end_date must not be before start_date")
 			return
 		}
 		nrPaddedPut := existing.NrPadded
@@ -2961,7 +3070,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		if putFreqUnit == "" {
 			putFreqUnit = "kHz"
 		}
-		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut, stashExpiryPut, putFreqUnit); err != nil {
+		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut, stashExpiryPut, putFreqUnit, startDatePut, endDatePut); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -2986,6 +3095,8 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"nr_padded":            nrPaddedPut,
 			"stash_expiry_minutes": stashExpiryPut,
 			"freq_unit":            putFreqUnit,
+			"start_date":           startDatePut,
+			"end_date":             endDatePut,
 		}})
 		w.WriteHeader(http.StatusNoContent)
 		return

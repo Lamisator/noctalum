@@ -256,6 +256,8 @@ func (s *Server) handleImportShare(w http.ResponseWriter, r *http.Request) {
 		p.NrPadded,
 		p.StashExpiryMinutes,
 		p.FreqUnit,
+		nil,
+		nil,
 	)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

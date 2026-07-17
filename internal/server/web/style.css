@@ -2337,6 +2337,33 @@ body.mobile-mode .mobile-bottom-nav { display: flex; }
   color: var(--accent);
 }
 
+/* ==== Contest start/end date pickers ==== */
+.contest-dates-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 6px;
+}
+.contest-dates-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 160px;
+  margin: 0;
+}
+.contest-date-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.contest-date-input-wrap input[type="date"] {
+  flex: 1 1 auto;
+}
+.contest-date-clear {
+  padding: 2px 8px;
+  line-height: 1;
+}
+
 /* ==== Left sidebar panel ==== */
 .left-pic-area {
   width: 100%;
