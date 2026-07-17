@@ -46,6 +46,17 @@
        the body's own background so it's actually visible — an earlier
        version used negative z-index and got hidden behind the body
        gradient. Card ends up at z-index 10 so it clears the overlay. */
+    /* ==== Cycle timing ====
+       One "reception attempt" every CYCLE_S seconds:
+         0.00 – 0.60 (60%)  static only, receiver hunting for signal
+         0.60 – 0.62 (2%)   pattern hard-cuts in (the "flash")
+         0.62 – 0.78 (16%)  pattern locked; chyron readable
+         0.78 – 0.90 (12%)  pattern distorts — roll, skew, hue-shift
+         0.90 – 1.00 (10%)  static takes back over, cycle repeats
+       10 s per cycle gives ~1.6 s of readable chyron per pass, which
+       is enough to catch "TECHNICAL DIFFICULTIES / PLEASE STAND BY"
+       without dominating the viewport with saturated colour bars. */
+
     #tv-static {
       position: fixed;
       inset: 0;
@@ -56,23 +67,23 @@
       pointer-events: none;
       image-rendering: pixelated;
       image-rendering: -moz-crisp-edges;
-      /* Static plays for ~3 s then snaps out as the "signal locks"
-         and the test pattern takes over. steps(1) so it flicks off
-         rather than fading, which feels more like a real receiver. */
-      animation: static-out 3.4s steps(1) forwards;
+      /* Static dims while the test pattern is locked (so the pattern
+         reads cleanly) then comes back for the next reception cycle. */
+      animation: static-cycle 10s steps(1) infinite;
     }
-    @keyframes static-out {
-      0%, 88%   { opacity: 0.35; }
-      89%, 100% { opacity: 0; }
+    @keyframes static-cycle {
+      0%, 60%   { opacity: 0.35; }
+      62%, 78%  { opacity: 0.10; }   /* pattern locked — mute noise  */
+      80%       { opacity: 0.28; }   /* distortion — noise reasserts */
+      86%       { opacity: 0.45; }   /* peaks as pattern shreds      */
+      90%, 100% { opacity: 0.35; }   /* back to baseline hiss        */
     }
 
     /* ==== SMPTE test pattern ====
-       Fades in at the moment the static drops. Seven 75%-intensity
-       colour bars via a single hard-stop linear-gradient, plus a
-       centred plate with the "TECHNICAL DIFFICULTIES / PLEASE STAND
-       BY" chyron. Sits at z-index 0 like the static, but its DOM
-       order + delayed opacity means it only appears once the static
-       is gone. */
+       Seven 75%-intensity colour bars via a single hard-stop
+       linear-gradient. Flashes in for a moment each cycle, holds,
+       then distorts (translate/skew/hue-shift) as the "signal is
+       lost" and static takes over again. */
     #test-pattern {
       position: fixed;
       inset: 0;
@@ -89,16 +100,31 @@
         #c00000 71.4285% 85.7142%,
         #0000c0 85.7142% 100%
       );
-      animation: pattern-in 3.4s steps(1) forwards;
+      animation: pattern-cycle 10s infinite;
     }
-    @keyframes pattern-in {
-      0%, 88%   { opacity: 0; }
-      89%, 100% { opacity: 1; }
+    @keyframes pattern-cycle {
+      /* Hidden during the static-hunt phase. steps(1) at 62% gives
+         the hard "flash on" — no fade. Once visible, keyframes past
+         78% accumulate transform + filter distortion, then a fast
+         fade to 0 at 90% hands the screen back to the static. */
+      0%, 60%  { opacity: 0; transform: none; filter: none; }
+      61%      { opacity: 0; transform: none; filter: none; }
+      62%      { opacity: 1; transform: translateY(-2vh) scaleY(1.02); filter: brightness(1.4); }
+      64%      { opacity: 1; transform: none; filter: none; }
+      /* — locked, chyron readable — */
+      78%      { opacity: 1; transform: none; filter: none; }
+      /* — distortion — */
+      80%      { opacity: 1; transform: translateY(3vh) skewX(1.5deg); filter: hue-rotate(20deg) contrast(1.3); }
+      83%      { opacity: 0.9; transform: translateY(-4vh) skewX(-2.5deg) scaleY(1.1); filter: hue-rotate(-30deg) saturate(2) blur(0.5px); }
+      86%      { opacity: 0.7; transform: translateY(9vh) skewX(4deg) scaleY(1.25); filter: hue-rotate(80deg) contrast(2) blur(1.5px); }
+      89%      { opacity: 0.3; transform: translateY(-12vh) skewY(2deg) scaleY(0.6); filter: hue-rotate(-120deg) blur(3px); }
+      90%, 100% { opacity: 0; transform: none; filter: none; }
     }
 
     /* The chyron. Centered near the top so it doesn't fight the
        info card in the middle. Black plates behind each line so the
-       text stays legible over any colour bar it lands on. */
+       text stays legible over any colour bar it lands on. Shares
+       the pattern's cycle so it flashes in and distorts out with it. */
     .tp-chyron {
       position: fixed;
       top: 8vh;
@@ -112,7 +138,7 @@
       font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
       text-transform: uppercase;
       letter-spacing: 0.14em;
-      animation: pattern-in 3.4s steps(1) forwards;
+      animation: pattern-cycle 10s infinite;
     }
     .tp-chyron .line {
       display: inline-block;
@@ -280,10 +306,12 @@
       body::before, body::after { animation: none; }
       body::after { display: none; }
       .card { animation: none; }
-      /* Skip the static-then-pattern flourish; jump straight to the
-         locked test pattern. */
-      #test-pattern { animation: none; opacity: 1; }
-      .tp-chyron    { animation: none; opacity: 1; }
+      /* Hide the whole "TV losing signal" cycle for users who opted
+         out of motion — the colour bars and chyron flash in every
+         10 s which is exactly what WCAG 2.3.3 asks us to suppress.
+         The card still communicates the outage on its own. */
+      #test-pattern { animation: none; opacity: 0; display: none; }
+      .tp-chyron    { animation: none; opacity: 0; display: none; }
     }
   </style>
 </head>
@@ -332,13 +360,12 @@
       canvas.height = H;
       const img = ctx.createImageData(W, H);
       const data = img.data;
-      // Stop painting once the CSS static-out animation has swapped
-      // the canvas out. Keep a small tail past the animation end so
-      // we don't cut mid-frame. Without this the RAF loop would keep
-      // burning ~2% CPU forever behind an invisible canvas.
-      const stopAt = performance.now() + 3800;
-      function frame(now) {
-        if (now > stopAt) return;
+      // Loop forever: the CSS `static-cycle` animation dims the
+      // canvas while the test pattern is locked and restores it
+      // afterwards, so noise needs to be available the whole time.
+      // 160×120 ImageData at 60 fps is ~2% of one core; when the tab
+      // is backgrounded the browser throttles RAF automatically.
+      function frame() {
         for (let i = 0; i < data.length; i += 4) {
           // Slight bias toward mid-gray to avoid a solid-black look
           // when tab is throttled and a few frames get identical seeds.
