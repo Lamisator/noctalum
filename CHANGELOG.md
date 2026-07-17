@@ -1,5 +1,165 @@
 # Noctalum Changelog
 
+## v0.72 — 2026-07-17 — Contest scheduling + closed-contest browsing, branded 504 page
+
+- **Contests can now carry an optional start and end date.** Two new
+  date pickers in the create + edit contest modals let operators pin a
+  contest to a calendar window. Both fields are optional and the UI
+  spells out the semantics: leaving the end date blank makes it a
+  single-day contest; leaving both blank preserves the pre-v0.72
+  behaviour (contest stays open indefinitely, no auto-close). Setting
+  End < Start is rejected on both client and server with the new
+  localised `contestScreen.endBeforeStart` message.
+- **Scheduled contests auto-close after the last day passes.** New
+  `contestAutoCloseLoop` in `internal/server/server.go` runs on boot
+  and then hourly; it calls the new
+  `Store.AutoCloseExpiredContests(now)` which does a single Postgres
+  `UPDATE contests SET status = 'finished' ... WHERE
+  COALESCE(end_date, start_date) < today_utc RETURNING id`, covering
+  both the single-day and range cases in one round-trip. Each closed
+  contest is refreshed on every live session via
+  `UpdateContestOnSessions` and broadcast as a `contest_updated` WS
+  event so open UIs slide into read-only mode without a page reload.
+- **Backend plumbing for contest dates.** New nullable `start_date` /
+  `end_date` DATE columns on the `contests` table (added via
+  `CREATE TABLE ... start_date DATE, end_date DATE` for fresh installs
+  plus `ALTER TABLE contests ADD COLUMN IF NOT EXISTS` for upgrades so
+  existing production instances pick them up on the next boot). The
+  `Contest` struct gains `StartDate` / `EndDate` as `*time.Time` (JSON
+  serialises to `null` when unset), a `normalizeDate` helper truncates
+  to UTC midnight so date-only semantics survive pgx's TIMESTAMPTZ
+  round-trip, and `CreateContest` / `UpdateContest` accept the two
+  dates. POST/PUT `/api/contests` handlers accept ISO date strings
+  (`YYYY-MM-DD`) via a new shared `parseOptionalDate` helper. All call
+  sites (contests handler, share-import) updated; `DuplicateContest`
+  intentionally starts the copy with no dates so operators pick a fresh
+  schedule per instance. WS `contest_updated` payload now echoes both
+  dates.
+- **Closed-contest QSO rows now populate the mask again.** Clicking a
+  past QSO row in a finished contest used to *try* to run the QRZ
+  lookup for that station's callsign, but the fresh result was silently
+  dropped: `triggerQRZLookup()`'s staleness guard compares the callsign
+  it looked up against the current `#q-call.value`, and the read-only
+  path never populated the QSO mask, so the input stayed empty and the
+  guard rejected the response. The visible symptom for operators
+  browsing a finished contest was a QSO row that did nothing on click —
+  no photo, no bearing, no country flag update. The click handler now
+  unifies the read-only and writable paths — both call
+  `loadQsoIntoForm(q)` so `#q-call.value` matches the lookup — and in
+  the closed-contest case it re-runs `applyContestReadonly()` as a
+  belt-and-braces guard so every input plus the "Save Edit" button stay
+  disabled. `loadQsoIntoForm()` now picks its panel title based on
+  `contestIsOpen()`: an open contest still reads "Edit QSO" (write
+  mode), a closed one reads the new "View QSO" so operators aren't
+  teased with a Save button that will never fire. New EN/DE i18n key
+  `qso.viewQSO` (informal "du" form on the German side).
+- **Restore-from-UI modal actually accepts the type-to-confirm input
+  now.** The v0.71 restore button was a no-op live in production:
+  `openRestoreModal()` built its inner HTML with the input + actions at
+  the top level of the modal card, forgetting the `<form>` wrapper that
+  `showModal()` hangs its submit listener and post-render selectors on.
+  Neither ever bound, so clicking the submit button did nothing AND
+  the input's `input` event listener never attached — meaning the
+  button stayed at its initial `disabled = true` state indefinitely,
+  even after typing the filename correctly. Wrapped the modal contents
+  in `<form>…</form>` (matching every other modal in the app) and left
+  an inline comment explaining why the wrapper is load-bearing so a
+  future rewrite doesn't strip it again.
+- **Backup audit coverage completed.** Not every backup-related action
+  was showing up in the audit log:
+  * Scheduler-driven automatic daily takes ran in `RunScheduler`'s
+    goroutine and only logged to stdout — nothing hit `audit_log`.
+  * Retention-based prunes had the same problem: files vanished from
+    `./backups/` with only a stdout line explaining why.
+  * Changes to `BackupRetentionDays` went through the standard
+    settings PUT (audited as `settings.change`) but the retention
+    value was NOT in the detail line, so the audit entry didn't say
+    what the new value was.
+
+  Fixes: `internal/backup/backup.go` gains an
+  `OnAudit(action, target, details, isError)` callback (nil-safe) that
+  the scheduler's `tick()` calls on every auto take (success + failure)
+  and every retention prune (success + failure). Directly-invoked
+  `Manager.Take` / `Manager.Prune` intentionally do NOT emit through
+  the callback — those live in HTTP handlers that already audit at
+  their own layer. `SetBackupsDir()` wires the callback to
+  `s.store.InsertAuditLog` with actor `"system"` and severity mapped
+  from `isError`. New `AuditBackup{Take,Auto,Download,Delete,Prune,Restore}`
+  constants replace the hardcoded strings in `backups.go` handlers,
+  and `appendDetail()` in `settings.go` now reports
+  `backup_retention_days`, `cluster_retention_days`, `chat_sound`,
+  and `public_feature_requests` on `settings.change` entries (the
+  backup-retention entry is permission-gated so we only report it when
+  the caller had authority to change it). New test
+  `TestSchedulerFiresOnAuditForAutoTakes` seeds a backdated backup,
+  cancels the scheduler after one tick, and verifies exactly two audit
+  events fired.
+- **Deploy hardened: upload before shutdown + recovery trap +
+  keep-alives.** A prior deploy hung mid-`scp` after `docker compose
+  down` had already fired; prod was offline for ~10 minutes until an
+  operator noticed and killed the stuck SFTP by hand. Three structural
+  changes make that failure mode impossible:
+  1. **Upload-first.** Every file that has to land on the server
+     (compose file, server binary, systemd units, helper downloads)
+     is uploaded while the old app is still serving. The
+     shutdown/swap window only opens after every upload has succeeded.
+     If any upload fails or hangs, prod is untouched.
+  2. **Recovery trap.** A `trap ... EXIT` armed right before the
+     shutdown-trigger step attempts `docker compose up -d` on ANY
+     early exit (error, signal, hang timeout). A `deploy_succeeded=true`
+     flag + `trap - EXIT` clears it on the happy path. Worst case
+     after this: the trap starts whichever binary is currently on
+     disk — either the new one (if the `mv` happened) or the old one
+     (if it didn't). Either way prod is serving something.
+  3. **SSH keep-alive.** `SSH_OPTS` now carries `ConnectTimeout=10`,
+     `ServerAliveInterval=15`, and `ServerAliveCountMax=4` — a stalled
+     connection dies within ~60 s of silence with an error the trap
+     catches, instead of hanging until a human intervenes.
+
+  The stop-swap-start sequence itself is now packed into one SSH
+  heredoc (`docker compose down` → `mv .new` → `docker compose up -d`)
+  so the "app down" window is ~one round-trip long and either fully
+  commits or fully aborts (`set -euo pipefail` inside + trap outside).
+  Pre-flight `rm -f *.new` cleans up any staged files left behind by
+  a previous crashed deploy.
+- **Branded 504 offline page at log.dm2lap.com.** When the Noctalum
+  container is stopped (deploys, crashes, planned maintenance) users
+  previously landed on Traefik's default 404 — generic, ugly, and gave
+  no indication the service would be back. A standalone nginx:alpine
+  container under `deploy/offline-page/` now also claims
+  ``Host(`log.dm2lap.com`)`` via Traefik docker labels but at
+  `priority=1`, in its own compose project outside the Noctalum stack
+  so `./deploy.sh` never brings it down. The nginx config returns real
+  HTTP 504 for every path via `return 504` + `error_page 504
+  /index.html`. `docker-compose.prod.yml` also gained an explicit
+  `traefik.http.routers.noctalum.priority=100` label on the noctalum
+  service so the priority ordering is unambiguous (Traefik's default
+  priority is rule length, which already beats 1, but hard-coding 100
+  removes any dependency on that default).
+- **Offline page: outage contact + looping "TV losing signal"
+  sequence.** The 504 page picked up two visual iterations after the
+  initial branded drop:
+  * A "if the problem persists, contact DM2LAP at dm2lap@darc.de"
+    line under both the EN and DE messages (as a `mailto:` link,
+    styled with the sheet's `--accent` so it matches the "Noctalum"
+    heading), so users who see the page for more than a moment know
+    who to reach and don't assume the whole service is gone.
+  * The static-then-locked-test-pattern became a continuous ~10 s
+    reception cycle: static-only for 60% of the cycle (receiver
+    hunting), a hard-cut flash-in of the SMPTE colour bars for 2%,
+    16% of readable "Technical Difficulties / Please Stand By"
+    chyron, then 12% of progressive distortion (translate + skew +
+    scaleY + hue-rotate + contrast + blur across four accumulating
+    keyframes) before static takes back over. The RAF noise loop lost
+    its `stopAt` cut-off and now runs forever — the CSS opacity ramp
+    handles visibility across the phases. `prefers-reduced-motion`
+    users get the pattern hidden entirely (`display: none`) —
+    WCAG 2.3.3 asks for suppression of any content that flashes at a
+    rate a viewer can't control, and the flash-in fires every 10 s.
+    The centred info card still carries the outage message on its own
+    for that cohort.
+- `programVersion` bumped to `0.72`.
+
 ## v0.71 — 2026-07-16 — Restore a database backup from the admin UI
 
 - **New "Restore" button on every backup row.** Reverses the
