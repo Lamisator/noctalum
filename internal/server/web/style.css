@@ -3137,29 +3137,33 @@ body.deploy-ribbon-active { padding-top: 48px; }
 }
 
 /* --- Environment ribbon (non-prod indicator) --------------------
-   Diagonal top-left corner ribbon with black/yellow caution-tape
-   stripes. app.js reveals it and fills in the label when the public
-   /api/ping response reports a NOCTALUM_ENV other than "prod" (see
-   the STAGING marker for log-staging.dm2lap.com).
-   pointer-events: none so it never eats a click on the underlying
-   UI; aria-hidden on the element so screen readers ignore it.
+   Full-width horizontal bar pinned to the top of the viewport with
+   black/yellow caution-tape stripes and the environment name
+   repeated across its width. app.js reveals it and fills in the
+   text when /api/ping reports a NOCTALUM_ENV other than "prod".
+   Body gets .env-ribbon-active to reserve vertical space so the
+   bar never covers real UI. Sits under .deploy-ribbon (z-index
+   9999): during a deploy that ribbon temporarily covers this one,
+   which is fine — deploys are seconds long.
 ------------------------------------------------------------------ */
 .env-ribbon {
   position: fixed;
-  top: 26px;
-  left: -70px;
-  width: 240px;
-  padding: 8px 0;
-  transform: rotate(-45deg);
-  transform-origin: center;
-  z-index: 9999;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  z-index: 9998;
   pointer-events: none;
   user-select: none;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
   font-family: 'Inter', 'Segoe UI', Roboto, system-ui, sans-serif;
   font-weight: 900;
-  font-size: 14px;
-  letter-spacing: 0.28em;
+  font-size: 12px;
+  letter-spacing: 0.32em;
   color: #111;
   background: repeating-linear-gradient(
     45deg,
@@ -3170,8 +3174,12 @@ body.deploy-ribbon-active { padding-top: 48px; }
     0 0 2px #ffd400,
     0 0 4px #ffd400,
     0 0 6px #ffd400;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
-  border-top: 1px solid rgba(0, 0, 0, 0.35);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
 }
 .env-ribbon[hidden] { display: none; }
+
+/* Push page content down so the bar never overlays the login card,
+   the app header, or any full-height screen. Declared *before*
+   .deploy-ribbon-active below so its larger 48px padding wins the
+   cascade when both classes happen to be on <body> at once. */
+body.env-ribbon-active { padding-top: 24px; }

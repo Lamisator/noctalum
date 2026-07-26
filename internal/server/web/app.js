@@ -6,12 +6,21 @@
   // already used elsewhere for restart detection). Uppercased-verbatim
   // so a future NOCTALUM_ENV=preview or =demo shows through without any
   // frontend change; "prod" (default) hides the ribbon.
+  //
+  // The label is repeated across the full-width bar with wide gaps so
+  // the pattern is legible on any viewport. 40 copies covers even
+  // ultra-wide monitors; overflow: hidden clips the tail on narrow
+  // ones. gap between copies uses a real character (space + separator
+  // + space) rather than CSS letter-spacing, so the whitespace is
+  // clearly *between* words rather than stretched *within* them.
   fetch('/api/ping').then(r => r.ok ? r.json() : null).then(j => {
     if (!j || !j.env || j.env === 'prod') return;
     const el = document.getElementById('env-ribbon');
     if (!el) return;
-    el.textContent = String(j.env).toUpperCase();
+    const word = String(j.env).toUpperCase();
+    el.textContent = Array(40).fill(word).join('     ');
     el.hidden = false;
+    document.body.classList.add('env-ribbon-active');
   }).catch(() => {});
 
   // i18n shortcut.  i18n.js loads first and exposes window.I18N; we keep a tiny
