@@ -689,6 +689,7 @@
         resetPwdTitle: 'Reset password for {u}',
         resetPwdField: 'New password (min 8 chars)',
         adminImmutable: 'The admin role has all permissions and cannot be modified.',
+        usernameEditHint: 'The login name is stored lowercase and must be unique.',
       },
       audit: {
         title: 'Audit Log',
@@ -1481,6 +1482,7 @@
         resetPwdTitle: 'Passwort für {u} zurücksetzen',
         resetPwdField: 'Neues Passwort (mind. 8 Zeichen)',
         adminImmutable: 'Die admin-Rolle besitzt alle Berechtigungen und kann nicht geändert werden.',
+        usernameEditHint: 'Der Loginname wird kleingeschrieben gespeichert und muss eindeutig sein.',
       },
       audit: {
         title: 'Audit-Log',

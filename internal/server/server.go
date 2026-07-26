@@ -2089,15 +2089,40 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case r.Method == http.MethodPut && sub == "":
-		// update roles, callsign, disabled
+		// update roles, callsign, username, disabled
 		var in struct {
 			Roles    []string `json:"roles"`
 			Callsign string   `json:"callsign"`
+			Username *string  `json:"username"`
 			Disabled *bool    `json:"disabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
+		}
+		// Username change is admin-only via users.manage (already gated by
+		// requirePerm on the route). Only apply when the field is present
+		// and differs — the frontend sends it every time, so silently
+		// skip no-ops so the audit log stays meaningful.
+		var oldUsername string
+		if in.Username != nil {
+			newUsername := strings.ToLower(strings.TrimSpace(*in.Username))
+			if newUsername == "" {
+				writeError(w, http.StatusBadRequest, "username cannot be empty")
+				return
+			}
+			if newUsername != target.Username {
+				if err := s.store.SetUsername(id, newUsername); err != nil {
+					if errors.Is(err, store.ErrUsernameTaken) {
+						writeError(w, http.StatusConflict, err.Error())
+						return
+					}
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				oldUsername = target.Username
+				target.Username = newUsername
+			}
 		}
 		if in.Callsign != "" {
 			if !ValidCallsign(in.Callsign) {
@@ -2141,6 +2166,10 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 		if in.Roles != nil {
 			s.audit(r, store.AuditInfo, AuditUserRolesChange, sess.Username, target.Username,
 				"roles: "+strings.Join(in.Roles, ","))
+		}
+		if oldUsername != "" {
+			s.audit(r, store.AuditWarn, AuditUserUsernameChange, sess.Username, target.Username,
+				"renamed from "+oldUsername+" to "+target.Username)
 		}
 		// Refresh cached session permissions for any affected sessions.
 		if u, err := s.store.GetUserByID(id); err == nil {

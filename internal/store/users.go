@@ -262,6 +262,25 @@ func (s *Store) SetCallsign(userID int64, callsign string) error {
 	return err
 }
 
+// SetUsername changes a user's login name. The value is trimmed and
+// lowercased to match CreateUser's normalisation, so that lookups keep
+// matching case-insensitively. Returns ErrUsernameTaken when the target
+// name is already in use by another account.
+func (s *Store) SetUsername(userID int64, username string) error {
+	username = strings.ToLower(strings.TrimSpace(username))
+	if username == "" {
+		return errors.New("username cannot be empty")
+	}
+	_, err := s.db.Exec(`UPDATE users SET username = $1 WHERE id = $2`, username, userID)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return ErrUsernameTaken
+		}
+		return err
+	}
+	return nil
+}
+
 // SetDisabled toggles a user's disabled flag.
 func (s *Store) SetDisabled(userID int64, disabled bool) error {
 	_, err := s.db.Exec(`UPDATE users SET disabled = $1 WHERE id = $2`, disabled, userID)

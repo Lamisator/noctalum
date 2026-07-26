@@ -6864,7 +6864,10 @@
       <h3>${isNew ? escHtml(t('users.modalCreateUser')) : escHtml(t('users.modalEditUserNamed', { u: u.username }))}</h3>
       <form>
         ${isNew ? `<label>${escHtml(t('users.colUsername'))}</label><input name="username" required />
-          <label>${escHtml(t('users.passwordMin'))}</label><input type="password" name="password" minlength="8" required />` : ''}
+          <label>${escHtml(t('users.passwordMin'))}</label><input type="password" name="password" minlength="8" required />`
+          : `<label>${escHtml(t('users.colUsername'))}</label>
+             <input name="username" value="${escHtml(u.username)}" required autocapitalize="off" autocomplete="off" spellcheck="false" />
+             <p class="muted small">${escHtml(t('users.usernameEditHint'))}</p>`}
         <label>${escHtml(t('users.colCallsign'))}</label>
         <input name="callsign" value="${isNew ? '' : escHtml(u.callsign)}" required />
         ${isAdmin() ? `<label>${escHtml(t('users.colRoles'))}</label>
@@ -6888,7 +6891,8 @@
           callsign, roles,
         })});
       } else {
-        res = await api('/api/users/' + u.id, { method: 'PUT', body: JSON.stringify({ callsign, roles })});
+        const username = form.username.value.trim().toLowerCase();
+        res = await api('/api/users/' + u.id, { method: 'PUT', body: JSON.stringify({ username, callsign, roles })});
       }
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
