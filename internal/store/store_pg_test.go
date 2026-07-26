@@ -209,13 +209,26 @@ func TestPostgresSchemaAndRoundTrips(t *testing.T) {
 	}
 
 	// Feature request insert + list.
-	fr, err := st.InsertFeatureRequest("alice", "test")
+	fr, err := st.InsertFeatureRequest("alice", "test", "", "", 0)
 	if err != nil {
 		t.Fatalf("fr insert: %v", err)
 	}
 	frs, err := st.ListFeatureRequestsByUser("alice")
 	if err != nil || len(frs) != 1 || frs[0].ID != fr.ID {
 		t.Fatalf("fr list mismatch: err=%v frs=%+v", err, frs)
+	}
+	// Insert a second request with an attachment and confirm the metadata
+	// round-trips through the list query.
+	fr2, err := st.InsertFeatureRequest("alice", "with attachment", "abc123.pdf", "application/pdf", 42)
+	if err != nil {
+		t.Fatalf("fr insert with attachment: %v", err)
+	}
+	got, err := st.GetFeatureRequest(fr2.ID)
+	if err != nil || got == nil {
+		t.Fatalf("fr get: err=%v got=%+v", err, got)
+	}
+	if got.AttachmentFilename != "abc123.pdf" || got.AttachmentMime != "application/pdf" || got.AttachmentSize != 42 {
+		t.Fatalf("fr attachment metadata mismatch: %+v", got)
 	}
 
 	// DeleteQSO cleanup.

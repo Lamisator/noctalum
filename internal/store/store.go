@@ -363,56 +363,87 @@ func (s *Store) DeleteQSO(id int64) error {
 	return err
 }
 
-// FeatureRequest is a user-submitted change request.
+// FeatureRequest is a user-submitted change request. Optional PDF/TXT
+// attachments live on the filesystem (see server.featureRequestAttachmentsDir);
+// this row only carries the safe on-disk filename plus MIME type and size so
+// the UI can render a download link and pick the right Content-Type when
+// streaming the file back.
 type FeatureRequest struct {
-	ID           int64     `json:"id"`
-	From         string    `json:"from"`
-	Text         string    `json:"text"`
-	Status       string    `json:"status"` // pending, accepted, declined, implemented
-	AdminComment string    `json:"admin_comment"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID                 int64     `json:"id"`
+	From               string    `json:"from"`
+	Text               string    `json:"text"`
+	Status             string    `json:"status"` // pending, accepted, declined, implemented
+	AdminComment       string    `json:"admin_comment"`
+	CreatedAt          time.Time `json:"created_at"`
+	AttachmentFilename string    `json:"attachment_filename,omitempty"`
+	AttachmentMime     string    `json:"attachment_mime,omitempty"`
+	AttachmentSize     int64     `json:"attachment_size,omitempty"`
 }
 
 func (s *Store) migrateFeatureRequests() error {
-	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS feature_requests (
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS feature_requests (
 		id            BIGSERIAL PRIMARY KEY,
 		from_user     TEXT NOT NULL,
 		text          TEXT NOT NULL,
 		status        TEXT NOT NULL DEFAULT 'pending',
 		admin_comment TEXT NOT NULL DEFAULT '',
 		created_at    TIMESTAMPTZ NOT NULL
-	)`)
-	return err
+	)`); err != nil {
+		return err
+	}
+	// Attachment columns were added after the initial release; use
+	// idempotent ADD COLUMN so existing deployments pick them up without
+	// a separate migration step.
+	for _, stmt := range []string{
+		`ALTER TABLE feature_requests ADD COLUMN IF NOT EXISTS attachment_filename TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE feature_requests ADD COLUMN IF NOT EXISTS attachment_mime     TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE feature_requests ADD COLUMN IF NOT EXISTS attachment_size     BIGINT NOT NULL DEFAULT 0`,
+	} {
+		if _, err := s.db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (s *Store) InsertFeatureRequest(from, text string) (*FeatureRequest, error) {
+// InsertFeatureRequest stores a new request. attachmentFilename/Mime may be
+// empty (attachmentSize 0) when the submitter did not upload a file.
+func (s *Store) InsertFeatureRequest(from, text, attachmentFilename, attachmentMime string, attachmentSize int64) (*FeatureRequest, error) {
 	now := time.Now().UTC()
 	var id int64
 	err := s.db.QueryRow(
-		`INSERT INTO feature_requests (from_user, text, status, admin_comment, created_at)
-		 VALUES ($1, $2, 'pending', '', $3) RETURNING id`,
-		from, text, now,
+		`INSERT INTO feature_requests (from_user, text, status, admin_comment, created_at,
+			attachment_filename, attachment_mime, attachment_size)
+		 VALUES ($1, $2, 'pending', '', $3, $4, $5, $6) RETURNING id`,
+		from, text, now, attachmentFilename, attachmentMime, attachmentSize,
 	).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
-	return &FeatureRequest{ID: id, From: from, Text: text, Status: "pending", CreatedAt: now}, nil
+	return &FeatureRequest{
+		ID: id, From: from, Text: text, Status: "pending", CreatedAt: now,
+		AttachmentFilename: attachmentFilename, AttachmentMime: attachmentMime, AttachmentSize: attachmentSize,
+	}, nil
 }
 
 func (s *Store) scanFeatureRequest(rows interface {
 	Scan(...any) error
 }) (FeatureRequest, error) {
 	var fr FeatureRequest
-	if err := rows.Scan(&fr.ID, &fr.From, &fr.Text, &fr.Status, &fr.AdminComment, &fr.CreatedAt); err != nil {
+	if err := rows.Scan(&fr.ID, &fr.From, &fr.Text, &fr.Status, &fr.AdminComment, &fr.CreatedAt,
+		&fr.AttachmentFilename, &fr.AttachmentMime, &fr.AttachmentSize); err != nil {
 		return fr, err
 	}
 	fr.CreatedAt = fr.CreatedAt.UTC()
 	return fr, nil
 }
 
+const featureRequestSelectCols = `id, from_user, text, status, admin_comment, created_at,
+	attachment_filename, attachment_mime, attachment_size`
+
 func (s *Store) ListFeatureRequests() ([]FeatureRequest, error) {
 	rows, err := s.db.Query(
-		`SELECT id, from_user, text, status, admin_comment, created_at FROM feature_requests ORDER BY id DESC`)
+		`SELECT ` + featureRequestSelectCols + ` FROM feature_requests ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -430,7 +461,7 @@ func (s *Store) ListFeatureRequests() ([]FeatureRequest, error) {
 
 func (s *Store) ListFeatureRequestsByUser(username string) ([]FeatureRequest, error) {
 	rows, err := s.db.Query(
-		`SELECT id, from_user, text, status, admin_comment, created_at FROM feature_requests WHERE from_user=$1 ORDER BY id DESC`,
+		`SELECT `+featureRequestSelectCols+` FROM feature_requests WHERE from_user=$1 ORDER BY id DESC`,
 		username)
 	if err != nil {
 		return nil, err
@@ -445,6 +476,22 @@ func (s *Store) ListFeatureRequestsByUser(username string) ([]FeatureRequest, er
 		out = append(out, fr)
 	}
 	return out, rows.Err()
+}
+
+// GetFeatureRequest fetches a single request. Used by the attachment
+// download endpoint to look up the on-disk filename + MIME type. Returns
+// ErrNotFound when no row with the given id exists.
+func (s *Store) GetFeatureRequest(id int64) (*FeatureRequest, error) {
+	row := s.db.QueryRow(
+		`SELECT `+featureRequestSelectCols+` FROM feature_requests WHERE id=$1`, id)
+	fr, err := s.scanFeatureRequest(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &fr, nil
 }
 
 func (s *Store) UpdateFeatureRequestStatus(id int64, status string) error {

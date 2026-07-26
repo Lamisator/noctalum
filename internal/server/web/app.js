@@ -7768,6 +7768,9 @@
         <input name="from" value="${escHtml(me?.username || '')}" readonly style="opacity:0.6;cursor:not-allowed" />
         <label>${escHtml(t('featureRequests.colRequest'))}</label>
         <textarea name="text" rows="5" required style="width:100%;resize:vertical;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:inherit;font:inherit"></textarea>
+        <label>${escHtml(t('featureRequests.attachmentLabel'))}</label>
+        <input type="file" name="attachment" accept=".pdf,.txt,application/pdf,text/plain" />
+        <div class="muted small" style="margin-top:4px">${escHtml(t('featureRequests.attachmentHint'))}</div>
         <div class="modal-err error"></div>
         <div class="modal-actions">
           <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
@@ -7777,9 +7780,25 @@
     `, async (form) => {
       const text = form.text.value.trim();
       if (!text) throw new Error(t('featureRequests.pleaseEnter'));
-      const res = await api('/api/feature-requests', {
+      const fd = new FormData();
+      fd.append('text', text);
+      const fileInput = form.attachment;
+      const file = fileInput && fileInput.files && fileInput.files[0];
+      if (file) {
+        if (file.size > 5 * 1024 * 1024) throw new Error(t('featureRequests.attachmentTooLarge'));
+        const nameLc = (file.name || '').toLowerCase();
+        if (!nameLc.endsWith('.pdf') && !nameLc.endsWith('.txt')) {
+          throw new Error(t('featureRequests.attachmentBadType'));
+        }
+        fd.append('attachment', file);
+      }
+      // Skip the api() JSON helper so we don't force a JSON Content-Type on
+      // this multipart body; forward the CSRF token by hand instead.
+      const res = await fetch('/api/feature-requests', {
         method: 'POST',
-        body: JSON.stringify({ text }),
+        credentials: 'same-origin',
+        headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {},
+        body: fd,
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -7787,6 +7806,23 @@
       }
       if (typeof afterSubmit === 'function') afterSubmit();
     });
+  }
+
+  function featureRequestAttachmentCell(fr) {
+    if (!fr || !fr.attachment_mime) {
+      return `<td class="muted small">${escHtml(t('featureRequests.attachmentNone'))}</td>`;
+    }
+    // The server enforces "admin OR submitter"; the client mirrors that
+    // check so a non-admin looking at someone else's row in public mode
+    // doesn't get a link that 403s when clicked.
+    const canDownload = (me && fr.from === me.username) || hasPerm('feature_requests.read');
+    if (!canDownload) {
+      return `<td class="muted small">${escHtml(t('featureRequests.attachmentNone'))}</td>`;
+    }
+    const kb = fr.attachment_size ? Math.max(1, Math.round(fr.attachment_size / 1024)) : 0;
+    const label = t('featureRequests.attachmentDownload') + (kb ? ' (' + kb + ' kB)' : '');
+    const href = '/api/feature-requests/' + Number(fr.id) + '/attachment';
+    return `<td><a href="${escHtml(href)}" target="_blank" rel="noopener">${escHtml(label)}</a></td>`;
   }
 
   async function refreshFeatureRequests() {
@@ -7814,6 +7850,7 @@
         <td class="muted small">${escHtml(date)}</td>
         <td><span class="badge ${statusClass}">${escHtml(statusLabel)}</span></td>
         <td style="white-space:pre-wrap;max-width:360px">${escHtml(fr.text)}</td>
+        ${featureRequestAttachmentCell(fr)}
         <td style="min-width:160px">
           <textarea class="fr-comment-input" data-id="${Number(fr.id)}" rows="2" style="width:100%;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:inherit;font:inherit;font-size:12px;resize:vertical">${escHtml(fr.admin_comment || '')}</textarea>
           <button class="ghost fr-comment-save-btn" data-id="${Number(fr.id)}" style="font-size:11px;padding:2px 8px;margin-top:3px">${escHtml(t('featureRequests.saveComment'))}</button>
@@ -7888,7 +7925,8 @@
     // If the "From" column is hidden, clear a stale sort on it
     if (!isPublic && myFrSort.key === 'from') { myFrSort.key = null; myFrSort.dir = null; }
     paintSortArrows('my-fr-table', myFrSort);
-    const colspan = isPublic ? 5 : 4;
+    // Columns: Date, [From], Status, Request, Attachment, Admin comment.
+    const colspan = isPublic ? 6 : 5;
     const emptyMsg = isPublic
       ? t('featureRequests.noPublicRequests')
       : t('featureRequests.noMyRequests');
@@ -7911,6 +7949,7 @@
         ${fromCell}
         <td><span class="badge ${statusClass}">${escHtml(statusLabel)}</span></td>
         <td style="white-space:pre-wrap;max-width:480px">${escHtml(fr.text)}</td>
+        ${featureRequestAttachmentCell(fr)}
         <td style="max-width:300px;white-space:pre-wrap;color:var(--accent)">${fr.admin_comment ? escHtml(fr.admin_comment) : '<span class="muted">—</span>'}</td>
       `;
       tbody.appendChild(tr);
