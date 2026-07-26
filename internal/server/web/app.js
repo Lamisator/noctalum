@@ -1,5 +1,19 @@
 // Noctalum frontend
 (() => {
+  // Environment ribbon. Fires once at page load — before login, before
+  // any auth — because the ribbon must be visible on every screen. The
+  // server echoes NOCTALUM_ENV back through /api/ping (public, cheap,
+  // already used elsewhere for restart detection). Uppercased-verbatim
+  // so a future NOCTALUM_ENV=preview or =demo shows through without any
+  // frontend change; "prod" (default) hides the ribbon.
+  fetch('/api/ping').then(r => r.ok ? r.json() : null).then(j => {
+    if (!j || !j.env || j.env === 'prod') return;
+    const el = document.getElementById('env-ribbon');
+    if (!el) return;
+    el.textContent = String(j.env).toUpperCase();
+    el.hidden = false;
+  }).catch(() => {});
+
   // i18n shortcut.  i18n.js loads first and exposes window.I18N; we keep a tiny
   // local alias so calling sites stay terse.  Fallback returns the key so
   // missing-catalog setups still render something.

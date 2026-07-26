@@ -3135,3 +3135,43 @@ body.deploy-ribbon-active { padding-top: 48px; }
   text-overflow: ellipsis;
   max-width: 95vw;
 }
+
+/* --- Environment ribbon (non-prod indicator) --------------------
+   Diagonal top-left corner ribbon with black/yellow caution-tape
+   stripes. app.js reveals it and fills in the label when the public
+   /api/ping response reports a NOCTALUM_ENV other than "prod" (see
+   the STAGING marker for log-staging.dm2lap.com).
+   pointer-events: none so it never eats a click on the underlying
+   UI; aria-hidden on the element so screen readers ignore it.
+------------------------------------------------------------------ */
+.env-ribbon {
+  position: fixed;
+  top: 26px;
+  left: -70px;
+  width: 240px;
+  padding: 8px 0;
+  transform: rotate(-45deg);
+  transform-origin: center;
+  z-index: 9999;
+  pointer-events: none;
+  user-select: none;
+  text-align: center;
+  font-family: 'Inter', 'Segoe UI', Roboto, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: 14px;
+  letter-spacing: 0.28em;
+  color: #111;
+  background: repeating-linear-gradient(
+    45deg,
+    #ffd400 0 14px,
+    #111 14px 28px
+  );
+  text-shadow:
+    0 0 2px #ffd400,
+    0 0 4px #ffd400,
+    0 0 6px #ffd400;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  border-top: 1px solid rgba(0, 0, 0, 0.35);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+}
+.env-ribbon[hidden] { display: none; }

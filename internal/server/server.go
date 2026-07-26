@@ -79,6 +79,11 @@ type Server struct {
 	// and the daily scheduler. Set via SetBackupsDir at startup.
 	backups       *backup.Manager
 	backupsCancel context.CancelFunc // stops the daily scheduler on Shutdown
+	// env identifies the deployment (e.g. "prod", "staging"). Empty ==
+	// "prod" for the purposes of any UI treatment. Reported through the
+	// public /api/ping response so the frontend can render environment
+	// markers (see the "STAGING" ribbon).
+	env string
 }
 
 // SetSoundsDir configures the directory where custom chat sounds are stored.
@@ -101,6 +106,12 @@ func (s *Server) SetCallsignProofsDir(dir string) {
 
 // SetDownloadsDir configures a directory whose files are served at /downloads/.
 func (s *Server) SetDownloadsDir(dir string) { s.downloadsDir = dir }
+
+// SetEnv records the deployment environment label (e.g. "prod",
+// "staging") that main.go read from the NOCTALUM_ENV env var. It is
+// echoed back through /api/ping so the frontend can render an
+// environment marker without a separate endpoint round-trip.
+func (s *Server) SetEnv(env string) { s.env = env }
 
 // SetRestoreTriggerPath enables the "restore from UI" endpoint. When
 // an operator with backups.manage POSTs /api/backups/<name>/restore,
@@ -725,7 +736,11 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // process-unique startupID so clients can detect a server restart by comparing
 // successive responses — the token changes on every fresh process start.
 func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "startup_id": startupID})
+	env := s.env
+	if env == "" {
+		env = "prod"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "startup_id": startupID, "env": env})
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {

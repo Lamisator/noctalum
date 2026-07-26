@@ -32,6 +32,10 @@ services:
     command: /app/noctalum-server -addr :8675 -data-dir /data -downloads-dir /downloads
     environment:
       DATABASE_URL: postgres://noctalum:${POSTGRES_PASSWORD}@postgres:5432/noctalum?sslmode=disable
+      # Tells the running binary this is a staging instance. Advertised
+      # via /api/ping and read by the frontend to render the diagonal
+      # STAGING corner ribbon (see .env-ribbon in style.css).
+      NOCTALUM_ENV: staging
     volumes:
       - ./app/noctalum-server:/app/noctalum-server:ro
       - ./app/downloads:/downloads:ro

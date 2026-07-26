@@ -59,6 +59,10 @@ func main() {
 	srv.SetShutdownTriggerPath(filepath.Join(*dataDir, "shutdown_trigger"))
 	srv.SetRestoreTriggerPath(filepath.Join(*dataDir, "restore_trigger"))
 	srv.SetBackupsDir(*backupsDir)
+	// Deployment marker (prod / staging / ...). Advertised via /api/ping
+	// so the frontend can render an environment ribbon. Empty defaults
+	// to "prod" — dev instances that don't set this get no ribbon.
+	srv.SetEnv(os.Getenv("NOCTALUM_ENV"))
 
 	httpSrv := &http.Server{
 		Addr:              *addr,

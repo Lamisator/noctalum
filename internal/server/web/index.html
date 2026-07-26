@@ -10,6 +10,13 @@
 </head>
 <body>
 
+<!--
+  Environment ribbon. Hidden by default; app.js reveals it and sets
+  its text when /api/ping reports a non-prod NOCTALUM_ENV. The
+  diagonal caution-tape styling lives in style.css (.env-ribbon).
+-->
+<div id="env-ribbon" class="env-ribbon" hidden aria-hidden="true"></div>
+
 <!-- Setup screen (first run) -->
 <div id="setup-screen" class="screen login-screen hidden">
   <div class="login-card wide">
