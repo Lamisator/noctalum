@@ -13,6 +13,7 @@
 #   ./build.sh --gui-only               # only the noctalum-helper-gui (linux, windows)
 #   ./build.sh --notifier-only          # only the Telegram-deploy notifier
 #   ./build.sh --no-gui                 # skip the GUI helper
+#   ./build.sh --no-helpers             # skip helper, WSJT-X bridge, and GUI (server + notifier only)
 #   ./build.sh --target linux/amd64     # restrict to one OS/arch
 #   ./build.sh --image golang:1.26      # use a different builder image
 #   ./build.sh --native                 # use the local Go toolchain instead of Docker
@@ -42,7 +43,7 @@ DEFAULT_HELPER_TARGETS=(
 DEFAULT_NOTIFIER_TARGETS=("linux/amd64" "darwin/arm64")
 
 usage() {
-  sed -n '2,18p' "$0"
+  sed -n '2,19p' "$0"
 }
 
 build_server=true
@@ -61,6 +62,7 @@ while [ $# -gt 0 ]; do
     --gui-only)      build_server=false; build_helper=false; build_wsjtx=false; build_gui=true; build_notifier=false; shift ;;
     --notifier-only) build_server=false; build_helper=false; build_wsjtx=false; build_gui=false; build_notifier=true; shift ;;
     --no-gui)        build_gui=false; shift ;;
+    --no-helpers)    build_helper=false; build_wsjtx=false; build_gui=false; shift ;;
     --target)      single_target="$2"; shift 2 ;;
     --image)       GO_IMAGE="$2"; shift 2 ;;
     --native)      native_build=true; shift ;;

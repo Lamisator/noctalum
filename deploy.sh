@@ -7,6 +7,8 @@
 #   ./deploy.sh                      # prompt interactively for the environment
 #   ./deploy.sh -staging --skip-build
 #   ./deploy.sh -prod    --countdown 30
+#   ./deploy.sh -staging -nohelpers  # skip helper/wsjtx/GUI build + upload
+#                                    # (server + notifier only — much faster)
 #
 # Environment selection is mandatory. If neither -prod nor -staging is
 # given, the script asks on stdin. Deploying to staging never triggers
@@ -82,6 +84,7 @@ SSH_OPTS=(
 
 env_flag=""
 skip_build=false
+no_helpers=false
 countdown=60
 
 while [ $# -gt 0 ]; do
@@ -92,6 +95,8 @@ while [ $# -gt 0 ]; do
       env_flag=staging ; shift ;;
     --skip-build)
       skip_build=true ; shift ;;
+    -nohelpers|--no-helpers)
+      no_helpers=true ; shift ;;
     --transfer-db)
       echo "error: --transfer-db is no longer supported. Use cmd/sqlite-to-pg to migrate a SQLite backup into Postgres." >&2
       exit 1
@@ -154,8 +159,14 @@ echo "==> deploying to $env_flag ($SSH_HOST:$REMOTE_WORK_DIR)"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 if [ "$skip_build" = false ]; then
-  echo "Building all binaries..."
-  "$ROOT/build.sh"
+  build_args=()
+  if [ "$no_helpers" = true ]; then
+    echo "Building server + notifier only (--no-helpers)..."
+    build_args+=(--no-helpers)
+  else
+    echo "Building all binaries..."
+  fi
+  "$ROOT/build.sh" "${build_args[@]}"
 fi
 
 # ------------------------------------------------------------------
@@ -209,23 +220,27 @@ echo "Uploading server binary (staged as .new)..."
 scp "${SSH_OPTS[@]}" "$ROOT/dist/noctalum-linux-amd64" \
   "$SSH_HOST:$REMOTE_APP_DIR/noctalum-server.new"
 
-echo "Uploading helper, WSJT-X, and GUI binaries to downloads..."
-# In-place upload is acceptable here: these are read-only static
-# artifacts served under /downloads/. A user mid-download during
-# the scp overlap could get a truncated file, but the affected
-# window is single-digit seconds per file and downloads are rare.
-# Use nullglob so missing globs (skipped GUI builds) are silent.
-shopt -s nullglob
-downloads=(
-  "$ROOT"/dist/noctalum-helper-*
-  "$ROOT"/dist/noctalum-wsjtx-*
-)
-shopt -u nullglob
-if [ ${#downloads[@]} -eq 0 ]; then
-  echo "warning: no helper/wsjtx binaries found in dist/ — was build skipped?" >&2
+if [ "$no_helpers" = true ]; then
+  echo "Skipping helper/wsjtx/GUI upload (-nohelpers)."
 else
-  scp "${SSH_OPTS[@]}" "${downloads[@]}" \
-    "$SSH_HOST:$REMOTE_APP_DIR/downloads/"
+  echo "Uploading helper, WSJT-X, and GUI binaries to downloads..."
+  # In-place upload is acceptable here: these are read-only static
+  # artifacts served under /downloads/. A user mid-download during
+  # the scp overlap could get a truncated file, but the affected
+  # window is single-digit seconds per file and downloads are rare.
+  # Use nullglob so missing globs (skipped GUI builds) are silent.
+  shopt -s nullglob
+  downloads=(
+    "$ROOT"/dist/noctalum-helper-*
+    "$ROOT"/dist/noctalum-wsjtx-*
+  )
+  shopt -u nullglob
+  if [ ${#downloads[@]} -eq 0 ]; then
+    echo "warning: no helper/wsjtx binaries found in dist/ — was build skipped?" >&2
+  else
+    scp "${SSH_OPTS[@]}" "${downloads[@]}" \
+      "$SSH_HOST:$REMOTE_APP_DIR/downloads/"
+  fi
 fi
 
 # The host-side restore hook is shared infrastructure: it uses a
