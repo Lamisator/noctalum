@@ -1,0 +1,72 @@
+services:
+  # Staging environment for log-staging.dm2lap.com.
+  # Mirrors docker-compose.prod.yml, but everything is namespaced with a
+  # `-staging` suffix so both stacks can coexist on the same host and same
+  # Traefik. Uses its own bind-mounted pgdata/data/backups directories
+  # (see /srv/docker/noctalum-staging on the server) and its own .env with
+  # an independent POSTGRES_PASSWORD, so a staging DB reset cannot affect
+  # production data.
+  postgres:
+    image: postgres:16
+    container_name: noctalum-staging-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: noctalum
+      POSTGRES_USER: noctalum
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    networks:
+      - db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U noctalum -d noctalum"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  noctalum:
+    image: debian:bookworm-slim
+    container_name: noctalum-staging
+    restart: unless-stopped
+    command: /app/noctalum-server -addr :8675 -data-dir /data -downloads-dir /downloads
+    environment:
+      DATABASE_URL: postgres://noctalum:${POSTGRES_PASSWORD}@postgres:5432/noctalum?sslmode=disable
+    volumes:
+      - ./app/noctalum-server:/app/noctalum-server:ro
+      - ./app/downloads:/downloads:ro
+      - ./data:/data
+      - ./backups:/backups
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - proxy
+      - db
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.noctalum-staging.rule=Host(`log-staging.dm2lap.com`)
+      - traefik.http.routers.noctalum-staging.entrypoints=websecure
+      - traefik.http.routers.noctalum-staging.tls=true
+      # Certresolver must be explicit here. Prod gets away with just
+      # `tls=true` on its main router only because the companion
+      # noctalum-offline container carries `certresolver=le` for the
+      # same Host() rule, and once acme.json holds the cert Traefik
+      # reuses it for every router that matches the same SNI. Staging
+      # has no offline fallback, so it has to request its own cert.
+      - traefik.http.routers.noctalum-staging.tls.certresolver=le
+      # No priority override — staging has no offline fallback container,
+      # so it doesn't have to out-rank anything on the same Host() rule.
+      - traefik.http.services.noctalum-staging.loadbalancer.server.port=8675
+
+networks:
+  proxy:
+    external: true
+  # Internal-only network shared between the staging noctalum and its
+  # postgres. Named `db` locally but Docker prefixes it with the compose
+  # project name (usually the directory: noctalum-staging_db), so it does
+  # not collide with production's `noctalum_db` network.
+  db:
+    driver: bridge

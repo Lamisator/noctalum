@@ -1,10 +1,22 @@
 #!/usr/bin/env bash
-# Deploy Noctalum to the production server.
+# Deploy Noctalum to the production or staging environment.
 #
 # Usage:
-#   ./deploy.sh                      # build everything, then deploy
-#   ./deploy.sh --skip-build         # deploy already-built dist/ artifacts (no rebuild)
-#   ./deploy.sh --countdown 30       # warn users N seconds before shutdown (default: 60)
+#   ./deploy.sh -prod                # build everything, then deploy to prod
+#   ./deploy.sh -staging             # build everything, then deploy to staging
+#   ./deploy.sh                      # prompt interactively for the environment
+#   ./deploy.sh -staging --skip-build
+#   ./deploy.sh -prod    --countdown 30
+#
+# Environment selection is mandatory. If neither -prod nor -staging is
+# given, the script asks on stdin. Deploying to staging never triggers
+# the Telegram announcement (staging releases are not user-facing).
+#
+# The two environments share the same server (SSH_HOST) and the same
+# codebase, but live in different remote directories (see
+# PROD_REMOTE_WORK_DIR / STAGING_REMOTE_WORK_DIR in .deploy.env) with
+# their own Postgres data, .env, compose file and Docker container
+# names — a bad deploy to one cannot touch the other's data.
 #
 # Database migration from a legacy SQLite file is done separately via
 # `cmd/sqlite-to-pg` — see its --help. deploy.sh does not touch the
@@ -40,7 +52,7 @@
 
 set -euo pipefail
 
-# Load deployment secrets (SSH key path, server hostname, remote directory).
+# Load deployment secrets (SSH key path, server hostname, remote directories).
 # Copy .deploy.env.example → .deploy.env and fill in your values.
 DEPLOY_ENV="$(dirname "$0")/.deploy.env"
 if [ ! -f "$DEPLOY_ENV" ]; then
@@ -49,8 +61,6 @@ if [ ! -f "$DEPLOY_ENV" ]; then
 fi
 # shellcheck source=.deploy.env.example
 . "$DEPLOY_ENV"
-
-REMOTE_APP_DIR="$REMOTE_WORK_DIR/app"
 
 # Shared SSH options: keep-alive so a stalled SFTP dies within ~60 s
 # (4 pings, 15 s apart) instead of hanging. ConnectTimeout=10 caps
@@ -62,12 +72,26 @@ SSH_OPTS=(
   -o ServerAliveCountMax=4
 )
 
+# ------------------------------------------------------------------
+# Argument parsing.
+# The environment flag (-prod / -staging) is mandatory. We keep the
+# other flags (--skip-build, --countdown) after it in any order, and
+# reject the legacy --transfer-db explicitly to guide operators to
+# cmd/sqlite-to-pg.
+# ------------------------------------------------------------------
+
+env_flag=""
 skip_build=false
 countdown=60
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --skip-build)  skip_build=true  ; shift ;;
+    -prod|--prod)
+      env_flag=prod ; shift ;;
+    -staging|--staging)
+      env_flag=staging ; shift ;;
+    --skip-build)
+      skip_build=true ; shift ;;
     --transfer-db)
       echo "error: --transfer-db is no longer supported. Use cmd/sqlite-to-pg to migrate a SQLite backup into Postgres." >&2
       exit 1
@@ -82,6 +106,50 @@ while [ $# -gt 0 ]; do
     *) echo "unknown argument: $1" >&2; exit 1 ;;
   esac
 done
+
+# If no environment flag was given, prompt interactively rather than
+# guessing — deploying to the wrong environment is a silent, hard-to-
+# reverse mistake, so we make the operator name it explicitly.
+if [ -z "$env_flag" ]; then
+  if [ ! -t 0 ]; then
+    echo "error: environment flag is required (-prod or -staging) when stdin is not a TTY" >&2
+    exit 1
+  fi
+  while [ -z "$env_flag" ]; do
+    printf 'Select environment (staging/prod): '
+    read -r reply
+    case "${reply,,}" in
+      prod|production)  env_flag=prod ;;
+      staging|stage)    env_flag=staging ;;
+      *) echo "  please answer 'staging' or 'prod'" ;;
+    esac
+  done
+fi
+
+# Resolve the per-environment settings up front so the rest of the
+# script only references generic variable names.
+case "$env_flag" in
+  prod)
+    REMOTE_WORK_DIR="${PROD_REMOTE_WORK_DIR:-}"
+    COMPOSE_FILE="docker-compose.prod.yml"
+    CONTAINER_NAME="noctalum"
+    NOTIFY_TELEGRAM=true
+    ;;
+  staging)
+    REMOTE_WORK_DIR="${STAGING_REMOTE_WORK_DIR:-}"
+    COMPOSE_FILE="docker-compose.staging.yml"
+    CONTAINER_NAME="noctalum-staging"
+    NOTIFY_TELEGRAM=false
+    ;;
+esac
+if [ -z "$REMOTE_WORK_DIR" ]; then
+  echo "error: remote work dir for $env_flag not set — add ${env_flag^^}_REMOTE_WORK_DIR to .deploy.env" >&2
+  exit 1
+fi
+
+REMOTE_APP_DIR="$REMOTE_WORK_DIR/app"
+
+echo "==> deploying to $env_flag ($SSH_HOST:$REMOTE_WORK_DIR)"
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
@@ -133,8 +201,8 @@ REMOTE_ENV
 # still serving traffic — nothing here can knock it over.
 # ------------------------------------------------------------------
 
-echo "Uploading compose file (staged as .new)..."
-scp "${SSH_OPTS[@]}" "$ROOT/docker-compose.prod.yml" \
+echo "Uploading compose file ($COMPOSE_FILE, staged as .new)..."
+scp "${SSH_OPTS[@]}" "$ROOT/$COMPOSE_FILE" \
   "$SSH_HOST:$REMOTE_WORK_DIR/docker-compose.yml.new"
 
 echo "Uploading server binary (staged as .new)..."
@@ -160,22 +228,28 @@ else
     "$SSH_HOST:$REMOTE_APP_DIR/downloads/"
 fi
 
-echo "Installing systemd restore hook..."
-# UI-triggered database restore is done by a host-side systemd unit
-# (see deploy/systemd/noctalum-restore.*): the app writes a JSON
-# trigger file to $REMOTE_WORK_DIR/data/restore_trigger, a
-# PathModified path unit picks it up, and the service unit executes
-# a shell script that stops the container, feeds the .sql.gz into
-# psql, and starts the container back up. Copying the units and
-# daemon-reload is safe with the old app still serving — the units
-# only fire when the trigger file appears.
-scp "${SSH_OPTS[@]}" \
-  "$ROOT/deploy/systemd/noctalum-restore.path" \
-  "$ROOT/deploy/systemd/noctalum-restore.service" \
-  "$ROOT/deploy/systemd/noctalum-restore.sh" \
-  "$SSH_HOST:/etc/systemd/system/"
-ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
-  "chmod +x /etc/systemd/system/noctalum-restore.sh && systemctl daemon-reload && systemctl enable --now noctalum-restore.path"
+# The host-side restore hook is shared infrastructure: it uses a
+# single systemd path unit watching prod's data/restore_trigger. We
+# only (re)install it during prod deploys so that staging doesn't
+# quietly overwrite prod's units with staging-flavoured copies.
+if [ "$env_flag" = "prod" ]; then
+  echo "Installing systemd restore hook..."
+  # UI-triggered database restore is done by a host-side systemd unit
+  # (see deploy/systemd/noctalum-restore.*): the app writes a JSON
+  # trigger file to $REMOTE_WORK_DIR/data/restore_trigger, a
+  # PathModified path unit picks it up, and the service unit executes
+  # a shell script that stops the container, feeds the .sql.gz into
+  # psql, and starts the container back up. Copying the units and
+  # daemon-reload is safe with the old app still serving — the units
+  # only fire when the trigger file appears.
+  scp "${SSH_OPTS[@]}" \
+    "$ROOT/deploy/systemd/noctalum-restore.path" \
+    "$ROOT/deploy/systemd/noctalum-restore.service" \
+    "$ROOT/deploy/systemd/noctalum-restore.sh" \
+    "$SSH_HOST:/etc/systemd/system/"
+  ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
+    "chmod +x /etc/systemd/system/noctalum-restore.sh && systemctl daemon-reload && systemctl enable --now noctalum-restore.path"
+fi
 
 # ------------------------------------------------------------------
 # Phase 3 — downtime window. From here to the successful `docker
@@ -212,11 +286,12 @@ trap recover EXIT
 # All polling runs inside a single SSH session so we don't pay ~200 ms
 # of connection overhead per iteration.
 echo "Triggering graceful shutdown (${countdown}s warning)..."
-if ssh "${SSH_OPTS[@]}" "$SSH_HOST" bash -s "$countdown" "$REMOTE_WORK_DIR" <<'REMOTE_TRIGGER'
+if ssh "${SSH_OPTS[@]}" "$SSH_HOST" bash -s "$countdown" "$REMOTE_WORK_DIR" "$CONTAINER_NAME" <<'REMOTE_TRIGGER'
 set -u
 countdown="$1"
 workdir="$2"
-started_before="$(docker inspect --format='{{.State.StartedAt}}' noctalum 2>/dev/null || true)"
+container="$3"
+started_before="$(docker inspect --format='{{.State.StartedAt}}' "$container" 2>/dev/null || true)"
 printf '%s\n' "$countdown" > "$workdir/data/shutdown_trigger"
 if [ -z "$started_before" ]; then
   echo "  container not running — skipping wait, proceeding straight to compose down"
@@ -225,7 +300,7 @@ fi
 echo "  trigger written; waiting for container restart (StartedAt was $started_before)"
 deadline=$(( $(date +%s) + countdown + 15 ))
 while true; do
-  started_now="$(docker inspect --format='{{.State.StartedAt}}' noctalum 2>/dev/null || true)"
+  started_now="$(docker inspect --format='{{.State.StartedAt}}' "$container" 2>/dev/null || true)"
   if [ -n "$started_now" ] && [ "$started_now" != "$started_before" ]; then
     echo "  container restarted at $started_now — grace period complete"
     break
@@ -277,17 +352,25 @@ echo "Deployment complete."
 # ------------------------------------------------------------------
 # Post-deploy: Telegram announcement (non-fatal — the notifier
 # itself exits 0 on missing config or network errors).
+#
+# Staging is intentionally silent: the release notes go out once,
+# with the prod deploy, so the Telegram group only sees things that
+# are actually live for users.
 # ------------------------------------------------------------------
 
-notifier_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-notifier_arch="$(uname -m)"
-case "$notifier_arch" in
-  x86_64)         notifier_arch=amd64 ;;
-  aarch64|arm64)  notifier_arch=arm64 ;;
-esac
-notifier="$ROOT/dist/noctalum-notify-telegram-${notifier_os}-${notifier_arch}"
-if [ -x "$notifier" ]; then
-  "$notifier" --changelog "$ROOT/internal/server/web/app.js" || true
+if [ "$NOTIFY_TELEGRAM" = true ]; then
+  notifier_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  notifier_arch="$(uname -m)"
+  case "$notifier_arch" in
+    x86_64)         notifier_arch=amd64 ;;
+    aarch64|arm64)  notifier_arch=arm64 ;;
+  esac
+  notifier="$ROOT/dist/noctalum-notify-telegram-${notifier_os}-${notifier_arch}"
+  if [ -x "$notifier" ]; then
+    "$notifier" --changelog "$ROOT/internal/server/web/app.js" || true
+  else
+    echo "note: $notifier missing — rebuild with ./build.sh to enable Telegram announcements" >&2
+  fi
 else
-  echo "note: $notifier missing — rebuild with ./build.sh to enable Telegram announcements" >&2
+  echo "Skipping Telegram announcement (staging deploy)."
 fi
