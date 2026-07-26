@@ -14,6 +14,8 @@
 #   ./build.sh --notifier-only          # only the Telegram-deploy notifier
 #   ./build.sh --no-gui                 # skip the GUI helper
 #   ./build.sh --no-helpers             # skip helper, WSJT-X bridge, and GUI (server + notifier only)
+#   ./build.sh --cpp-only               # only the C++ helper AppImages (Linux)
+#   ./build.sh --no-cpp                 # skip the C++ AppImages (default is to build)
 #   ./build.sh --target linux/amd64     # restrict to one OS/arch
 #   ./build.sh --image golang:1.26      # use a different builder image
 #   ./build.sh --native                 # use the local Go toolchain instead of Docker
@@ -24,6 +26,11 @@
 # toolchain.  This script builds Linux (amd64 + arm64) and Windows (amd64) in
 # separate containers.  macOS GUI builds require Xcode and must be done natively
 # with `wails build` on a Mac (see cmd/helper-gui/README.md).
+#
+# The C++ AppImages (cpp/{helper,helper-gui,wsjtx}) are always built natively —
+# no cross-compile support.  They need cmake, ninja, g++, pkg-config, and the
+# usual Qt6 / libwebsockets / nlohmann-json / libcurl dev packages.  If any of
+# those are missing the C++ builds are skipped with a clear message.
 
 set -euo pipefail
 
@@ -43,7 +50,9 @@ DEFAULT_HELPER_TARGETS=(
 DEFAULT_NOTIFIER_TARGETS=("linux/amd64" "darwin/arm64")
 
 usage() {
-  sed -n '2,19p' "$0"
+  # Print the comment header at the top of this file (everything before the
+  # first `set -e` line) as user-facing help text.
+  awk 'NR>1 && /^set/{exit} NR>1 && /^#/' "$0"
 }
 
 build_server=true
@@ -51,18 +60,21 @@ build_helper=true
 build_wsjtx=true
 build_gui=true
 build_notifier=true
+build_cpp=true
 single_target=""
 native_build=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --server-only)   build_helper=false; build_wsjtx=false; build_gui=false; build_notifier=false; shift ;;
-    --helper-only)   build_server=false; build_wsjtx=false; build_gui=false; build_notifier=false; shift ;;
-    --wsjtx-only)    build_server=false; build_helper=false; build_gui=false; build_notifier=false; shift ;;
-    --gui-only)      build_server=false; build_helper=false; build_wsjtx=false; build_gui=true; build_notifier=false; shift ;;
-    --notifier-only) build_server=false; build_helper=false; build_wsjtx=false; build_gui=false; build_notifier=true; shift ;;
+    --server-only)   build_helper=false; build_wsjtx=false; build_gui=false; build_notifier=false; build_cpp=false; shift ;;
+    --helper-only)   build_server=false; build_wsjtx=false; build_gui=false; build_notifier=false; build_cpp=false; shift ;;
+    --wsjtx-only)    build_server=false; build_helper=false; build_gui=false; build_notifier=false; build_cpp=false; shift ;;
+    --gui-only)      build_server=false; build_helper=false; build_wsjtx=false; build_gui=true; build_notifier=false; build_cpp=false; shift ;;
+    --notifier-only) build_server=false; build_helper=false; build_wsjtx=false; build_gui=false; build_notifier=true; build_cpp=false; shift ;;
+    --cpp-only)      build_server=false; build_helper=false; build_wsjtx=false; build_gui=false; build_notifier=false; build_cpp=true; shift ;;
     --no-gui)        build_gui=false; shift ;;
-    --no-helpers)    build_helper=false; build_wsjtx=false; build_gui=false; shift ;;
+    --no-cpp)        build_cpp=false; shift ;;
+    --no-helpers)    build_helper=false; build_wsjtx=false; build_gui=false; build_cpp=false; shift ;;
     --target)      single_target="$2"; shift 2 ;;
     --image)       GO_IMAGE="$2"; shift 2 ;;
     --native)      native_build=true; shift ;;
@@ -71,9 +83,17 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Pick a container runtime (not needed for --native).
+# Pick a container runtime (not needed for --native, and not needed at all
+# when the only requested job is the C++ AppImages — they always build
+# natively with cmake).
+need_runtime=false
+$build_server   && need_runtime=true
+$build_helper   && need_runtime=true
+$build_wsjtx    && need_runtime=true
+$build_gui      && need_runtime=true
+$build_notifier && need_runtime=true
 RUNTIME=""
-if ! $native_build; then
+if $need_runtime && ! $native_build; then
   for c in docker podman; do
     if command -v "$c" >/dev/null 2>&1; then RUNTIME="$c"; break; fi
   done
@@ -100,8 +120,8 @@ mkdir -p "$OUT_DIR" "$CACHE_DIR/go-build" "$CACHE_DIR/go-mod"
 VERSION="$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo dev)"
 LDFLAGS="-s -w -X main.version=${VERSION}"
 
-# Pull the builder image once (skipped in --native mode).
-if ! $native_build; then
+# Pull the builder image once (skipped in --native mode or when no Go targets).
+if [ -n "$RUNTIME" ] && ! $native_build; then
   "$RUNTIME" image inspect "$GO_IMAGE" >/dev/null 2>&1 || "$RUNTIME" pull "$GO_IMAGE"
 fi
 
@@ -531,10 +551,208 @@ if $build_gui; then
   fi
 fi
 
+# ── C++ AppImage builds (Linux-only, native cmake, opt-in via default) ──
+
+cpp_built=()
+cpp_skipped=()
+
+# check_cmd COMMAND ...  — returns 0 if every argument is on $PATH.
+check_cmd() {
+  local ok=true
+  for c in "$@"; do
+    command -v "$c" >/dev/null 2>&1 || { echo "    missing: $c" >&2; ok=false; }
+  done
+  $ok
+}
+
+# Ensure appimagetool is available under $CACHE_DIR/bin/appimagetool; downloads
+# once from the AppImageKit continuous release.  Prints its path on stdout.
+ensure_appimagetool() {
+  local bin="$CACHE_DIR/bin/appimagetool"
+  if [ ! -x "$bin" ]; then
+    mkdir -p "$CACHE_DIR/bin"
+    local url="https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-$(uname -m).AppImage"
+    echo "    fetching appimagetool from $url" >&2
+    if ! wget -q -O "$bin" "$url"; then rm -f "$bin"; return 1; fi
+    chmod +x "$bin"
+  fi
+  echo "$bin"
+}
+
+# Ensure linuxdeploy + linuxdeploy-plugin-qt are available for the Qt GUI.
+# Both are downloaded to $CACHE_DIR/bin/ if missing.  Returns 0 on success.
+ensure_linuxdeploy_qt() {
+  mkdir -p "$CACHE_DIR/bin"
+  local ld="$CACHE_DIR/bin/linuxdeploy"
+  local qt="$CACHE_DIR/bin/linuxdeploy-plugin-qt"
+  local arch; arch="$(uname -m)"
+  if [ ! -x "$ld" ]; then
+    echo "    fetching linuxdeploy" >&2
+    wget -q -O "$ld" "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${arch}.AppImage" || return 1
+    chmod +x "$ld"
+  fi
+  if [ ! -x "$qt" ]; then
+    echo "    fetching linuxdeploy-plugin-qt" >&2
+    wget -q -O "$qt" "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-${arch}.AppImage" || return 1
+    chmod +x "$qt"
+  fi
+  return 0
+}
+
+# Configure + build one cpp/ project with cmake+ninja.  On success prints the
+# absolute path to the compiled binary on stdout.
+cmake_build() {
+  local project="$1" binary="$2"
+  local src="$ROOT/cpp/$project"
+  local build="$CACHE_DIR/cpp-build/$project"
+  rm -rf "$build" && mkdir -p "$build"
+  ( cd "$build" && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release "$src" >/dev/null && ninja ) >&2 || return 1
+  echo "$build/$binary"
+}
+
+# Package a single CLI-only binary into an AppImage.  $1 project dir, $2 binary
+# name, $3 output AppImage filename.
+package_cli_appimage() {
+  local project="$1" binary="$2" out="$3"
+  local bin_path
+  bin_path="$(cmake_build "$project" "$binary")" || return 1
+
+  local tool; tool="$(ensure_appimagetool)" || return 1
+  local appdir="$CACHE_DIR/cpp-appdir/$project"
+  rm -rf "$appdir"
+  mkdir -p "$appdir/usr/bin"
+  cp "$bin_path" "$appdir/usr/bin/$binary"
+  chmod +x "$appdir/usr/bin/$binary"
+  printf '#!/bin/sh\nexec "$APPDIR/usr/bin/%s" "$@"\n' "$binary" > "$appdir/AppRun"
+  chmod +x "$appdir/AppRun"
+  cat > "$appdir/$binary.desktop" <<EOF
+[Desktop Entry]
+Name=$binary
+Exec=$binary
+Icon=$binary
+Type=Application
+Categories=HamRadio;
+EOF
+  cp "$ROOT/noctalum.png" "$appdir/$binary.png"
+
+  ARCH="$(uname -m)" APPIMAGE_EXTRACT_AND_RUN=1 "$tool" "$appdir" "$OUT_DIR/$out" >/dev/null || return 1
+}
+
+# Package the Qt6 GUI: linuxdeploy + qt plugin bundles Qt6 libs so the AppImage
+# runs on hosts without matching Qt6 packages.
+package_gui_appimage() {
+  local out="$1"
+  local bin_path
+  bin_path="$(cmake_build "helper-gui" "noctalum-helper-gui")" || return 1
+
+  ensure_linuxdeploy_qt || return 1
+  local ld="$CACHE_DIR/bin/linuxdeploy"
+  local appdir="$CACHE_DIR/cpp-appdir/helper-gui"
+  rm -rf "$appdir"
+  mkdir -p "$appdir/usr/bin" "$appdir/usr/share/applications" "$appdir/usr/share/icons/hicolor/256x256/apps"
+  cp "$bin_path" "$appdir/usr/bin/noctalum-helper-gui"
+  chmod +x "$appdir/usr/bin/noctalum-helper-gui"
+  cat > "$appdir/usr/share/applications/noctalum-helper-gui.desktop" <<'EOF'
+[Desktop Entry]
+Name=Noctalum Helper (C++)
+Exec=noctalum-helper-gui
+Icon=noctalum-helper-gui
+Type=Application
+Categories=HamRadio;
+EOF
+  cp "$ROOT/noctalum.png" "$appdir/usr/share/icons/hicolor/256x256/apps/noctalum-helper-gui.png"
+
+  # linuxdeploy-plugin-qt needs its runner discoverable on PATH.  Route its
+  # (chatty) output through a scratch file so we can print it only on failure.
+  local logf; logf="$(mktemp)"
+  if ! PATH="$CACHE_DIR/bin:$PATH" APPIMAGE_EXTRACT_AND_RUN=1 \
+       "$ld" --appdir "$appdir" --plugin qt --output appimage \
+       --desktop-file "$appdir/usr/share/applications/noctalum-helper-gui.desktop" \
+       >"$logf" 2>&1; then
+    echo "    linuxdeploy failed — see $logf" >&2
+    tail -15 "$logf" >&2
+    return 1
+  fi
+  rm -f "$logf"
+
+  # linuxdeploy writes the AppImage into $PWD; move to dist/ under our name.
+  local produced
+  produced=$(ls -1 Noctalum*.AppImage noctalum*.AppImage 2>/dev/null | head -1)
+  if [ -z "$produced" ]; then
+    echo "    linuxdeploy produced no *.AppImage in $(pwd)" >&2
+    return 1
+  fi
+  mv "$produced" "$OUT_DIR/$out"
+}
+
+build_cpp_all() {
+  # Only Linux is supported.  Skip fast on other OSes.
+  case "$(uname -s)" in
+    Linux) ;;
+    *) echo "  C++ AppImages: Linux only (host is $(uname -s)) — skipping."
+       cpp_skipped+=("all/non-linux"); return 0 ;;
+  esac
+
+  # Common tooling — bail out early with a clear message rather than half-way
+  # through the first cmake call.
+  echo "==> C++ AppImages (Linux, native)"
+  if ! check_cmd cmake ninja g++ pkg-config wget; then
+    echo "    skipping all C++ builds — install cmake/ninja-build/g++/pkg-config/wget"
+    cpp_skipped+=("all/toolchain")
+    return 0
+  fi
+
+  local arch out
+  case "$(uname -m)" in
+    x86_64)  arch="amd64" ;;
+    aarch64) arch="arm64" ;;
+    *) echo "    skipping — unsupported CPU arch $(uname -m)"
+       cpp_skipped+=("all/arch"); return 0 ;;
+  esac
+
+  out="noctalum-wsjtx-cpp-linux-${arch}.AppImage"
+  echo "==> $out"
+  if pkg-config --exists libcurl nlohmann_json \
+     && package_cli_appimage "wsjtx" "noctalum-wsjtx" "$out"; then
+    cpp_built+=("wsjtx-cpp/linux/${arch}")
+  else
+    echo "    skipping — missing libcurl4-openssl-dev or nlohmann-json3-dev"
+    cpp_skipped+=("wsjtx-cpp/linux/${arch}")
+  fi
+
+  out="noctalum-helper-cpp-linux-${arch}.AppImage"
+  echo "==> $out"
+  if pkg-config --exists libwebsockets nlohmann_json \
+     && package_cli_appimage "helper" "noctalum-helper" "$out"; then
+    cpp_built+=("helper-cpp/linux/${arch}")
+  else
+    echo "    skipping — missing libwebsockets-dev/nlohmann-json3-dev/libncurses-dev"
+    cpp_skipped+=("helper-cpp/linux/${arch}")
+  fi
+
+  out="noctalum-helper-gui-cpp-linux-${arch}.AppImage"
+  echo "==> $out"
+  if pkg-config --exists Qt6Core Qt6Widgets Qt6WebSockets Qt6SerialPort \
+     && package_gui_appimage "$out"; then
+    cpp_built+=("helper-gui-cpp/linux/${arch}")
+  else
+    echo "    skipping — missing qt6-base-dev/qt6-websockets-dev/qt6-serialport-dev"
+    cpp_skipped+=("helper-gui-cpp/linux/${arch}")
+  fi
+}
+
+if $build_cpp; then
+  build_cpp_all
+fi
+
 echo
 echo "Done. Artifacts:"
 ls -lh "$OUT_DIR" | awk 'NR>1 {printf "  %-40s %s\n", $9, $5}'
 if $build_gui; then
   [ ${#gui_built[@]} -gt 0 ]   && echo "GUI built  : ${gui_built[*]}"
   [ ${#gui_skipped[@]} -gt 0 ] && echo "GUI skipped: ${gui_skipped[*]}  (see messages above)"
+fi
+if $build_cpp; then
+  [ ${#cpp_built[@]} -gt 0 ]   && echo "C++ built  : ${cpp_built[*]}"
+  [ ${#cpp_skipped[@]} -gt 0 ] && echo "C++ skipped: ${cpp_skipped[*]}  (see messages above)"
 fi
