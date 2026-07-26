@@ -3170,10 +3170,13 @@ body.deploy-ribbon-active { padding-top: 48px; }
     #ffd400 0 14px,
     #111 14px 28px
   );
-  text-shadow:
-    0 0 2px #ffd400,
-    0 0 4px #ffd400,
-    0 0 6px #ffd400;
+  /* Thick white outline around each glyph so the label stays readable
+     over both the yellow and the black stripes. paint-order forces
+     the stroke to render *behind* the fill so it frames the letters
+     instead of eating into their shapes. -webkit-text-stroke is
+     supported across all evergreen browsers despite the prefix. */
+  -webkit-text-stroke: 2px #fff;
+  paint-order: stroke fill;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
 }
 .env-ribbon[hidden] { display: none; }
