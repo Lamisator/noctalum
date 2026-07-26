@@ -8078,6 +8078,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.74',
+      date: '2026-07-26',
+      en: 'v0.74: C++ helper alternatives, PDF/TXT attachments on feature requests, admin rename, and a real staging environment.\n- Native C++ AppImages of the helper, WSJT-X bridge and desktop GUI — no Go runtime or WebKit needed, single-file download that runs anywhere\n- Feature requests can now carry an optional PDF or plain-text file (up to 5 MB); shows up as a download link for admins and the submitter\n- Admins with users.manage can rename user accounts without deleting and recreating them\n- New staging environment at log-staging.dm2lap.com so risky changes get dogfooded against a copy of real data before touching prod\n- A full-width caution-tape STAGING banner across the top of every non-prod page — impossible to miss which instance you\'re on\n- Deploys support -nohelpers to skip the helper/GUI/wsjtx rebuild and upload for server-only iterations',
+      de: 'v0.74: C++-Helper-Varianten, PDF/TXT-Anhänge für Feature-Wünsche, Admin-Umbenennung und eine echte Staging-Umgebung.\n- Native C++-AppImages für Helper, WSJT-X-Bridge und Desktop-GUI — kein Go-Runtime, kein WebKit nötig, einzelne Datei, läuft überall\n- Feature-Wünsche können jetzt optional eine PDF- oder Textdatei mitliefern (bis 5 MB); wird als Download-Link für Admins und die einreichende Person angezeigt\n- Admins mit users.manage können Benutzerkonten umbenennen, ohne sie zu löschen und neu anzulegen\n- Neue Staging-Umgebung unter log-staging.dm2lap.com, damit riskante Änderungen an einer Kopie echter Daten getestet werden können, bevor sie in die Produktion gehen\n- Ein bildschirmbreites Warnstreifen-STAGING-Banner am oberen Rand jeder Nicht-Prod-Seite — du siehst sofort, auf welcher Instanz du bist\n- Deploys unterstützen -nohelpers, um Helper/GUI/wsjtx bei reinen Server-Iterationen zu überspringen',
+    },
+    {
       version: '0.73',
       date: '2026-07-17',
       en: 'v0.73: Cluster band filter follows the contest you\'re in.\n- Switching to a different contest now refreshes the cluster view\'s band dropdown right away instead of keeping stale bands\n- Behind the scenes: bumped the Go builder image to 1.25-bookworm — nothing changes for you, just a housekeeping refresh',
