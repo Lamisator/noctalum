@@ -1104,6 +1104,33 @@
         variantKey: null,
         descKey: 'downloads.appWsjtxDesc',
       },
+      // C++ ports live under their own cards (Linux only for now) so
+      // operators can pick between the Go original and the native
+      // implementation without the two collapsing into one row.
+      {
+        type: 'helper-gui-cpp',
+        icon: '🖥️',
+        nameKey: 'downloads.appHelperGuiCppName',
+        variantKey: 'downloads.appHelperGuiCppVariant',
+        descKey: 'downloads.appHelperGuiCppDesc',
+        linuxOnly: true,
+      },
+      {
+        type: 'helper-cpp',
+        icon: '⌨️',
+        nameKey: 'downloads.appHelperCliCppName',
+        variantKey: 'downloads.appHelperCliCppVariant',
+        descKey: 'downloads.appHelperCliCppDesc',
+        linuxOnly: true,
+      },
+      {
+        type: 'wsjtx-cpp',
+        icon: '📡',
+        nameKey: 'downloads.appWsjtxCppName',
+        variantKey: 'downloads.appWsjtxCppVariant',
+        descKey: 'downloads.appWsjtxCppDesc',
+        linuxOnly: true,
+      },
     ];
 
     const OS_SVGS = {
@@ -1152,10 +1179,12 @@
     // Step 2: App list for selected OS
     const platforms = OS_PLATFORMS[os] || [];
 
-    // Group files by type and platform
+    // Group files by type and platform.  The type alternation matches longer
+    // names first so `helper-gui-cpp` doesn't get shortened to `helper` and
+    // stolen by the Go-helper card.
     const grouped = {};
     for (const f of files) {
-      const m = f.match(/^noctalum-(helper-gui|helper|wsjtx)-(.+?)(?:\.AppImage|\.exe)?$/);
+      const m = f.match(/^noctalum-(helper-gui-cpp|helper-gui|helper-cpp|helper|wsjtx-cpp|wsjtx)-(.+?)(?:\.AppImage|\.exe)?$/);
       if (!m) continue;
       const [, type, platform] = m;
       if (!grouped[type]) grouped[type] = [];
@@ -1168,6 +1197,10 @@
     let appsHtml = '';
 
     for (const app of APP_DEFS) {
+      // The native C++ AppImages only exist for Linux; hide their cards
+      // entirely on Windows/Mac rather than showing a permanent "not
+      // available" placeholder.
+      if (app.linuxOnly && os !== 'linux') continue;
       const available = (grouped[app.type] || []).filter(d => platforms.includes(d.platform));
       // Sort by platform order defined in OS_PLATFORMS
       available.sort((a, b) => platforms.indexOf(a.platform) - platforms.indexOf(b.platform));
