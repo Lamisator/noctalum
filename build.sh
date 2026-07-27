@@ -935,36 +935,33 @@ INNERSCRIPT
 ensure_cpp_windows_image() {
   local image="noctalum-cpp-windows:latest"
   if "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then return 0; fi
-  echo "    building $image (one-time, ~5-8 min — pulls prebuilt MXE Qt6)"
-  # MXE (https://mxe.cc) ships prebuilt static MinGW-w64 + Qt6 toolchains
-  # via their apt repo, keyed for Debian bullseye.  We install only the
-  # x86_64 static.posix variant — Qt6 needs posix threads.
+  echo "    building $image (one-time, ~4-6 min)"
+  # Fedora's MinGW SIG maintains a mature mingw64-qt6-* package set.  We use
+  # the STATIC variants so the resulting .exe has no DLL dependencies (the
+  # dynamic Qt6 for MinGW would need ~50 MB of Qt6*.dll bundled next to
+  # the exe and is a distribution nightmare).  mingw64-cmake is a wrapper
+  # that preloads Fedora's redhat-mingw64.cmake toolchain so cmake finds
+  # the cross Qt6 automatically — no -DCMAKE_TOOLCHAIN_FILE gymnastics.
+  #
+  # MXE was the first thing I reached for; their apt repo doesn't ship Qt6
+  # packages on bullseye (only Qt5), so the image never came up.  Fedora's
+  # mingw-qt6 packaging is well-tested and updated with each Fedora release.
   "$RUNTIME" build -t "$image" - <<'DOCKERFILE' >&2
-FROM debian:bullseye
-ENV DEBIAN_FRONTEND=noninteractive
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates wget gnupg2 apt-transport-https \
-      cmake ninja-build make file zip \
- && install -d /etc/apt/keyrings \
- && wget -qO - https://pkg.mxe.cc/repos/apt/conf/mxeapt.gpg > /etc/apt/keyrings/mxeapt.asc \
- && echo 'deb [signed-by=/etc/apt/keyrings/mxeapt.asc] https://pkg.mxe.cc/repos/apt bullseye main' \
-      > /etc/apt/sources.list.d/mxeapt.list \
- && apt-get update && apt-get install -y --no-install-recommends \
-      mxe-x86-64-w64-mingw32.static.posix-qtbase \
-      mxe-x86-64-w64-mingw32.static.posix-qtwebsockets \
-      mxe-x86-64-w64-mingw32.static.posix-qtserialport \
- && rm -rf /var/lib/apt/lists/*
-ENV PATH="/usr/lib/mxe/usr/bin:$PATH"
-ENV MXE_ROOT=/usr/lib/mxe
-ENV MXE_TARGET=x86_64-w64-mingw32.static.posix
+FROM fedora:41
+RUN dnf install -y --setopt=install_weak_deps=False \
+      cmake ninja-build file zip which findutils \
+      mingw64-gcc mingw64-gcc-c++ mingw64-winpthreads-static \
+      mingw64-qt6-qtbase-static \
+      mingw64-qt6-qtwebsockets-static \
+      mingw64-qt6-qtserialport-static \
+      mingw64-qt6-qttools \
+ && dnf clean all
 DOCKERFILE
 }
 
 build_cpp_windows_docker() {
   ensure_cpp_windows_image || {
-    echo "error: noctalum-cpp-windows image build failed (MXE Qt6 packages present in the repo?)" >&2
+    echo "error: noctalum-cpp-windows image build failed (Fedora mingw64-qt6-* packages still available?)" >&2
     return 1
   }
 
@@ -975,17 +972,19 @@ set -euo pipefail
 ROOT=/src
 OUT=/out
 BUILD=/tmp/build
-TOOLCHAIN=$MXE_ROOT/usr/$MXE_TARGET/share/cmake/mxe-conf.cmake
-CMAKE=$MXE_ROOT/usr/bin/$MXE_TARGET-cmake
 mkdir -p "$BUILD"
 
 pack_win() {
   local project="$1" binary="$2" out="$3"
   local bd="$BUILD/$project"
   rm -rf "$bd" && mkdir -p "$bd"
-  ( cd "$bd" && "$CMAKE" -G Ninja -DCMAKE_BUILD_TYPE=Release "$ROOT/cpp/$project" \
-       && ninja ) >/dev/null
-  # MXE produces a fully-statically-linked .exe — no bundled DLLs needed.
+  # mingw64-cmake wraps cmake with Fedora's redhat-mingw64.cmake toolchain
+  # so Qt6_DIR resolves to the cross-compiled Qt6 automatically.
+  ( cd "$bd" \
+    && mingw64-cmake -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                     -DBUILD_SHARED_LIBS=OFF \
+                     "$ROOT/cpp/$project" \
+    && mingw64-cmake --build . ) >&2
   local exe="$bd/${binary}.exe"
   [ -f "$exe" ] || { echo "no $exe produced" >&2; return 1; }
   cp "$exe" "$OUT/$out"
@@ -993,7 +992,7 @@ pack_win() {
 
 pack_win "wsjtx-gui"  "noctalum-wsjtx-gui"  "noctalum-wsjtx-gui-windows-amd64.exe"
 # helper-gui needs Qt6 SerialPort + WebSockets in addition to Widgets;
-# both are provided by the MXE packages above.
+# both are provided by the mingw64-qt6-* packages above.
 pack_win "helper-gui" "noctalum-helper-gui" "noctalum-helper-gui-cpp-windows-amd64.exe"
 INNERSCRIPT
   chmod +x "$script"
