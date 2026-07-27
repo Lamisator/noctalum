@@ -130,12 +130,29 @@ func (s *Store) migrateContests() error {
 		// derives it from the legacy private/access_restricted booleans;
 		// on writes we keep both columns synchronised so older UI paths
 		// keep working.
+		//
+		// Subtle: the ADD COLUMN's DEFAULT 'open' sets every pre-existing
+		// row to 'open' before the backfill can look at private /
+		// access_restricted. So the correction UPDATE has to fire even for
+		// rows that already read 'open' — otherwise a migrated private
+		// contest would stay tagged as open and let anyone auto-join as
+		// a logger. The condition targets exactly that mismatch (open
+		// visibility but at least one legacy access bit set) so it stays
+		// a no-op after the first run and can't clobber a genuine
+		// visibility='open' created via the new UI.
 		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'open'`,
-		`UPDATE contests SET visibility = CASE
-		    WHEN private OR access_restricted THEN 'private'
-		    ELSE 'open'
-		 END
-		 WHERE visibility = '' OR visibility IS NULL OR visibility NOT IN ('open','groups','private')`,
+		`UPDATE contests SET visibility = 'private'
+		 WHERE visibility = 'open' AND (private OR access_restricted)`,
+		// Keep the legacy booleans in lockstep with the authoritative
+		// visibility column so handlers that still consult existing.Private
+		// / existing.AccessRestricted (contest PUT, exports, share import)
+		// see consistent data on migrated rows. Idempotent and no-op after
+		// the first run: the WHERE only matches rows whose booleans differ
+		// from what the visibility says.
+		`UPDATE contests SET private = (visibility = 'private')
+		 WHERE private <> (visibility = 'private')`,
+		`UPDATE contests SET access_restricted = (visibility <> 'open')
+		 WHERE access_restricted <> (visibility <> 'open')`,
 		`CREATE INDEX IF NOT EXISTS idx_contests_status ON contests(status)`,
 		`CREATE TABLE IF NOT EXISTS contest_access (
 			contest_id BIGINT NOT NULL,
