@@ -595,6 +595,23 @@ func sessionFor(s *Server, r *http.Request) *Session {
 	return sess
 }
 
+// effectiveContestRoleForSession resolves the caller's role on the contest,
+// honouring the global permission model. It fetches the contest so
+// visibility-driven admin-override (contests.manage vs
+// contests.manage_private) is always accurate — session-cached values can
+// lag behind a fresh contest edit. Returns the visibility alongside the
+// role so callers doing further checks (e.g. auto-join semantics) don't
+// need a second fetch.
+func (s *Server) effectiveContestRoleForSession(sess *Session, contestID int64) (role string, visibility string, err error) {
+	c, err := s.store.GetContest(contestID)
+	if err != nil {
+		return "", "", err
+	}
+	admin := ContestAdminOverride(sess.Permissions, c.Visibility)
+	role, err = s.store.EffectiveContestRole(contestID, sess.UserID, admin)
+	return role, c.Visibility, err
+}
+
 // ----- helpers -----
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -1019,13 +1036,25 @@ func (s *Server) handleReserveNr(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
 		return
 	}
-	contestID, contestStatus, _, _ := sess.ContestInfo()
+	contestID, contestStatus, _, contestName := sess.ContestInfo()
 	if contestID == 0 {
 		writeError(w, http.StatusBadRequest, "no contest selected")
 		return
 	}
 	if contestStatus == "finished" {
 		writeError(w, http.StatusForbidden, "contest is finished")
+		return
+	}
+	// Per-contest gate — reserving the next NR is only meaningful for
+	// someone who could actually create a QSO here.
+	effRole, _, err := s.effectiveContestRoleForSession(sess, contestID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ContestRoleAtLeast(effRole, store.ContestRoleLogger) {
+		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, contestName, "reserve nr: no per-contest role")
+		writeError(w, http.StatusForbidden, "you are not authorized to log QSOs in this contest")
 		return
 	}
 
@@ -1061,6 +1090,31 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "contest is finished (read-only)")
 		return
 	}
+	// Per-contest permission gate. Global qso.write above is a
+	// prerequisite ("can this user log QSOs at all?"); this check is
+	// "can this user log QSOs in *this* contest?". VisibilityOpen
+	// contests auto-join the caller as a logger participant on their
+	// first activity.
+	effRole, _, err := s.effectiveContestRoleForSession(sess, contestID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ContestRoleAtLeast(effRole, store.ContestRoleLogger) {
+		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, contestName, "create qso: no per-contest role")
+		writeError(w, http.StatusForbidden, "you are not authorized to log QSOs in this contest")
+		return
+	}
+	// Auto-join on first activity in an open / groups-listed contest so
+	// the participant row exists for downstream queries (my_role, own-QSO
+	// checks). Idempotent — AddContestParticipant is INSERT ... ON
+	// CONFLICT DO NOTHING.
+	if part, _ := s.store.GetContestParticipant(contestID, sess.UserID); part == nil {
+		if err := s.store.AddContestParticipant(contestID, sess.UserID, store.ContestRoleLogger, "active"); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	var in store.QSO
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1071,6 +1125,10 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 	in.ContestID = contestID
 	in.StationCall = contestCall
 	in.ContestName = contestName
+	// Stamp the QSO with the logging user's account id so the per-contest
+	// permission model can later tell "own QSO" apart from "someone
+	// else's QSO" when a logger tries to edit or delete it.
+	in.OperatorUserID = sess.UserID
 
 	if !ValidCallsign(in.Callsign) {
 		writeError(w, http.StatusBadRequest, "invalid contacted callsign")
@@ -1199,6 +1257,19 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
+	// Per-contest role check for edit / delete. Editor+ may touch any
+	// QSO in the contest; logger may touch only QSOs they logged
+	// themselves (identified via qsos.operator_user_id).
+	effRole, _, err := s.effectiveContestRoleForSession(sess, contestID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ContestRoleAtLeast(effRole, store.ContestRoleLogger) {
+		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, strconv.FormatInt(id, 10), r.Method+" qso: no per-contest role")
+		writeError(w, http.StatusForbidden, "you are not authorized to modify QSOs in this contest")
+		return
+	}
 	switch r.Method {
 	case http.MethodPut:
 		existing, err := s.store.GetQSO(id)
@@ -1209,6 +1280,11 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 		if existing.ContestID != contestID {
 			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, strconv.FormatInt(id, 10), "qso belongs to different contest")
 			writeError(w, http.StatusForbidden, "QSO belongs to a different contest")
+			return
+		}
+		if !ContestRoleAtLeast(effRole, store.ContestRoleEditor) && existing.OperatorUserID != sess.UserID {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, strconv.FormatInt(id, 10), "edit qso: logger may only edit own QSOs")
+			writeError(w, http.StatusForbidden, "you can only edit QSOs you logged yourself")
 			return
 		}
 		var in store.QSO
@@ -1304,6 +1380,11 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 		if existing.ContestID != contestID {
 			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, strconv.FormatInt(id, 10), "qso belongs to different contest")
 			writeError(w, http.StatusForbidden, "QSO belongs to a different contest")
+			return
+		}
+		if !ContestRoleAtLeast(effRole, store.ContestRoleEditor) && existing.OperatorUserID != sess.UserID {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, strconv.FormatInt(id, 10), "delete qso: logger may only delete own QSOs")
+			writeError(w, http.StatusForbidden, "you can only delete QSOs you logged yourself")
 			return
 		}
 		if err := s.store.DeleteQSO(id); err != nil {
@@ -2679,8 +2760,15 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "invalid JSON")
 				return
 			}
-			if in.Role != "owner" && in.Role != "user" {
-				writeError(w, http.StatusBadRequest, "role must be 'owner' or 'user'")
+			// Legacy 'user' is treated as an alias for 'logger' so older
+			// clients keep working through the transition.
+			if in.Role == "user" {
+				in.Role = store.ContestRoleLogger
+			}
+			switch in.Role {
+			case store.ContestRoleOwner, store.ContestRoleEditor, store.ContestRoleLogger:
+			default:
+				writeError(w, http.StatusBadRequest, "role must be 'owner', 'editor', or 'logger'")
 				return
 			}
 			if in.Status != "active" && in.Status != "pending" {
@@ -2688,11 +2776,28 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// An owner (non-manager) can only demote themselves, not other owners.
-			if !isManager && in.Role == "user" && targetID != sess.UserID {
+			if !isManager && in.Role != store.ContestRoleOwner && targetID != sess.UserID {
 				target, _ := s.store.GetContestParticipant(c.ID, targetID)
-				if target != nil && target.Role == "owner" {
+				if target != nil && target.Role == store.ContestRoleOwner {
 					writeError(w, http.StatusForbidden, "you can only demote yourself, not other owners")
 					return
+				}
+			}
+			// Prevent removing the last owner: if this update would take
+			// the last owner slot away (self-demotion or a manager
+			// demoting the sole owner), reject before mutating.
+			if in.Role != store.ContestRoleOwner {
+				target, _ := s.store.GetContestParticipant(c.ID, targetID)
+				if target != nil && target.Role == store.ContestRoleOwner && target.Status == "active" {
+					owners, err := s.store.CountContestOwners(c.ID)
+					if err != nil {
+						writeError(w, http.StatusInternalServerError, err.Error())
+						return
+					}
+					if owners <= 1 {
+						writeError(w, http.StatusForbidden, "cannot demote the last owner of a contest")
+						return
+					}
 				}
 			}
 			if err := s.store.UpdateContestParticipant(c.ID, targetID, in.Role, in.Status); err != nil {
@@ -2721,8 +2826,21 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			}
 			if !isSelf && !isManager {
 				target, _ := s.store.GetContestParticipant(c.ID, targetID)
-				if target != nil && target.Role == "owner" {
+				if target != nil && target.Role == store.ContestRoleOwner {
 					writeError(w, http.StatusForbidden, "cannot remove another owner")
+					return
+				}
+			}
+			// Refuse to remove the sole owner — every contest must keep
+			// at least one so member management stays possible.
+			if target, _ := s.store.GetContestParticipant(c.ID, targetID); target != nil && target.Role == store.ContestRoleOwner && target.Status == "active" {
+				owners, err := s.store.CountContestOwners(c.ID)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				if owners <= 1 {
+					writeError(w, http.StatusForbidden, "cannot remove the last owner of a contest")
 					return
 				}
 			}
@@ -2868,6 +2986,19 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		// Stashes need the same write access that creating a QSO needs.
 		if !HasPermission(sess.Permissions, PermQSOWrite) {
 			writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
+			return
+		}
+		// Per-contest gate: stashes only make sense for someone allowed
+		// to log QSOs in this contest. Prevents users with only
+		// global qso.write but no contest role from staging entries here.
+		effRoleStash, _, err := s.effectiveContestRoleForSession(sess, c.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !ContestRoleAtLeast(effRoleStash, store.ContestRoleLogger) {
+			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "stash: no per-contest role")
+			writeError(w, http.StatusForbidden, "you are not authorized to log QSOs in this contest")
 			return
 		}
 		expiry := time.Duration(c.StashExpiryMinutes) * time.Minute

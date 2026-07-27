@@ -40,17 +40,20 @@ const (
 	PermDOKEdit               = "dok.edit"               // manage DOK callsign cache
 	PermCallsignRequestsReview = "callsign_requests.review" // view/decide all callsign change requests
 	PermBackupsManage         = "backups.manage"            // list / trigger / download / delete DB backups
+	PermGroupsManage          = "groups.manage"             // create / edit / delete groups; assign group members
 )
 
 // AllPermissions is the canonical list (used by UI + role validation).
 var AllPermissions = []string{
-	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermRigRelease, PermRigSimulate, PermContestsManage, PermContestsCreatePrivate, PermContestsManagePrivate, PermContestAdmin, PermAuditLog, PermFeatureRequestsRead, PermFeatureRequestsWrite, PermDOKEdit, PermCallsignRequestsReview, PermBackupsManage,
+	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermRigRelease, PermRigSimulate, PermContestsManage, PermContestsCreatePrivate, PermContestsManagePrivate, PermContestAdmin, PermAuditLog, PermFeatureRequestsRead, PermFeatureRequestsWrite, PermDOKEdit, PermCallsignRequestsReview, PermBackupsManage, PermGroupsManage,
 }
 
 // DefaultUserRolePermissions are the permissions assigned to the built-in
-// "user" role on first startup.
+// "user" role on first startup. groups.manage is included so every
+// authenticated user can create their own groups; per-group ownership then
+// gates who may edit / delete each group.
 var DefaultUserRolePermissions = []string{
-	PermQSOWrite, PermQSOExport, PermRigUse, PermFeatureRequestsWrite,
+	PermQSOWrite, PermQSOExport, PermRigUse, PermFeatureRequestsWrite, PermGroupsManage,
 }
 
 // HasPermission returns true if perms grants key (or wildcard).
@@ -61,6 +64,41 @@ func HasPermission(perms []string, key string) bool {
 		}
 	}
 	return false
+}
+
+// ContestAdminOverride returns true when the session's global permissions
+// let it act as the owner of the given contest — either contest.admin
+// (owner of every contest) or the matching contests.manage variant for
+// the contest's visibility. This is passed to
+// store.EffectiveContestRole() so admins keep full rights.
+func ContestAdminOverride(perms []string, visibility string) bool {
+	if HasPermission(perms, PermContestAdmin) {
+		return true
+	}
+	// contests.manage_private covers private contests; contests.manage
+	// covers everything else (open + groups) — mirrors the legacy split.
+	if visibility == store.VisibilityPrivate {
+		return HasPermission(perms, PermContestsManagePrivate)
+	}
+	return HasPermission(perms, PermContestsManage)
+}
+
+// ContestRoleAtLeast reports whether have satisfies at least the strength of
+// want. Role hierarchy: owner > editor > logger > "".
+func ContestRoleAtLeast(have, want string) bool {
+	rank := func(r string) int {
+		switch r {
+		case store.ContestRoleOwner:
+			return 3
+		case store.ContestRoleEditor:
+			return 2
+		case store.ContestRoleLogger:
+			return 1
+		default:
+			return 0
+		}
+	}
+	return rank(have) >= rank(want)
 }
 
 // Session is a logged-in user.
