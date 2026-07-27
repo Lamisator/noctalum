@@ -260,6 +260,15 @@ else
   if [ ${#downloads[@]} -eq 0 ]; then
     echo "warning: no helper/wsjtx binaries found in dist/ — was build skipped?" >&2
   else
+    # Purge the remote /downloads/ directory first so retired artefacts
+    # (e.g. an old .zip that a Fyne rewrite replaced with a .exe, or an
+    # old-arch AppImage the current build no longer produces) can't
+    # linger and shadow the fresh files in the download UI.  We only
+    # purge the noctalum-{helper,wsjtx}-* namespace — anything else in
+    # /downloads/ (dist-provided icons, README, ad-hoc uploads) is left
+    # alone.  Ordering matters: purge THEN scp, never the reverse.
+    ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
+      "rm -f $REMOTE_APP_DIR/downloads/noctalum-helper-* $REMOTE_APP_DIR/downloads/noctalum-wsjtx-*"
     scp "${SSH_OPTS[@]}" "${downloads[@]}" \
       "$SSH_HOST:$REMOTE_APP_DIR/downloads/"
   fi
