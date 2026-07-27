@@ -7968,12 +7968,17 @@
     clearApproveHash();
     const res = await api('/api/login-request/' + encodeURIComponent(id));
     if (!res.ok) {
-      // Silently drop — expired or consumed requests aren't actionable and
-      // shouldn't scare the operator.
+      // Expired / consumed / not-found requests aren't actionable, but
+      // log so a legitimate operator can see why the prompt did not
+      // appear rather than being left silently on the main menu.
+      try {
+        const ej = await res.json();
+        console.warn('device-pair: request unavailable', res.status, ej && ej.error);
+      } catch { console.warn('device-pair: request unavailable', res.status); }
       return;
     }
     const j = await res.json();
-    if (j.status !== 'pending') return;
+    if (j.status !== 'pending') { console.warn('device-pair: request status is', j.status); return; }
     $('device-approve-ip').textContent = j.requester_ip || '—';
     $('device-approve-ua').textContent = summarizeUA(j.requester_ua || '');
     $('device-approve-age').textContent = fmtDeviceAge(j.created_at);
@@ -7997,6 +8002,13 @@
     okBtn.onclick = () => decide(true);
     denyBtn.onclick = () => decide(false);
   }
+
+  // Some phone QR-scanners open the URL in an existing Noctalum tab.
+  // In that case the browser only updates the fragment — no reload,
+  // no bootstrap — so we react to hashchange as well.
+  window.addEventListener('hashchange', () => {
+    if (me && pendingApproveID()) maybeShowApproverPrompt().catch(() => {});
+  });
 
   // ----- passkey management -----
   async function loadPasskeys() {
@@ -9421,6 +9433,11 @@
       applyPermissionsToUI();
       await loadSettings();
       applyDefaults();
+      // If the page was opened from a QR-code deep link
+      // (…/#approve=<id>), pop the approver modal now that
+      // me / csrfToken are populated.  Fire-and-forget so it
+      // does not block navigation into the contest screen.
+      maybeShowApproverPrompt().catch(() => {});
       if (!me.contest_id) {
         await showContestScreen();
       } else {
