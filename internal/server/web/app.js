@@ -1963,9 +1963,20 @@
         });
 
         // Draw vector canvas (paths + markers rendered by L.canvas()).
+        // Leaflet sizes the renderer's backing store to size×devicePixelRatio
+        // for hi-DPI crispness, so drawImage() without explicit dimensions
+        // would paste the vector layer at 2–3× scale on phones and shift the
+        // propagation lines off the actual QSO positions. Use the CSS-pixel
+        // bounding rect (same approach as the tile <img>s above) so drawImage
+        // scales the physical backing store back down to logical map space.
         const vecCanvas = canvasRenderer._container;
         if (vecCanvas) {
-          try { ctx.drawImage(vecCanvas, 0, 0); } catch (_) {}
+          try {
+            const vr = vecCanvas.getBoundingClientRect();
+            ctx.drawImage(vecCanvas,
+              Math.round(vr.left - mapRect.left), Math.round(vr.top - mapRect.top),
+              Math.round(vr.width), Math.round(vr.height));
+          } catch (_) {}
         }
 
         ctx.restore();
