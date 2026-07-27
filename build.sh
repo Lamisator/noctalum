@@ -27,7 +27,7 @@
 # separate containers.  macOS GUI builds require Xcode and must be done natively
 # with `wails build` on a Mac (see cmd/helper-gui/README.md).
 #
-# The C++ AppImages (cpp/{helper,helper-gui,wsjtx}) are always built natively —
+# The C++ AppImages (cpp/{helper,helper-gui,wsjtx,wsjtx-gui}) are always built natively —
 # no cross-compile support.  They need cmake, ninja, g++, pkg-config, and the
 # usual Qt6 / libwebsockets / nlohmann-json / libcurl dev packages.  If any of
 # those are missing the C++ builds are skipped with a clear message.
@@ -638,36 +638,40 @@ EOF
   ARCH="$(uname -m)" APPIMAGE_EXTRACT_AND_RUN=1 "$tool" "$appdir" "$OUT_DIR/$out" >/dev/null || return 1
 }
 
-# Package the Qt6 GUI: linuxdeploy + qt plugin bundles Qt6 libs so the AppImage
-# runs on hosts without matching Qt6 packages.
+# Package a Qt6 GUI project as an AppImage: linuxdeploy + qt plugin bundles
+# Qt6 libs so the AppImage runs on hosts without matching Qt6 packages.
+#   $1 project subdir under cpp/           (e.g. "helper-gui")
+#   $2 built binary name                   (e.g. "noctalum-helper-gui")
+#   $3 human-readable name for .desktop    (e.g. "Noctalum Helper (C++)")
+#   $4 output AppImage filename            (e.g. "noctalum-helper-gui-cpp-linux-amd64.AppImage")
 package_gui_appimage() {
-  local out="$1"
+  local project="$1" binary="$2" desktop_name="$3" out="$4"
   local bin_path
-  bin_path="$(cmake_build "helper-gui" "noctalum-helper-gui")" || return 1
+  bin_path="$(cmake_build "$project" "$binary")" || return 1
 
   ensure_linuxdeploy_qt || return 1
   local ld="$CACHE_DIR/bin/linuxdeploy"
-  local appdir="$CACHE_DIR/cpp-appdir/helper-gui"
+  local appdir="$CACHE_DIR/cpp-appdir/$project"
   rm -rf "$appdir"
   mkdir -p "$appdir/usr/bin" "$appdir/usr/share/applications" "$appdir/usr/share/icons/hicolor/256x256/apps"
-  cp "$bin_path" "$appdir/usr/bin/noctalum-helper-gui"
-  chmod +x "$appdir/usr/bin/noctalum-helper-gui"
-  cat > "$appdir/usr/share/applications/noctalum-helper-gui.desktop" <<'EOF'
+  cp "$bin_path" "$appdir/usr/bin/$binary"
+  chmod +x "$appdir/usr/bin/$binary"
+  cat > "$appdir/usr/share/applications/$binary.desktop" <<EOF
 [Desktop Entry]
-Name=Noctalum Helper (C++)
-Exec=noctalum-helper-gui
-Icon=noctalum-helper-gui
+Name=$desktop_name
+Exec=$binary
+Icon=$binary
 Type=Application
 Categories=HamRadio;
 EOF
-  cp "$ROOT/noctalum.png" "$appdir/usr/share/icons/hicolor/256x256/apps/noctalum-helper-gui.png"
+  cp "$ROOT/noctalum.png" "$appdir/usr/share/icons/hicolor/256x256/apps/$binary.png"
 
   # linuxdeploy-plugin-qt needs its runner discoverable on PATH.  Route its
   # (chatty) output through a scratch file so we can print it only on failure.
   local logf; logf="$(mktemp)"
   if ! PATH="$CACHE_DIR/bin:$PATH" APPIMAGE_EXTRACT_AND_RUN=1 \
        "$ld" --appdir "$appdir" --plugin qt --output appimage \
-       --desktop-file "$appdir/usr/share/applications/noctalum-helper-gui.desktop" \
+       --desktop-file "$appdir/usr/share/applications/$binary.desktop" \
        >"$logf" 2>&1; then
     echo "    linuxdeploy failed — see $logf" >&2
     tail -15 "$logf" >&2
@@ -733,11 +737,26 @@ build_cpp_all() {
   out="noctalum-helper-gui-cpp-linux-${arch}.AppImage"
   echo "==> $out"
   if pkg-config --exists Qt6Core Qt6Widgets Qt6WebSockets Qt6SerialPort \
-     && package_gui_appimage "$out"; then
+     && package_gui_appimage "helper-gui" "noctalum-helper-gui" \
+                             "Noctalum Helper (C++)" "$out"; then
     cpp_built+=("helper-gui-cpp/linux/${arch}")
   else
     echo "    skipping — missing qt6-base-dev/qt6-websockets-dev/qt6-serialport-dev"
     cpp_skipped+=("helper-gui-cpp/linux/${arch}")
+  fi
+
+  # WSJT-X GUI bridge (Qt6 Widgets + Network only — no WebSockets/SerialPort).
+  # Cross-platform sources; on Linux we ship it as an AppImage next to the
+  # other C++ helpers.
+  out="noctalum-wsjtx-gui-linux-${arch}.AppImage"
+  echo "==> $out"
+  if pkg-config --exists Qt6Core Qt6Widgets Qt6Network \
+     && package_gui_appimage "wsjtx-gui" "noctalum-wsjtx-gui" \
+                             "Noctalum WSJT-X Bridge" "$out"; then
+    cpp_built+=("wsjtx-gui/linux/${arch}")
+  else
+    echo "    skipping — missing qt6-base-dev"
+    cpp_skipped+=("wsjtx-gui/linux/${arch}")
   fi
 }
 
