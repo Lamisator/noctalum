@@ -74,9 +74,10 @@ type ui struct {
 	pwdPage         fyne.CanvasObject
 
 	// Status + log
-	statusLbl *widget.Label
-	qsoCount  int
-	countLbl  *widget.Label
+	statusLbl  *widget.Label
+	qsoCount   int
+	pendingCnt int
+	countLbl   *widget.Label
 	logEntries []logRow
 	logList    *widget.List
 }
@@ -332,7 +333,7 @@ func (u *ui) build() {
 	clearBtn := widget.NewButton("Clear", func() {
 		u.logEntries = nil
 		u.qsoCount = 0
-		u.countLbl.SetText("0 QSOs logged")
+		u.refreshCountLabel()
 		u.logList.Refresh()
 	})
 	activityHead := container.NewBorder(nil, nil,
@@ -544,42 +545,77 @@ func (u *ui) onForgetClicked() {
 // ── Event pump ───────────────────────────────────────────────────────────
 
 func (u *ui) pumpEvents() {
+	// Pick up whatever's already queued from a previous run so the
+	// "N pending" label is accurate before the first event fires.
+	u.pendingCnt = u.sess.OutboxLen()
+	u.refreshCountLabel()
+	if u.pendingCnt > 0 {
+		u.appendLog(fmt.Sprintf(
+			"Loaded %d QSO(s) from a previous session's outbox — will retry as soon as the server is reachable.",
+			u.pendingCnt), "warn")
+	}
 	for e := range u.sess.Events() {
 		switch e.Kind {
 		case "listening":
 			u.appendLog("Listening on "+e.Message+" for WSJT-X.", "ok")
 		case "stopped":
-			// Redundant with the Stop click handler's log line, but the
-			// listener can also stop on its own (socket error), which
-			// deserves a message too.
+			// The listener can stop on its own (socket error) as well
+			// as via the Stop button; ignore the event if the button
+			// already reset state.
 			if u.sess.Listening() {
-				// The pumping event may fire after we already re-set
-				// state; ignore in that case.
 				continue
 			}
+		case "log":
+			u.appendLog(e.Message, "warn")
+		case "queue":
+			u.pendingCnt = e.Pending
+			u.refreshCountLabel()
 		case "qso":
 			r := e.Result
-			if r == nil || r.QSO == nil {
+			if r == nil || r.Item == nil {
 				continue
 			}
-			q := r.QSO
-			line := fmt.Sprintf("%-12s  %-6s  %8.1f kHz  sent %-4s  rcvd %s",
-				q.DxCall, q.Mode,
-				float64(q.DialFrequency)/1000.0,
-				q.ReportSent, q.ReportReceived)
-			switch {
-			case r.OK:
-				u.qsoCount++
-				u.countLbl.SetText(fmt.Sprintf("%d QSOs logged", u.qsoCount))
-				u.appendLog(line, "ok")
-			case r.Skipped:
-				u.appendLog(line+"  — "+r.Err, "warn")
-			default:
-				u.appendLog(line+"  ← "+r.Err, "err")
-			}
+			u.appendQSOLine(r)
 		case "error":
 			u.appendLog("Error: "+e.Message, "err")
 		}
+	}
+}
+
+// appendQSOLine turns a qsoResult into the one-line Activity log entry
+// the operator sees.  Each result kind maps to a distinct prefix so an
+// outage's retry chatter stays visually distinct from confirmed sends.
+func (u *ui) appendQSOLine(r *qsoResult) {
+	it := r.Item
+	// Pretty-print the QSO on a fixed grid so consecutive log lines
+	// line up regardless of callsign length.
+	line := fmt.Sprintf("%-12s  %-6s", it.Callsign, it.Mode)
+	switch r.Kind {
+	case qsoQueued:
+		u.appendLog(line+"  → queued", "")
+	case qsoSent:
+		u.qsoCount++
+		u.refreshCountLabel()
+		u.appendLog(line+"  ✓ sent to server", "ok")
+	case qsoSkipped:
+		u.appendLog(line+"  — "+r.Err, "warn")
+	case qsoDropped:
+		u.appendLog(line+"  ✗ dropped: "+r.Err, "err")
+	case qsoRetry:
+		// Retry noise is high during an outage; downgrade to warn
+		// (yellow) and lean on the "N pending" counter for state.
+		u.appendLog(line+"  … waiting to retry: "+r.Err, "warn")
+	}
+}
+
+// refreshCountLabel rebuilds the "N logged / M pending" text.  The
+// pending part only shows when there's actually something waiting so an
+// idle bridge doesn't nag with "0 pending".
+func (u *ui) refreshCountLabel() {
+	if u.pendingCnt > 0 {
+		u.countLbl.SetText(fmt.Sprintf("%d QSOs logged · %d pending", u.qsoCount, u.pendingCnt))
+	} else {
+		u.countLbl.SetText(fmt.Sprintf("%d QSOs logged", u.qsoCount))
 	}
 }
 

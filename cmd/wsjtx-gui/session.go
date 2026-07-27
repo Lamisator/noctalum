@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -29,20 +30,30 @@ type contest struct {
 // whether or not the server accepted it.  The UI turns it into an
 // Activity-log line.
 type qsoResult struct {
-	QSO     *wsjtx.LogQSO
-	OK      bool
-	Skipped bool   // true when the client-side callsign filter dropped it
-	Err     string // set when OK==false
+	Item    *wsjtx.OutboxItem
+	Kind    qsoResultKind
+	Err     string
 }
+
+type qsoResultKind int
+
+const (
+	qsoQueued  qsoResultKind = iota // just arrived, in outbox awaiting first attempt
+	qsoSent                          // outbox item confirmed by server
+	qsoSkipped                       // client-side MyCall filter dropped it, never posted
+	qsoDropped                       // POSTed but server rejected in a non-retriable way
+	qsoRetry                         // last attempt failed with a retriable error
+)
 
 // listenerEvent groups the messages a running session emits back to the UI
 // over a Go channel.  The channel is unbuffered but the UI reads it on a
 // tight `select` loop wrapped in fyne's queue, so drops shouldn't happen
 // in practice.
 type listenerEvent struct {
-	Kind    string // "log", "qso", "listening", "stopped", "error"
+	Kind    string // "log", "qso", "listening", "stopped", "error", "queue"
 	Message string
 	Result  *qsoResult
+	Pending int // for Kind=="queue": current outbox length
 }
 
 // session is the long-lived state that drives one WSJT-X → Noctalum
@@ -61,22 +72,66 @@ type session struct {
 	loggedIn  bool
 
 	// Token mode
-	helperToken       string
-	tokenContestID    int64
-	tokenStationCall  string // may be empty for pre-v0.76 tokens
+	helperToken      string
+	tokenContestID   int64
+	tokenStationCall string // may be empty for pre-v0.76 tokens
 
 	// Runtime
 	events chan listenerEvent
 	cancel context.CancelFunc
 	pc     net.PacketConn
+
+	// Persistent QSO queue.  Set once at construction and reused for
+	// the process lifetime; the retry loop drains it whenever the
+	// server is reachable, so a network outage cannot cost the operator
+	// any QSO WSJT-X already reported.
+	outbox         *wsjtx.Outbox
+	pendingChanged chan struct{}
+	retryCancel    context.CancelFunc
 }
 
+// newSession opens the persistent outbox (or falls back to an in-memory
+// one on filesystem errors), spawns the retry loop, and returns a ready
+// session.  The retry loop runs for the process lifetime because the
+// outbox may already contain items from a prior run — we want them to
+// flush as soon as the operator gives us a server.
 func newSession() *session {
 	jar, _ := cookiejar.New(nil)
-	return &session{
-		hc:     &http.Client{Jar: jar, Timeout: 15 * time.Second},
-		events: make(chan listenerEvent, 32),
+	s := &session{
+		hc:             &http.Client{Jar: jar, Timeout: 15 * time.Second},
+		events:         make(chan listenerEvent, 64),
+		pendingChanged: make(chan struct{}, 1),
 	}
+
+	// Store the outbox alongside the credentials file — same per-OS
+	// config dir, same 0600 permissions.  A missing directory is fine;
+	// LoadOutbox / MkdirAll will create it on first Add.
+	obPath := filepath.Join(filepath.Dir(credentialsPath()), "wsjtx-outbox.json")
+	ob, err := wsjtx.LoadOutbox(obPath)
+	if err == wsjtx.ErrOutboxCorrupt {
+		// Non-fatal: LoadOutbox has already renamed the bad file and
+		// returned an empty (but usable) outbox.  The UI will note it
+		// once the event pump comes online.
+		go func() {
+			s.events <- listenerEvent{Kind: "log",
+				Message: "warning: on-disk outbox was corrupt — old file renamed with .corrupt-* suffix"}
+		}()
+	} else if err != nil {
+		// Filesystem is unwritable — fall back to an unpersisted queue
+		// so at least in-memory retries still work.  We surface the
+		// error once so the operator knows persistence is off.
+		go func() {
+			s.events <- listenerEvent{Kind: "log",
+				Message: "warning: outbox persistence disabled — " + err.Error()}
+		}()
+		ob = &wsjtx.Outbox{}
+	}
+	s.outbox = ob
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.retryCancel = cancel
+	go s.retryLoop(ctx)
+	return s
 }
 
 // events returns the channel the UI reads listener events from.  Never
@@ -84,7 +139,7 @@ func newSession() *session {
 // channel would make the UI's select loop harder).
 func (s *session) Events() <-chan listenerEvent { return s.events }
 
-// emit pushes an event; drops if the channel buffer is full (32 slots
+// emit pushes an event; drops if the channel buffer is full (64 slots
 // should be plenty for one WSJT-X — QSOs come in at most a couple per
 // second).
 func (s *session) emit(e listenerEvent) {
@@ -93,6 +148,17 @@ func (s *session) emit(e listenerEvent) {
 	default:
 	}
 }
+
+// emitQueueChanged tells the UI to refresh its "N pending" label.  Cheap
+// to call — the UI only rebuilds the label when the number differs from
+// what it last showed.
+func (s *session) emitQueueChanged() {
+	s.emit(listenerEvent{Kind: "queue", Pending: s.outbox.Len()})
+}
+
+// OutboxLen exposes the current pending count for the UI to poll on
+// startup (before the first queue event fires).
+func (s *session) OutboxLen() int { return s.outbox.Len() }
 
 // normaliseBase strips a trailing "/" and applies the "bare host:port →
 // https://" default that the CLI bridge and the Qt bridge both use.
@@ -112,7 +178,9 @@ func normaliseBase(s string) string {
 
 // Reset drops the CSRF token and cookies so the operator can switch modes
 // or accounts without restarting the process.  Does NOT stop a running
-// listener — call Stop() first if that's what you want.
+// listener (call Stop first) and does NOT clear the outbox — items keep
+// their embedded endpoint so a cookie-mode item will still POST to
+// /api/qsos even after the session flips to token mode.
 func (s *session) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -159,6 +227,8 @@ func (s *session) Login(server, user, pass string) error {
 	s.loggedIn = true
 	s.helperToken = "" // switching modes → clear the other side's state
 	s.mu.Unlock()
+	// Wake the retry loop in case the queue was waiting for a session.
+	s.pokeRetry()
 	return nil
 }
 
@@ -224,6 +294,8 @@ func (s *session) ConfigureToken(blob string) error {
 	s.csrfToken = ""
 	s.loggedIn = false
 	s.mu.Unlock()
+	// Fresh token might unlock a queue that was stalled on missing auth.
+	s.pokeRetry()
 	return nil
 }
 
@@ -239,10 +311,9 @@ func (s *session) TokenContestInfo() (int64, string) {
 // ── UDP listener ─────────────────────────────────────────────────────────
 
 // StartListening binds the UDP port and spawns a goroutine that forwards
-// every LOG_QSO datagram it decodes to the server, honouring the
-// client-side MyCall filter (in token mode) and forceDup on duplicates.
-// Returns immediately after the socket is bound.  Progress and QSOs are
-// reported through Events().
+// every LOG_QSO datagram it decodes into the outbox — from where the
+// retry loop pushes it to the server.  Returns immediately after the
+// socket is bound.  Progress and QSOs are reported through Events().
 func (s *session) StartListening(udpAddr string, forceDup bool) error {
 	s.mu.Lock()
 	if s.pc != nil {
@@ -260,6 +331,9 @@ func (s *session) StartListening(udpAddr string, forceDup bool) error {
 	s.mu.Unlock()
 
 	s.emit(listenerEvent{Kind: "listening", Message: udpAddr})
+	// New "listening" session: flush anything the outbox has queued
+	// from a previous run so the operator sees progress right away.
+	s.pokeRetry()
 
 	go s.listenLoop(ctx, pc, forceDup)
 	return nil
@@ -267,7 +341,8 @@ func (s *session) StartListening(udpAddr string, forceDup bool) error {
 
 // Stop closes the UDP socket and waits for the listener goroutine to
 // notice via its context cancellation.  Idempotent: calling on a stopped
-// session is a no-op.
+// session is a no-op.  Does NOT stop the retry loop — pending QSOs keep
+// draining even after the operator hits Stop, so nothing sits stalled.
 func (s *session) Stop() {
 	s.mu.Lock()
 	pc := s.pc
@@ -308,8 +383,6 @@ func (s *session) listenLoop(ctx context.Context, pc net.PacketConn, forceDup bo
 			if errors.As(err, &netErr) && netErr.Timeout() {
 				continue
 			}
-			// Real error — probably the socket got closed by Stop().
-			// Bail out silently; the caller already knows.
 			s.emit(listenerEvent{Kind: "stopped"})
 			return
 		}
@@ -317,13 +390,20 @@ func (s *session) listenLoop(ctx context.Context, pc net.PacketConn, forceDup bo
 		if err != nil {
 			continue // not LOG_QSO — WSJT-X sends heartbeats/status too
 		}
-		s.processQSO(q, forceDup)
+		s.enqueue(q, forceDup)
 	}
 }
 
-func (s *session) processQSO(q *wsjtx.LogQSO, forceDup bool) {
+// enqueue handles one just-decoded WSJT-X QSO: runs the client-side
+// callsign filter, then persists it to the outbox and pokes the retry
+// loop so the first send attempt happens right away.  Nothing sends
+// synchronously here — that keeps this fast (the UDP listener is
+// single-threaded) and gives the retry loop full ownership of the
+// outbox for both first sends and retries.
+func (s *session) enqueue(q *wsjtx.LogQSO, forceDup bool) {
 	s.mu.Lock()
 	tokenMode := s.helperToken != ""
+	tokenContest := s.tokenContestID
 	stationCall := s.tokenStationCall
 	s.mu.Unlock()
 
@@ -331,30 +411,19 @@ func (s *session) processQSO(q *wsjtx.LogQSO, forceDup bool) {
 	// token carries a station_call — pre-v0.76 tokens don't).
 	if tokenMode && stationCall != "" && q.MyCall != "" {
 		if wsjtx.BaseCallsign(q.MyCall) != wsjtx.BaseCallsign(stationCall) {
+			skipped := &wsjtx.OutboxItem{
+				Callsign: q.DxCall,
+				Mode:     q.Mode,
+				MyCall:   q.MyCall,
+			}
 			s.emit(listenerEvent{Kind: "qso", Result: &qsoResult{
-				QSO: q, Skipped: true,
+				Item: skipped, Kind: qsoSkipped,
 				Err: fmt.Sprintf("skipped — WSJT-X station callsign %s doesn't match the contest station %s",
 					q.MyCall, stationCall),
 			}})
 			return
 		}
 	}
-
-	if err := s.submitQSO(q, forceDup); err != nil {
-		s.emit(listenerEvent{Kind: "qso", Result: &qsoResult{QSO: q, Err: err.Error()}})
-		return
-	}
-	s.emit(listenerEvent{Kind: "qso", Result: &qsoResult{QSO: q, OK: true}})
-}
-
-func (s *session) submitQSO(q *wsjtx.LogQSO, forceDup bool) error {
-	s.mu.Lock()
-	base := s.serverBase
-	csrf := s.csrfToken
-	tokenMode := s.helperToken != ""
-	helperTok := s.helperToken
-	contestID := s.tokenContestID
-	s.mu.Unlock()
 
 	payload := map[string]any{
 		"callsign":     strings.ToUpper(strings.TrimSpace(q.DxCall)),
@@ -369,59 +438,207 @@ func (s *session) submitQSO(q *wsjtx.LogQSO, forceDup bool) error {
 		payload["notes"] = notes
 	}
 
-	var url string
+	endpoint := "/api/qsos"
 	if tokenMode {
-		payload["contest_id"] = contestID
+		endpoint = "/api/wsjtx/qsos"
+		payload["contest_id"] = tokenContest
 		if q.MyCall != "" {
 			payload["my_call"] = q.MyCall
 		}
-		url = base + "/api/wsjtx/qsos"
-	} else {
-		url = base + "/api/qsos"
 	}
-	if forceDup {
+	body, _ := json.Marshal(payload)
+	item := &wsjtx.OutboxItem{
+		Endpoint:  endpoint,
+		Body:      body,
+		ContestID: tokenContest,
+		Callsign:  q.DxCall,
+		Mode:      q.Mode,
+		MyCall:    q.MyCall,
+		ForceDup:  forceDup,
+	}
+	if err := s.outbox.Add(item); err != nil {
+		s.emit(listenerEvent{Kind: "log",
+			Message: "warning: outbox persistence failed (" + err.Error() + ") — sending in-memory only"})
+	}
+	s.emit(listenerEvent{Kind: "qso", Result: &qsoResult{Item: item, Kind: qsoQueued}})
+	s.emitQueueChanged()
+	s.pokeRetry()
+}
+
+// ── Retry loop ───────────────────────────────────────────────────────────
+
+const (
+	baseRetryInterval = 5 * time.Second
+	maxRetryInterval  = 5 * time.Minute
+)
+
+// pokeRetry wakes the retry loop immediately.  Used both for "we just
+// got a new item, try to send now" and for "auth changed, previously
+// stalled items may now succeed".
+func (s *session) pokeRetry() {
+	select {
+	case s.pendingChanged <- struct{}{}:
+	default:
+	}
+}
+
+// retryLoop is the single point that talks to the server.  Everything
+// else in this file writes to the outbox; retryLoop drains it.  Runs
+// for the process lifetime with exponential backoff between failing
+// waves so a long outage doesn't hammer the network.
+func (s *session) retryLoop(ctx context.Context) {
+	interval := baseRetryInterval
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.pendingChanged:
+			// Fresh item or fresh auth — try again right away, and
+			// reset the backoff because the trigger is probably a
+			// meaningful state change.
+			interval = baseRetryInterval
+		case <-time.After(interval):
+		}
+
+		if s.outbox.Len() == 0 {
+			interval = baseRetryInterval
+			continue
+		}
+		succeeded, tried := s.flushOutbox()
+		if tried == 0 {
+			// Nothing was actually attempted (e.g. session not
+			// configured yet) — don't grow the backoff.
+			continue
+		}
+		if succeeded == tried {
+			interval = baseRetryInterval
+		} else {
+			interval *= 2
+			if interval > maxRetryInterval {
+				interval = maxRetryInterval
+			}
+		}
+	}
+}
+
+// flushOutbox walks a snapshot of the queue, sending items one at a
+// time.  Stops on the first retriable failure so we don't hammer a
+// down server with the full queue every wave.  Returns (successes,
+// attempts) so retryLoop can adjust its backoff.
+func (s *session) flushOutbox() (succeeded, tried int) {
+	snap := s.outbox.Snapshot()
+	for i := range snap {
+		it := snap[i]
+		result, msg := s.trySendItem(&it)
+		tried++
+		switch result {
+		case wsjtx.SendOK:
+			_ = s.outbox.Remove(it.ID)
+			s.emit(listenerEvent{Kind: "qso", Result: &qsoResult{Item: &it, Kind: qsoSent}})
+			s.emitQueueChanged()
+			succeeded++
+		case wsjtx.SendDrop:
+			_ = s.outbox.Remove(it.ID)
+			s.emit(listenerEvent{Kind: "qso", Result: &qsoResult{Item: &it, Kind: qsoDropped, Err: msg}})
+			s.emitQueueChanged()
+			// A drop isn't a network failure — don't grow the
+			// backoff.  Count it toward `succeeded` so retryLoop
+			// treats the wave as healthy.
+			succeeded++
+		case wsjtx.SendRetry:
+			_ = s.outbox.UpdateError(it.ID, msg)
+			s.emit(listenerEvent{Kind: "qso", Result: &qsoResult{Item: &it, Kind: qsoRetry, Err: msg}})
+			// Stop draining after the first retriable failure —
+			// the rest of the queue would just repeat the same
+			// error.  We'll come back on the next retry tick.
+			return
+		}
+	}
+	return
+}
+
+// trySendItem POSTs one item and classifies the outcome.  Auth is
+// attached from the current session state, not from anything persisted
+// on the item, so re-auth (fresh login, pasting a new token) picks up
+// the queue transparently.
+func (s *session) trySendItem(item *wsjtx.OutboxItem) (wsjtx.SendResult, string) {
+	s.mu.Lock()
+	base := s.serverBase
+	csrf := s.csrfToken
+	helperTok := s.helperToken
+	s.mu.Unlock()
+
+	if base == "" {
+		return wsjtx.SendRetry, "session not configured"
+	}
+	url := base + item.Endpoint
+	if item.ForceDup {
 		url += "?force=1"
 	}
-
-	body, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(item.Body))
 	if err != nil {
-		return err
+		// Malformed URL etc — nothing a retry will fix.
+		return wsjtx.SendDrop, err.Error()
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if tokenMode {
+	if strings.HasSuffix(item.Endpoint, "/wsjtx/qsos") {
+		if helperTok == "" {
+			return wsjtx.SendRetry, "no helper token configured"
+		}
 		req.Header.Set("X-Helper-Token", helperTok)
-	} else if csrf != "" {
+	} else {
+		if csrf == "" {
+			return wsjtx.SendRetry, "not logged in"
+		}
 		req.Header.Set("X-CSRF-Token", csrf)
 	}
 
 	resp, err := s.hc.Do(req)
 	if err != nil {
-		return err
+		// Transport error: DNS, connect refused, TLS, timeout — retry.
+		return wsjtx.SendRetry, err.Error()
 	}
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
 	case http.StatusCreated:
-		return nil
+		return wsjtx.SendOK, ""
 	case http.StatusConflict:
-		return errors.New("possible duplicate — enable \"Log duplicates\" to override")
+		// Duplicate that ForceDup wouldn't have overridden.  Drop
+		// with a clear message — the operator can enable "Log
+		// duplicates" if they really want it in.
+		return wsjtx.SendDrop, "duplicate (enable \"Log duplicates\" to override)"
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
+		// The server rejected the QSO data itself (bad callsign,
+		// callsign-mismatch, invalid mode).  Retrying won't fix that,
+		// but the operator should see the error so they can fix
+		// WSJT-X and re-log.
+		return wsjtx.SendDrop, httpErrorMessage(resp)
 	default:
-		return httpError(resp)
+		// 401/403 (auth), 5xx (server transient), anything else — treat
+		// as retriable so a re-login or a bounced server recovers
+		// automatically.  A truly broken auth will surface as repeated
+		// warnings in the Activity log; the operator hits Stop, fixes
+		// their credentials, and the queue drains.
+		return wsjtx.SendRetry, httpErrorMessage(resp)
 	}
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 func httpError(resp *http.Response) error {
+	return errors.New(httpErrorMessage(resp))
+}
+
+func httpErrorMessage(resp *http.Response) string {
 	var e struct {
 		Error string `json:"error"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&e)
 	if e.Error != "" {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, e.Error)
+		return fmt.Sprintf("HTTP %d: %s", resp.StatusCode, e.Error)
 	}
-	return fmt.Errorf("HTTP %d", resp.StatusCode)
+	return fmt.Sprintf("HTTP %d", resp.StatusCode)
 }
 
 // listenUDP opens a UDP listener; automatically joins the multicast group
