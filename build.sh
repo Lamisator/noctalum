@@ -352,9 +352,31 @@ run_gui_build() {
   echo "==> $out  (CGO=1, ${target_os}/${target_arch}  tags=${all_tags})"
 
   if $native_build; then
+    # Native cross-compile needs a matching C toolchain for the
+    # target: the host's gcc for linux/amd64, mingw-w64 for
+    # windows/amd64, osxcross for darwin/*.  We auto-pick the CC/CXX
+    # for the common Windows-from-Linux case (Arch's `mingw-w64-gcc`
+    # or Debian's `gcc-mingw-w64-x86-64` both install this compiler)
+    # and abort with a clear message if it's missing, instead of
+    # letting `go build` fail somewhere deep in cgo with a cryptic
+    # "cannot find header" error.
+    local host_os; host_os="$(go env GOOS)"
+    local cc="" cxx=""
+    if [ "$target_os" = "windows" ] && [ "$host_os" != "windows" ]; then
+      if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+        cc="x86_64-w64-mingw32-gcc"
+        cxx="x86_64-w64-mingw32-g++"
+      else
+        echo "error: native windows cross-compile needs x86_64-w64-mingw32-gcc on \$PATH" >&2
+        echo "       install with 'pacman -S mingw-w64-gcc' (Arch) or 'apt-get install gcc-mingw-w64-x86-64' (Debian)," >&2
+        echo "       or drop --native and let the Docker toolchain image handle it." >&2
+        return 1
+      fi
+    fi
     (
       cd "$ROOT/$subdir"
       CGO_ENABLED=1 GOOS="$target_os" GOARCH="$target_arch" \
+        ${cc:+CC="$cc"} ${cxx:+CXX="$cxx"} \
         go build -trimpath -mod=mod -tags "$all_tags" \
           -ldflags="${extra_ldflags:+${extra_ldflags} }$LDFLAGS" \
           -o "$OUT_DIR/$out" .
@@ -692,13 +714,31 @@ DOCKERFILE
 
 if $build_gui; then
   if $native_build && [ -z "$single_target" ]; then
-    # In native mode without an explicit --target, only build for this machine.
-    # CGO cross-compilation requires the target's sysroot; that's the whole
-    # point of the Docker toolchain images.
+    # Native mode: always build for the host, and additionally
+    # cross-compile the wsjtx-gui (Fyne) Windows binary from a Linux
+    # host when mingw-w64 is installed — that keeps the Windows
+    # .exe fresh even for users who don't run Docker.  The helper-gui
+    # (Wails) Windows build still needs Docker because of WebView2,
+    # so we don't attempt that natively.
     native_os="$(go env GOOS)"
     native_arch="$(go env GOARCH)"
     case "${native_os}/${native_arch}" in
-      linux/amd64)   build_gui_linux_amd64;   build_wsjtx_gui_linux_amd64 ;;
+      linux/amd64)
+        build_gui_linux_amd64
+        build_wsjtx_gui_linux_amd64
+        # Windows cross-compile via mingw-w64: silently skipped when
+        # the compiler isn't installed, so a native-only user without
+        # mingw doesn't see spurious errors — but when it IS
+        # installed, dist/ gets the fresh .exe that the download page
+        # needs to stop advertising "not available on Windows".
+        if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+          build_wsjtx_gui_windows_amd64
+        else
+          echo "  wsjtx-gui windows/amd64: install mingw-w64 to cross-compile the .exe natively" \
+               "(pacman -S mingw-w64-gcc / apt-get install gcc-mingw-w64-x86-64), or use Docker mode"
+          gui_skipped+=("wsjtx-gui/windows/amd64")
+        fi
+        ;;
       linux/arm64)   build_gui_linux_arm64;   build_wsjtx_gui_linux_arm64 ;;
       windows/amd64) build_gui_windows_amd64; build_wsjtx_gui_windows_amd64 ;;
       darwin/*)
