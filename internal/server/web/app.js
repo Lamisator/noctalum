@@ -1131,6 +1131,14 @@
         descKey: 'downloads.appWsjtxCppDesc',
         linuxOnly: true,
       },
+      {
+        type: 'wsjtx-gui',
+        icon: '📡',
+        nameKey: 'downloads.appWsjtxGuiName',
+        variantKey: 'downloads.appWsjtxGuiVariant',
+        descKey: 'downloads.appWsjtxGuiDesc',
+        linuxOnly: true,
+      },
     ];
 
     const OS_SVGS = {
@@ -1184,7 +1192,7 @@
     // stolen by the Go-helper card.
     const grouped = {};
     for (const f of files) {
-      const m = f.match(/^noctalum-(helper-gui-cpp|helper-gui|helper-cpp|helper|wsjtx-cpp|wsjtx)-(.+?)(?:\.AppImage|\.exe)?$/);
+      const m = f.match(/^noctalum-(helper-gui-cpp|helper-gui|helper-cpp|helper|wsjtx-gui|wsjtx-cpp|wsjtx)-(.+?)(?:\.AppImage|\.exe)?$/);
       if (!m) continue;
       const [, type, platform] = m;
       if (!grouped[type]) grouped[type] = [];
