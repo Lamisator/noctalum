@@ -714,29 +714,45 @@ DOCKERFILE
 
 if $build_gui; then
   if $native_build && [ -z "$single_target" ]; then
-    # Native mode: always build for the host, and additionally
-    # cross-compile the wsjtx-gui (Fyne) Windows binary from a Linux
-    # host when mingw-w64 is installed — that keeps the Windows
-    # .exe fresh even for users who don't run Docker.  The helper-gui
-    # (Wails) Windows build still needs Docker because of WebView2,
-    # so we don't attempt that natively.
+    # Native mode builds host-OS artefacts with the host toolchain
+    # (fast, no image bootstrap), but cross-target artefacts (WSJT-X
+    # GUI .exe from a Linux host) still need a foreign C toolchain
+    # for CGO.  Rather than force operators to install mingw-w64
+    # locally, we drop into Docker for just those steps — --native
+    # is a preference for host tools, not a hard ban on containers.
+    # The wsjtx-gui Windows step below therefore flips native_build
+    # off around the call so build_wsjtx_gui_windows_amd64 takes its
+    # Docker path.
     native_os="$(go env GOOS)"
     native_arch="$(go env GOARCH)"
     case "${native_os}/${native_arch}" in
       linux/amd64)
         build_gui_linux_amd64
         build_wsjtx_gui_linux_amd64
-        # Windows cross-compile via mingw-w64: silently skipped when
-        # the compiler isn't installed, so a native-only user without
-        # mingw doesn't see spurious errors — but when it IS
-        # installed, dist/ gets the fresh .exe that the download page
-        # needs to stop advertising "not available on Windows".
+        # WSJT-X GUI .exe: prefer host mingw when installed (faster
+        # go-build cache reuse), otherwise fall back to Docker so
+        # the download page can advertise Windows without demanding
+        # a host-side toolchain install.  $RUNTIME may be empty in
+        # native mode (the outer check only runs when native_build
+        # is false), so probe docker / podman directly here.
         if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
           build_wsjtx_gui_windows_amd64
         else
-          echo "  wsjtx-gui windows/amd64: install mingw-w64 to cross-compile the .exe natively" \
-               "(pacman -S mingw-w64-gcc / apt-get install gcc-mingw-w64-x86-64), or use Docker mode"
-          gui_skipped+=("wsjtx-gui/windows/amd64")
+          fallback_rt=""
+          for c in docker podman; do
+            if command -v "$c" >/dev/null 2>&1; then fallback_rt="$c"; break; fi
+          done
+          if [ -n "$fallback_rt" ]; then
+            echo "  wsjtx-gui windows/amd64: no host mingw-w64, using Docker toolchain via $fallback_rt"
+            RUNTIME="$fallback_rt"
+            native_build=false
+            build_wsjtx_gui_windows_amd64
+            native_build=true
+          else
+            echo "  wsjtx-gui windows/amd64: install mingw-w64 (pacman -S mingw-w64-gcc)" \
+                 "or Docker/Podman to cross-compile the .exe"
+            gui_skipped+=("wsjtx-gui/windows/amd64")
+          fi
         fi
         ;;
       linux/arm64)   build_gui_linux_arm64;   build_wsjtx_gui_linux_arm64 ;;
