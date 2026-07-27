@@ -9,9 +9,10 @@
 #   ./deploy.sh -prod    --countdown 30
 #   ./deploy.sh -staging -nohelpers  # skip helper/wsjtx/GUI build + upload
 #                                    # (server + notifier only — much faster)
-#   ./deploy.sh -prod --cpp-no-macos    # skip C++ macOS cross-compile
-#                                    # (use when cpp/third_party/osxcross-sdk/
-#                                    #  is empty — build.sh otherwise aborts)
+#   ./deploy.sh -prod --cpp-macos       # enable C++ macOS cross-compile
+#                                    # (off by default — needs
+#                                    #  cpp/third_party/osxcross-sdk/
+#                                    #  populated with a MacOSX SDK)
 #   ./deploy.sh -prod --cpp-no-windows  # skip C++ Windows cross-compile
 #
 # Environment selection is mandatory. If neither -prod nor -staging is
@@ -90,7 +91,9 @@ env_flag=""
 skip_build=false
 no_helpers=false
 cpp_no_windows=false
-cpp_no_macos=false
+# macOS cross-compile stays off unless the operator explicitly opts in
+# via --cpp-macos.  Matches build.sh's default (see note there).
+cpp_macos=false
 countdown=60
 
 while [ $# -gt 0 ]; do
@@ -103,13 +106,17 @@ while [ $# -gt 0 ]; do
       skip_build=true ; shift ;;
     -nohelpers|--no-helpers)
       no_helpers=true ; shift ;;
-    # C++ platform opt-outs — forwarded verbatim to build.sh.  Handy when
-    # the macOS SDK isn't present or the Windows toolchain image is out
-    # of date and you'd rather ship what's already working.
+    # C++ platform toggles — forwarded verbatim to build.sh.
+    #   --cpp-no-windows : skip Windows cross-compile (default: on)
+    #   --cpp-macos      : enable macOS cross-compile (default: off,
+    #                      needs cpp/third_party/osxcross-sdk/ populated)
+    #   --cpp-no-macos   : accepted but a no-op (macOS is off by default)
     --cpp-no-windows)
       cpp_no_windows=true ; shift ;;
     --cpp-no-macos)
-      cpp_no_macos=true ; shift ;;
+      shift ;;
+    --cpp-macos)
+      cpp_macos=true ; shift ;;
     --transfer-db)
       echo "error: --transfer-db is no longer supported. Use cmd/sqlite-to-pg to migrate a SQLite backup into Postgres." >&2
       exit 1
@@ -180,7 +187,7 @@ if [ "$skip_build" = false ]; then
     echo "Building all binaries..."
   fi
   [ "$cpp_no_windows" = true ] && build_args+=(--cpp-no-windows)
-  [ "$cpp_no_macos"   = true ] && build_args+=(--cpp-no-macos)
+  [ "$cpp_macos"      = true ] && build_args+=(--cpp-macos)
   "$ROOT/build.sh" "${build_args[@]}"
 fi
 

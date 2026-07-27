@@ -17,7 +17,13 @@
 #   ./build.sh --cpp-only               # only the C++ helper packages (Linux+Windows+macOS)
 #   ./build.sh --no-cpp                 # skip the C++ builds (default is to build)
 #   ./build.sh --cpp-no-windows         # skip the C++ Windows cross-compile
-#   ./build.sh --cpp-no-macos           # skip the C++ macOS cross-compile
+#   ./build.sh --cpp-macos              # ENABLE the C++ macOS cross-compile
+#                                       # (off by default — needs the osxcross
+#                                       #  SDK dropped into
+#                                       #  cpp/third_party/osxcross-sdk/, and
+#                                       #  the first image build takes ~20 min)
+#   ./build.sh --cpp-no-macos           # accepted but a no-op (macOS is
+#                                       # already off by default)
 #   ./build.sh --target linux/amd64     # restrict to one OS/arch
 #   ./build.sh --image golang:1.26      # use a different builder image
 #   ./build.sh --native                 # use the local toolchain instead of Docker
@@ -79,7 +85,11 @@ build_gui=true
 build_notifier=true
 build_cpp=true
 build_cpp_windows=true
-build_cpp_macos=true
+# macOS is opt-in until the osxcross SDK story is sorted — the SDK
+# tarball has to be dropped in manually, the image build takes ~20 min
+# on the first pass, and cross-compiling Qt for macOS from Linux is
+# fragile.  Pass --cpp-macos to enable.
+build_cpp_macos=false
 single_target=""
 native_build=false
 
@@ -94,7 +104,10 @@ while [ $# -gt 0 ]; do
     --no-gui)        build_gui=false; shift ;;
     --no-cpp)        build_cpp=false; shift ;;
     --cpp-no-windows) build_cpp_windows=false; shift ;;
+    # --cpp-no-macos is now a no-op (macOS is off by default) but kept
+    # accepted so old muscle-memory / scripts don't break.
     --cpp-no-macos)  build_cpp_macos=false; shift ;;
+    --cpp-macos)     build_cpp_macos=true;  shift ;;
     --no-helpers)    build_helper=false; build_wsjtx=false; build_gui=false; build_cpp=false; shift ;;
     --target)      single_target="$2"; shift 2 ;;
     --image)       GO_IMAGE="$2"; shift 2 ;;
