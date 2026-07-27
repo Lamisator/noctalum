@@ -1338,6 +1338,15 @@
     const shareBtn = canShare
       ? `<button class="contest-edit-pill contest-share-pill" title="${escHtml(t('contestScreen.sharePillTitle'))}" tabindex="-1">&#128279;</button>`
       : '';
+    // WSJT-X bridge token is per-contest and available to anyone who
+    // can log QSOs into this contest — the server rejects submissions
+    // from users without the effective role anyway, so a wide gate here
+    // just avoids hiding an actionable button from participants of
+    // open / groups-listed contests.
+    const canWsjtx = hasPerm('qso.write') && c.status === 'open';
+    const wsjtxBtn = canWsjtx
+      ? `<button class="contest-edit-pill contest-wsjtx-pill" title="${escHtml(t('contestScreen.wsjtxPillTitle'))}" tabindex="-1">&#128225;</button>`
+      : '';
     const accessBtn = canManageAccess
       ? `<button class="contest-edit-pill contest-access-pill" title="${escHtml(t('contestScreen.accessAuthorize'))}" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
       : (c.access_restricted ? `<span class="contest-access-indicator" title="${escHtml(t('contestScreen.accessRestricted'))}">&#128274;</span>` : '');
@@ -1357,13 +1366,14 @@
         <span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span>
         ${joinBtn}
         ${accessBtn}
+        ${wsjtxBtn}
         ${shareBtn}
         ${duplicateBtn}
         ${editBtn}
       </div>
     `;
     if (canEditThis) {
-      item.querySelector('.contest-edit-pill:not(.contest-access-pill):not(.contest-duplicate-pill):not(.contest-share-pill)')?.addEventListener('click', async (e) => {
+      item.querySelector('.contest-edit-pill:not(.contest-access-pill):not(.contest-duplicate-pill):not(.contest-share-pill):not(.contest-wsjtx-pill)')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         contestEditModal(c);
       });
@@ -1378,6 +1388,12 @@
       item.querySelector('.contest-share-pill')?.addEventListener('click', (e) => {
         e.stopPropagation();
         contestShareModal(c);
+      });
+    }
+    if (canWsjtx) {
+      item.querySelector('.contest-wsjtx-pill')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        contestWsjtxTokenModal(c);
       });
     }
     if (canManageAccess) {
@@ -1549,6 +1565,10 @@
     const shareBtn = canShare
       ? `<button class="contest-edit-pill contest-share-pill" title="${escHtml(t('contestScreen.sharePillTitle'))}" tabindex="-1">&#128279;</button>`
       : '';
+    const canWsjtx = hasPerm('qso.write') && c.status === 'open';
+    const wsjtxBtn = canWsjtx
+      ? `<button class="contest-edit-pill contest-wsjtx-pill" title="${escHtml(t('contestScreen.wsjtxPillTitle'))}" tabindex="-1">&#128225;</button>`
+      : '';
     const accessBtn = canManageAccess
       ? `<button class="contest-edit-pill contest-access-pill" title="${escHtml(t('contestScreen.accessAuthorize'))}" tabindex="-1">${c.access_restricted ? '&#128274;' : '&#128275;'}</button>`
       : (c.access_restricted ? `<span class="contest-access-indicator" title="${escHtml(t('contestScreen.accessRestricted'))}">&#128274;</span>` : '');
@@ -1565,10 +1585,10 @@
       <div class="cl-col cl-status"><span class="contest-picker-status ${c.status}">${escHtml(statusLabel)}</span></div>
       <div class="cl-col cl-date">${createdDate}</div>
       <div class="cl-col cl-activity">${actDate}</div>
-      <div class="cl-col cl-actions">${joinBtn}${accessBtn}${shareBtn}${duplicateBtn}${editBtn}</div>
+      <div class="cl-col cl-actions">${joinBtn}${accessBtn}${wsjtxBtn}${shareBtn}${duplicateBtn}${editBtn}</div>
     `;
     if (canEditThis) {
-      row.querySelector('.contest-edit-pill:not(.contest-access-pill):not(.contest-duplicate-pill):not(.contest-share-pill)')?.addEventListener('click', async (e) => {
+      row.querySelector('.contest-edit-pill:not(.contest-access-pill):not(.contest-duplicate-pill):not(.contest-share-pill):not(.contest-wsjtx-pill)')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         contestEditModal(c);
       });
@@ -1583,6 +1603,12 @@
       row.querySelector('.contest-share-pill')?.addEventListener('click', (e) => {
         e.stopPropagation();
         contestShareModal(c);
+      });
+    }
+    if (canWsjtx) {
+      row.querySelector('.contest-wsjtx-pill')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        contestWsjtxTokenModal(c);
       });
     }
     if (canManageAccess) {
@@ -4670,17 +4696,17 @@
     applyPermissionsToUI();
     loadMyPasskeys();
     loadMyCallsignRequest();
-    loadWsjtxBridgeToken();
   }
 
-  // ----- WSJT-X bridge token generator --------------------------------
+  // ----- WSJT-X bridge token ---------------------------------------------
   // The bridge accepts a copy-pasteable blob that packs three pieces of
   // config into one string: the server URL, the operator's helper token,
-  // and the contest ID to log QSOs into. Any authenticated user can
-  // generate one for any contest they can see, because the resulting
-  // token is only as authoritative as the underlying helper token — the
-  // server enforces per-contest write permission on every submission,
-  // exactly like the browser flow does.
+  // and the contest ID to log QSOs into. The token is a per-contest
+  // artifact (each contest gets a different blob because `c` is baked
+  // in) so the UI lives as a per-contest action, not a personal setting.
+  // The resulting token confers no more access than the operator already
+  // has — the server enforces per-contest write permission on every
+  // submission, exactly like the browser flow does.
   function encodeWsjtxToken({ server, helper_token, contest_id }) {
     const payload = JSON.stringify({ s: server, t: helper_token, c: contest_id });
     // Standard base64url (no padding) — mirrors the encoding the Qt
@@ -4689,62 +4715,6 @@
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     return 'noc1.' + b64;
   }
-
-  async function loadWsjtxBridgeToken() {
-    const sel = $('ms-wsjtx-contest');
-    const out = $('ms-wsjtx-token');
-    const emptyHint = $('ms-wsjtx-empty');
-    if (!sel || !out) return;
-    const res = await api('/api/contests');
-    if (!res.ok) return;
-    const contests = await res.json();
-    sel.innerHTML = '';
-    if (!contests || contests.length === 0) {
-      out.value = '';
-      out.disabled = true;
-      sel.disabled = true;
-      emptyHint?.classList.remove('hidden');
-      return;
-    }
-    emptyHint?.classList.add('hidden');
-    out.disabled = false;
-    sel.disabled = false;
-    for (const c of contests) {
-      const opt = document.createElement('option');
-      opt.value = String(c.id);
-      opt.textContent = `${c.name} · ${c.station_call}${c.status === 'finished' ? ' (finished)' : ''}`;
-      sel.appendChild(opt);
-    }
-    // Preselect the currently active contest if the user has one open,
-    // otherwise fall back to the first entry.
-    const activeId = me?.contest_id;
-    if (activeId && contests.some(c => c.id === activeId)) {
-      sel.value = String(activeId);
-    }
-    refreshWsjtxToken();
-  }
-
-  function refreshWsjtxToken() {
-    const sel = $('ms-wsjtx-contest');
-    const out = $('ms-wsjtx-token');
-    if (!sel || !out) return;
-    const cid = Number(sel.value);
-    if (!cid || !me?.helper_token) { out.value = ''; return; }
-    out.value = encodeWsjtxToken({
-      server: location.origin,
-      helper_token: me.helper_token,
-      contest_id: cid,
-    });
-  }
-
-  $('ms-wsjtx-contest')?.addEventListener('change', refreshWsjtxToken);
-  $('ms-wsjtx-copy')?.addEventListener('click', () => {
-    const input = $('ms-wsjtx-token');
-    if (!input || !input.value) return;
-    input.select();
-    try { document.execCommand('copy'); } catch (_) {}
-    if (navigator.clipboard) navigator.clipboard.writeText(input.value).catch(() => {});
-  });
   $('ms-regen-token')?.addEventListener('click', async () => {
     if (!await showConfirm(t('settings.regenConfirm'), { ok: t('settings.regenButton') })) return;
     const res = await api('/api/me/helper-token', { method: 'POST' });
@@ -4757,9 +4727,9 @@
     // Keep the legacy tab-settings inputs in sync for any code path that still reads them.
     if ($('s-token')) $('s-token').value = j.helper_token;
     if ($('hint-token')) $('hint-token').textContent = j.helper_token;
-    // The bridge token embeds the helper token — regenerating one
-    // invalidates the other, so refresh the visible blob.
-    refreshWsjtxToken();
+    // Regenerating the helper token invalidates every previously-issued
+    // WSJT-X bridge token, since each blob embeds it. The per-contest
+    // token modal recomputes on open, so nothing else to refresh here.
   });
   $('ms-copy-token')?.addEventListener('click', () => {
     const input = $('ms-token');
@@ -5854,6 +5824,57 @@
         if (res.ok) loadModalParticipants(contestID, canManage);
         else alert(t('contestScreen.participantUpdateFail'));
       });
+    });
+  }
+
+  // ----- Contest WSJT-X bridge token modal -----
+  // Shows the copy-pasteable "noc1.…" blob for THIS contest. The token
+  // authorises the operator (via their per-account helper token) to log
+  // QSOs into this one contest and no other — the contest ID is baked
+  // in, so pasting the same blob into a bridge always targets the same
+  // contest even if the operator later selects a different one in the
+  // web UI.
+  function contestWsjtxTokenModal(c) {
+    if (!me?.helper_token) {
+      showModal(`
+        <h3>${escHtml(t('wsjtxToken.title'))}: ${escHtml(c.name)}</h3>
+        <p class="error">${escHtml(t('wsjtxToken.noHelperToken'))}</p>
+        <div class="modal-actions">
+          <button type="button" class="ghost cancel-btn">${escHtml(t('common.close'))}</button>
+        </div>
+      `, null);
+      return;
+    }
+    const token = encodeWsjtxToken({
+      server: location.origin,
+      helper_token: me.helper_token,
+      contest_id: c.id,
+    });
+    showModal(`
+      <h3>${escHtml(t('wsjtxToken.title'))}: ${escHtml(c.name)}</h3>
+      <p class="muted small">${escHtml(t('wsjtxToken.intro'))}</p>
+      <div class="row" style="margin-top:8px">
+        <input id="wsjtx-token-out" type="text" readonly value="${escHtml(token)}" style="font-family:monospace" />
+        <button type="button" id="wsjtx-token-copy" class="primary">${escHtml(t('settings.copy'))}</button>
+      </div>
+      <p class="muted small" style="margin-top:10px">${escHtml(t('wsjtxToken.regenHint'))}</p>
+      <div class="modal-actions">
+        <button type="button" class="ghost cancel-btn">${escHtml(t('common.close'))}</button>
+      </div>
+    `, null);
+
+    const btn = document.querySelector('#modal-card #wsjtx-token-copy');
+    const input = document.querySelector('#modal-card #wsjtx-token-out');
+    btn?.addEventListener('click', async () => {
+      if (!input) return;
+      input.select();
+      try { document.execCommand('copy'); } catch (_) {}
+      if (navigator.clipboard) {
+        try { await navigator.clipboard.writeText(input.value); } catch (_) {}
+      }
+      const original = btn.textContent;
+      btn.textContent = t('contestScreen.shareCopied');
+      setTimeout(() => { btn.textContent = original; }, 1500);
     });
   }
 

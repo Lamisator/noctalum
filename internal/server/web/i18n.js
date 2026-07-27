@@ -250,6 +250,7 @@
         duplicateFail: 'Failed to duplicate contest',
         shareTitle: 'Share configuration',
         sharePillTitle: 'Share configuration link',
+        wsjtxPillTitle: 'WSJT-X bridge token',
         shareCreate: 'Create share link',
         shareCreateHint: 'Generates a link another operator can use to import this contest’s configuration (custom fields, layout, columns, bands). Station identity is not included.',
         shareList: 'Active share links',
@@ -501,9 +502,9 @@
       },
       wsjtxToken: {
         title: 'WSJT-X bridge token',
-        intro: 'Copy the token for a contest into the Noctalum WSJT-X bridge to log in with one click — no username, password, or contest picker.',
-        contest: 'Contest',
-        none: 'No contests available yet — create one first.',
+        intro: 'Paste this token into the Noctalum WSJT-X bridge to log QSOs into this contest with one click — no username, password, or contest picker needed.',
+        regenHint: 'The token embeds your personal helper token. Regenerating that helper token in My Settings invalidates every bridge token that was minted from it.',
+        noHelperToken: 'No helper token found on your account. Open My Settings first so a helper token gets generated, then reopen this dialog.',
       },
       callsignRequest: {
         title: 'Request callsign change',
@@ -1123,6 +1124,7 @@
         duplicateFail: 'Contest konnte nicht dupliziert werden',
         shareTitle: 'Konfiguration teilen',
         sharePillTitle: 'Konfigurations-Link teilen',
+        wsjtxPillTitle: 'WSJT-X-Bridge-Token',
         shareCreate: 'Share-Link erstellen',
         shareCreateHint: 'Erzeugt einen Link, mit dem ein anderer OM die Konfiguration dieses Contests (Custom Fields, Layout, Spalten, Bänder) importieren kann. Stationsdaten werden nicht mitgeschickt.',
         shareList: 'Aktive Share-Links',
@@ -1372,9 +1374,9 @@
       },
       wsjtxToken: {
         title: 'WSJT-X-Bridge-Token',
-        intro: 'Kopiere den Token für einen Contest in die Noctalum-WSJT-X-Bridge und melde dich mit einem Klick an — ganz ohne Benutzername, Passwort oder Contest-Auswahl.',
-        contest: 'Contest',
-        none: 'Noch keine Contests vorhanden — lege zuerst einen an.',
+        intro: 'Kopiere diesen Token in die Noctalum-WSJT-X-Bridge, um mit einem Klick QSOs in diesen Contest zu loggen — ganz ohne Benutzername, Passwort oder Contest-Auswahl.',
+        regenHint: 'Der Token enthält deinen persönlichen Helper-Token. Wenn du diesen unter „Meine Einstellungen" neu generierst, werden alle daraus erzeugten Bridge-Tokens ungültig.',
+        noHelperToken: 'Für dein Konto ist noch kein Helper-Token vorhanden. Öffne zuerst „Meine Einstellungen", damit einer angelegt wird, und öffne dann diesen Dialog erneut.',
       },
       callsignRequest: {
         title: 'Rufzeichen-Änderung beantragen',
