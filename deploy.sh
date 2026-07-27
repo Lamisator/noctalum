@@ -9,6 +9,10 @@
 #   ./deploy.sh -prod    --countdown 30
 #   ./deploy.sh -staging -nohelpers  # skip helper/wsjtx/GUI build + upload
 #                                    # (server + notifier only — much faster)
+#   ./deploy.sh -prod --cpp-no-macos    # skip C++ macOS cross-compile
+#                                    # (use when cpp/third_party/osxcross-sdk/
+#                                    #  is empty — build.sh otherwise aborts)
+#   ./deploy.sh -prod --cpp-no-windows  # skip C++ Windows cross-compile
 #
 # Environment selection is mandatory. If neither -prod nor -staging is
 # given, the script asks on stdin. Deploying to staging never triggers
@@ -85,6 +89,8 @@ SSH_OPTS=(
 env_flag=""
 skip_build=false
 no_helpers=false
+cpp_no_windows=false
+cpp_no_macos=false
 countdown=60
 
 while [ $# -gt 0 ]; do
@@ -97,6 +103,13 @@ while [ $# -gt 0 ]; do
       skip_build=true ; shift ;;
     -nohelpers|--no-helpers)
       no_helpers=true ; shift ;;
+    # C++ platform opt-outs — forwarded verbatim to build.sh.  Handy when
+    # the macOS SDK isn't present or the Windows toolchain image is out
+    # of date and you'd rather ship what's already working.
+    --cpp-no-windows)
+      cpp_no_windows=true ; shift ;;
+    --cpp-no-macos)
+      cpp_no_macos=true ; shift ;;
     --transfer-db)
       echo "error: --transfer-db is no longer supported. Use cmd/sqlite-to-pg to migrate a SQLite backup into Postgres." >&2
       exit 1
@@ -166,6 +179,8 @@ if [ "$skip_build" = false ]; then
   else
     echo "Building all binaries..."
   fi
+  [ "$cpp_no_windows" = true ] && build_args+=(--cpp-no-windows)
+  [ "$cpp_no_macos"   = true ] && build_args+=(--cpp-no-macos)
   "$ROOT/build.sh" "${build_args[@]}"
 fi
 
