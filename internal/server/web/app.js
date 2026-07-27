@@ -7721,6 +7721,9 @@
     applyPermissionsToUI();
     await loadSettings();
     applyDefaults();
+    // Fire the device-pair approver prompt asynchronously — it must not
+    // block navigation into the contest screen / app.
+    maybeShowApproverPrompt().catch(() => {});
     if (!me.contest_id) {
       await showContestScreen();
       return;
@@ -7801,6 +7804,199 @@
       }
     }
   });
+
+  // ----- device-pairing login (unauthenticated device shows a QR) -----
+  //
+  // Flow:
+  //   1. User clicks "Login with other device" on the login page.
+  //   2. POST /api/login-request/create returns { id, ttl_seconds }.
+  //   3. We render a QR of the current origin + "#approve=<id>", which any
+  //      already-logged-in Noctalum tab reacts to by opening its approver
+  //      modal.
+  //   4. We long-poll /api/login-request/status?id=<id> until the server
+  //      hands back a "approved" verdict — at which point it has already
+  //      set the session cookie in the response, so we just call
+  //      bootstrap() to enter the app.
+  //
+  // The modal covers the entire lifecycle including cancel/expire/deny.
+  let devicePairAbort = null; // AbortController for the outstanding poll
+
+  function stopDevicePair() {
+    if (devicePairAbort) {
+      try { devicePairAbort.abort(); } catch {}
+      devicePairAbort = null;
+    }
+  }
+  function closeDevicePairModal() {
+    stopDevicePair();
+    $('device-login-modal').classList.add('hidden');
+    $('device-login-qr').innerHTML = '';
+    $('device-login-status').textContent = '';
+    $('device-login-error').textContent = '';
+  }
+  $('device-login-cancel').addEventListener('click', closeDevicePairModal);
+
+  function renderPairQR(url) {
+    const host = $('device-login-qr');
+    host.innerHTML = '';
+    if (typeof window.qrcode !== 'function') {
+      host.textContent = url;
+      return;
+    }
+    // qrcode-generator: use type 0 (auto) with error-correction "M".
+    const q = window.qrcode(0, 'M');
+    q.addData(url);
+    q.make();
+    // 5px per module, 8-module quiet zone → fits nicely inside the modal.
+    host.innerHTML = q.createImgTag(5, 16);
+    const img = host.querySelector('img');
+    if (img) { img.style.width = '240px'; img.style.height = '240px'; }
+  }
+
+  async function pollDevicePair(id) {
+    devicePairAbort = new AbortController();
+    while (devicePairAbort) {
+      let res;
+      try {
+        res = await fetch('/api/login-request/status?id=' + encodeURIComponent(id), {
+          credentials: 'same-origin',
+          signal: devicePairAbort.signal,
+        });
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        // Transient network error — pause and retry.
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+      if (!res.ok) {
+        $('device-login-error').textContent = t('devicelogin.pollFailed');
+        return;
+      }
+      const j = await res.json().catch(() => ({}));
+      if (j.status === 'approved') {
+        devicePairAbort = null;
+        csrfToken = (j.session && j.session.csrf_token) || null;
+        closeDevicePairModal();
+        await bootstrap();
+        return;
+      }
+      if (j.status === 'denied') {
+        $('device-login-status').textContent = t('devicelogin.denied');
+        return;
+      }
+      if (j.status === 'expired' || j.status === 'consumed') {
+        $('device-login-status').textContent = t('devicelogin.expired');
+        return;
+      }
+      // still pending — the long-poll already spent ~25s server-side, so
+      // no client-side delay is needed before re-polling.
+    }
+  }
+
+  $('device-login-btn').addEventListener('click', async () => {
+    $('device-login-error').textContent = '';
+    $('device-login-status').textContent = t('devicelogin.waiting');
+    $('device-login-modal').classList.remove('hidden');
+    try {
+      const res = await fetch('/api/login-request/create', {
+        method: 'POST', credentials: 'same-origin',
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        $('device-login-error').textContent = j.error || t('devicelogin.createFailed');
+        return;
+      }
+      const j = await res.json();
+      const url = window.location.origin + '/#approve=' + encodeURIComponent(j.id);
+      renderPairQR(url);
+      pollDevicePair(j.id);
+    } catch (err) {
+      $('device-login-error').textContent = err.message || t('devicelogin.createFailed');
+    }
+  });
+
+  // ----- device-pairing login (approver side) -----
+  //
+  // Scanning the QR opens Noctalum with "#approve=<id>" in the URL fragment.
+  // If the user is logged in, we surface a modal showing the requester's
+  // IP + User-Agent so they can approve or deny.  If they are NOT logged
+  // in, the login screen appears first; we re-check the hash after
+  // bootstrap so the approval prompt appears once they finish signing in.
+  function pendingApproveID() {
+    const m = /(?:^|[#&])approve=([A-Za-z0-9._-]+)/.exec(window.location.hash || '');
+    return m ? m[1] : '';
+  }
+  function clearApproveHash() {
+    if (window.location.hash.includes('approve=')) {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }
+  function fmtDeviceAge(iso) {
+    try {
+      const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+      if (secs < 60) return t('devicelogin.ageSecs', { s: secs });
+      return t('devicelogin.ageMins', { m: Math.round(secs / 60) });
+    } catch { return ''; }
+  }
+  // Very small User-Agent parser — collapses the typical UA into
+  // "Firefox 128 on Windows 10" style labels.  Deliberately conservative.
+  function summarizeUA(ua) {
+    if (!ua) return '—';
+    let os = '';
+    if (/Windows NT 10/.test(ua)) os = 'Windows 10/11';
+    else if (/Windows NT 6\.3/.test(ua)) os = 'Windows 8.1';
+    else if (/Windows NT 6\.1/.test(ua)) os = 'Windows 7';
+    else if (/Android ([\d.]+)/.test(ua)) os = 'Android ' + RegExp.$1;
+    else if (/iPhone OS ([\d_]+)/.test(ua)) os = 'iOS ' + RegExp.$1.replace(/_/g, '.');
+    else if (/Mac OS X ([\d_]+)/.test(ua)) os = 'macOS ' + RegExp.$1.replace(/_/g, '.');
+    else if (/CrOS /.test(ua)) os = 'ChromeOS';
+    else if (/Linux/.test(ua)) os = 'Linux';
+    let br = '';
+    if (/Edg\/([\d.]+)/.test(ua)) br = 'Edge ' + RegExp.$1.split('.')[0];
+    else if (/OPR\/([\d.]+)/.test(ua)) br = 'Opera ' + RegExp.$1.split('.')[0];
+    else if (/Firefox\/([\d.]+)/.test(ua)) br = 'Firefox ' + RegExp.$1.split('.')[0];
+    else if (/Chrome\/([\d.]+)/.test(ua)) br = 'Chrome ' + RegExp.$1.split('.')[0];
+    else if (/Version\/([\d.]+).*Safari/.test(ua)) br = 'Safari ' + RegExp.$1.split('.')[0];
+    if (br && os) return br + ' — ' + os;
+    return br || os || ua;
+  }
+
+  async function maybeShowApproverPrompt() {
+    const id = pendingApproveID();
+    if (!id || !me) return;
+    // Clear the hash immediately so a refresh doesn't re-open the prompt.
+    clearApproveHash();
+    const res = await api('/api/login-request/' + encodeURIComponent(id));
+    if (!res.ok) {
+      // Silently drop — expired or consumed requests aren't actionable and
+      // shouldn't scare the operator.
+      return;
+    }
+    const j = await res.json();
+    if (j.status !== 'pending') return;
+    $('device-approve-ip').textContent = j.requester_ip || '—';
+    $('device-approve-ua').textContent = summarizeUA(j.requester_ua || '');
+    $('device-approve-age').textContent = fmtDeviceAge(j.created_at);
+    $('device-approve-error').textContent = '';
+    $('device-approve-modal').classList.remove('hidden');
+
+    const okBtn = $('device-approve-ok');
+    const denyBtn = $('device-approve-deny');
+    const close = () => $('device-approve-modal').classList.add('hidden');
+    const decide = async (approve) => {
+      okBtn.disabled = true; denyBtn.disabled = true;
+      const r = await api('/api/login-request/' + encodeURIComponent(id) + '/' + (approve ? 'approve' : 'deny'), { method: 'POST' });
+      okBtn.disabled = false; denyBtn.disabled = false;
+      if (!r.ok && r.status !== 204) {
+        const ej = await r.json().catch(() => ({}));
+        $('device-approve-error').textContent = ej.error || t('devicelogin.decisionFailed');
+        return;
+      }
+      close();
+    };
+    okBtn.onclick = () => decide(true);
+    denyBtn.onclick = () => decide(false);
+  }
 
   // ----- passkey management -----
   async function loadPasskeys() {

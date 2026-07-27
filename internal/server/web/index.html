@@ -55,6 +55,39 @@
     <div id="passkey-divider" class="passkey-divider"><span data-i18n="login.or">or</span></div>
     <button id="passkey-login-btn" class="passkey-btn" data-i18n="login.signInWithPasskey">&#128273; Sign in with passkey</button>
     <div id="passkey-login-error" class="error"></div>
+    <button id="device-login-btn" class="passkey-btn" data-i18n="login.signInWithOtherDevice">&#128241; Login with other device</button>
+  </div>
+</div>
+
+<!-- Device-pairing QR modal (shown on the un-logged-in device). -->
+<div id="device-login-modal" class="modal-root hidden">
+  <div class="modal-card">
+    <h3 data-i18n="devicelogin.title">Log in with another device</h3>
+    <p class="muted small" data-i18n="devicelogin.instructions">Open Noctalum on a device that is already logged in and scan this code with its camera. When you approve the request there, this device will be signed in automatically.</p>
+    <div id="device-login-qr" class="device-login-qr"></div>
+    <div id="device-login-status" class="device-login-status muted small"></div>
+    <div id="device-login-error" class="error"></div>
+    <div class="modal-actions">
+      <button id="device-login-cancel" class="ghost" data-i18n="common.cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Approver modal (shown to an already-logged-in user who scanned a QR). -->
+<div id="device-approve-modal" class="modal-root hidden">
+  <div class="modal-card">
+    <h3 data-i18n="devicelogin.approveTitle">Approve device login?</h3>
+    <p class="muted small" data-i18n="devicelogin.approveHint">Another device is asking to log in as you. If you did not scan a QR code on this account, deny the request.</p>
+    <div class="device-approve-details">
+      <span class="k" data-i18n="devicelogin.ip">IP address</span><span class="v" id="device-approve-ip"></span>
+      <span class="k" data-i18n="devicelogin.device">Device / browser</span><span class="v" id="device-approve-ua"></span>
+      <span class="k" data-i18n="devicelogin.requested">Requested</span><span class="v" id="device-approve-age"></span>
+    </div>
+    <div id="device-approve-error" class="error"></div>
+    <div class="modal-actions">
+      <button id="device-approve-deny" class="ghost" data-i18n="common.deny">Deny</button>
+      <button id="device-approve-ok" class="primary" data-i18n="common.approve">Approve</button>
+    </div>
   </div>
 </div>
 
@@ -1238,6 +1271,7 @@ docker compose start noctalum</code></pre>
 </div>
 
 <script src="/leaflet.min.js"></script>
+<script src="/qrcode.min.js"></script>
 <script src="/i18n.js"></script>
 <script src="/app.js"></script>
 </body>
