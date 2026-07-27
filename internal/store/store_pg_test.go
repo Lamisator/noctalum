@@ -103,7 +103,7 @@ func TestPostgresSchemaAndRoundTrips(t *testing.T) {
 	}
 
 	// Contests + access + participants — both ON CONFLICT DO NOTHING paths.
-	c, err := st.CreateContest("Test Contest", "DL0TEST", "JN49XX", []string{"20m", "40m"}, "obj", "OP1", false, u.ID, "", "", "", true, 60, "kHz")
+	c, err := st.CreateContest("Test Contest", "DL0TEST", "JN49XX", []string{"20m", "40m"}, "obj", "OP1", store.VisibilityOpen, u.ID, "", "", "", true, 60, "kHz", nil, nil)
 	if err != nil {
 		t.Fatalf("create contest: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestPostgresSchemaAndRoundTrips(t *testing.T) {
 			t.Fatalf("add participant (call %d): %v", i, err)
 		}
 	}
-	if _, err := st.CreateContest("Test Contest", "X", "", nil, "", "", false, u.ID, "", "", "", true, 60, "kHz"); err == nil {
+	if _, err := st.CreateContest("Test Contest", "X", "", nil, "", "", store.VisibilityOpen, u.ID, "", "", "", true, 60, "kHz", nil, nil); err == nil {
 		t.Fatal("duplicate contest name should fail")
 	}
 
@@ -223,12 +223,12 @@ func TestPostgresSchemaAndRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fr insert with attachment: %v", err)
 	}
-	got, err := st.GetFeatureRequest(fr2.ID)
-	if err != nil || got == nil {
-		t.Fatalf("fr get: err=%v got=%+v", err, got)
+	gotFR, err := st.GetFeatureRequest(fr2.ID)
+	if err != nil || gotFR == nil {
+		t.Fatalf("fr get: err=%v got=%+v", err, gotFR)
 	}
-	if got.AttachmentFilename != "abc123.pdf" || got.AttachmentMime != "application/pdf" || got.AttachmentSize != 42 {
-		t.Fatalf("fr attachment metadata mismatch: %+v", got)
+	if gotFR.AttachmentFilename != "abc123.pdf" || gotFR.AttachmentMime != "application/pdf" || gotFR.AttachmentSize != 42 {
+		t.Fatalf("fr attachment metadata mismatch: %+v", gotFR)
 	}
 
 	// DeleteQSO cleanup.

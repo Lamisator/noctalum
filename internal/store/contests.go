@@ -12,6 +12,25 @@ import (
 
 var ErrContestNotFound = errors.New("contest not found")
 
+// Contest visibility values.
+//
+// The authoritative access model since the per-contest permission overhaul:
+//
+//   - VisibilityOpen: any authenticated user may enter and log QSOs; they are
+//     auto-joined as a "logger" participant on first activity.
+//   - VisibilityGroups: only members of one of the contest's linked groups may
+//     enter; they are also auto-joined as "logger".
+//   - VisibilityPrivate: invite-only — access is granted via contest_access or
+//     explicit participant records (owner/editor/logger).
+//
+// The legacy Private / AccessRestricted booleans are kept in sync with
+// Visibility on writes so older UI paths and audit / share flows keep working.
+const (
+	VisibilityOpen    = "open"
+	VisibilityGroups  = "groups"
+	VisibilityPrivate = "private"
+)
+
 // Contest represents a single ham radio contest event.
 type Contest struct {
 	ID                 int64      `json:"id"`
@@ -22,12 +41,13 @@ type Contest struct {
 	Status             string     `json:"status"`     // "open" | "finished"
 	Bands              []string   `json:"bands"`      // active bands for this contest
 	Objective          string     `json:"objective"`  // markdown text
-	Private            bool       `json:"private"`    // owner-only contest
+	Visibility         string     `json:"visibility"` // "open" | "groups" | "private"
+	Private            bool       `json:"private"`    // owner-only contest (kept in sync with Visibility=="private" for backward compat)
 	OwnerUserID        int64      `json:"owner_user_id"`
 	CustomFields       string     `json:"custom_fields"`        // JSON-encoded array of {name,label,type,required,order}
 	QSOLayout          string     `json:"qso_layout"`           // JSON-encoded {cols, items:[{key,x,y,w}]} for the New QSO mask
 	LogColumns         string     `json:"log_columns"`          // JSON-encoded ordered array of {key,on} for log table columns
-	AccessRestricted   bool       `json:"access_restricted"`    // when true, only access-listed users / owners / admins can see & enter
+	AccessRestricted   bool       `json:"access_restricted"`    // when true, only access-listed users / owners / admins can see & enter (kept in sync with Visibility!="open" for backward compat)
 	NrPadded           bool       `json:"nr_padded"`            // display serial numbers zero-padded to 3 digits
 	StashExpiryMinutes int64      `json:"stash_expiry_minutes"` // auto-delete stashed pre-QSOs after this many minutes (default 60)
 	FreqUnit           string     `json:"freq_unit"`            // display unit for frequency: "Hz", "kHz", "MHz", "GHz" (default "kHz")
@@ -35,6 +55,24 @@ type Contest struct {
 	EndDate            *time.Time `json:"end_date"`             // optional calendar date the contest ends; when nil but StartDate set, it is a single-day contest
 	CreatedAt          time.Time  `json:"created_at"`
 	LastActivityAt     *time.Time `json:"last_activity_at"` // time of the most recent QSO; nil if no QSOs logged
+}
+
+// NormalizeVisibility maps the (private, accessRestricted, requested)
+// booleans/strings to a canonical visibility value. An empty or unknown
+// requested visibility falls back to the legacy booleans so callers that don't
+// pass an explicit value keep their existing semantics.
+func NormalizeVisibility(requested string, private, accessRestricted bool) string {
+	switch requested {
+	case VisibilityOpen, VisibilityGroups, VisibilityPrivate:
+		return requested
+	}
+	if private {
+		return VisibilityPrivate
+	}
+	if accessRestricted {
+		return VisibilityPrivate
+	}
+	return VisibilityOpen
 }
 
 // ContestAccessUser carries the user information returned for contest access list entries.
@@ -87,6 +125,17 @@ func (s *Store) migrateContests() error {
 		)`,
 		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS start_date DATE`,
 		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS end_date   DATE`,
+		// Authoritative visibility mode ("open" | "groups" | "private"),
+		// added when per-contest permissions were introduced. Backfill
+		// derives it from the legacy private/access_restricted booleans;
+		// on writes we keep both columns synchronised so older UI paths
+		// keep working.
+		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'open'`,
+		`UPDATE contests SET visibility = CASE
+		    WHEN private OR access_restricted THEN 'private'
+		    ELSE 'open'
+		 END
+		 WHERE visibility = '' OR visibility IS NULL OR visibility NOT IN ('open','groups','private')`,
 		`CREATE INDEX IF NOT EXISTS idx_contests_status ON contests(status)`,
 		`CREATE TABLE IF NOT EXISTS contest_access (
 			contest_id BIGINT NOT NULL,
@@ -96,11 +145,39 @@ func (s *Store) migrateContests() error {
 		`CREATE TABLE IF NOT EXISTS contest_participants (
 			contest_id BIGINT      NOT NULL,
 			user_id    BIGINT      NOT NULL,
-			role       TEXT        NOT NULL DEFAULT 'user',
+			role       TEXT        NOT NULL DEFAULT 'logger',
 			status     TEXT        NOT NULL DEFAULT 'pending',
 			joined_at  TIMESTAMPTZ NOT NULL,
 			PRIMARY KEY (contest_id, user_id)
 		)`,
+		// Rename the legacy "user" role to "logger" so the participant
+		// role vocabulary is {owner, editor, logger}. Editor is new.
+		`UPDATE contest_participants SET role = 'logger' WHERE role = 'user'`,
+		// Groups let admins pre-assemble reusable sets of users. Any
+		// registered user with groups.manage may create a group and
+		// becomes its first owner via group_members.is_owner=true.
+		`CREATE TABLE IF NOT EXISTS groups (
+			id          BIGSERIAL PRIMARY KEY,
+			name        TEXT NOT NULL UNIQUE,
+			created_by  BIGINT NOT NULL DEFAULT 0,
+			created_at  TIMESTAMPTZ NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS group_members (
+			group_id  BIGINT      NOT NULL,
+			user_id   BIGINT      NOT NULL,
+			is_owner  BOOLEAN     NOT NULL DEFAULT false,
+			added_at  TIMESTAMPTZ NOT NULL,
+			PRIMARY KEY (group_id, user_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id)`,
+		// Contest-to-group access — every member of a listed group is an
+		// implicit logger for the contest (auto-joined on first QSO).
+		`CREATE TABLE IF NOT EXISTS contest_group_access (
+			contest_id BIGINT NOT NULL,
+			group_id   BIGINT NOT NULL,
+			PRIMARY KEY (contest_id, group_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_contest_group_access_group ON contest_group_access(group_id)`,
 	}
 	for _, q := range stmts {
 		if _, err := s.db.Exec(q); err != nil {
@@ -113,7 +190,10 @@ func (s *Store) migrateContests() error {
 // CreateContest inserts a new contest in 'open' status.
 // startDate and endDate are optional (nil = unset); when both are non-nil the
 // caller is expected to have already validated end >= start.
-func (s *Store) CreateContest(name, stationCall, qth string, bands []string, objective, stationID string, private bool, ownerUserID int64, customFields, qsoLayout, logColumns string, nrPadded bool, stashExpiryMinutes int64, freqUnit string, startDate, endDate *time.Time) (*Contest, error) {
+// visibility is one of VisibilityOpen / VisibilityGroups / VisibilityPrivate;
+// the legacy private / access_restricted booleans are derived from it so that
+// callers still using the old API keep seeing consistent data.
+func (s *Store) CreateContest(name, stationCall, qth string, bands []string, objective, stationID string, visibility string, ownerUserID int64, customFields, qsoLayout, logColumns string, nrPadded bool, stashExpiryMinutes int64, freqUnit string, startDate, endDate *time.Time) (*Contest, error) {
 	name = strings.TrimSpace(name)
 	stationCall = strings.ToUpper(strings.TrimSpace(stationCall))
 	qth = strings.ToUpper(strings.TrimSpace(qth))
@@ -124,14 +204,17 @@ func (s *Store) CreateContest(name, stationCall, qth string, bands []string, obj
 	if freqUnit == "" {
 		freqUnit = "kHz"
 	}
+	visibility = NormalizeVisibility(visibility, false, false)
+	private := visibility == VisibilityPrivate
+	accessRestricted := visibility != VisibilityOpen
 	startArg := nullableDate(startDate)
 	endArg := nullableDate(endDate)
 	now := time.Now().UTC()
 	var id int64
 	err := s.db.QueryRow(
-		`INSERT INTO contests (name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, nr_padded, stash_expiry_minutes, freq_unit, start_date, end_date, created_at)
-		 VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
-		name, stationCall, qth, bandsToString(bands), objective, stationID, private, ownerUserID, customFields, qsoLayout, logColumns, nrPadded, stashExpiryMinutes, freqUnit, startArg, endArg, now,
+		`INSERT INTO contests (name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, access_restricted, visibility, nr_padded, stash_expiry_minutes, freq_unit, start_date, end_date, created_at)
+		 VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id`,
+		name, stationCall, qth, bandsToString(bands), objective, stationID, private, ownerUserID, customFields, qsoLayout, logColumns, accessRestricted, visibility, nrPadded, stashExpiryMinutes, freqUnit, startArg, endArg, now,
 	).Scan(&id)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -139,7 +222,7 @@ func (s *Store) CreateContest(name, stationCall, qth string, bands []string, obj
 		}
 		return nil, err
 	}
-	return &Contest{ID: id, Name: name, StationCall: stationCall, QTH: qth, Bands: bands, Objective: objective, Status: "open", StationID: stationID, Private: private, OwnerUserID: ownerUserID, CustomFields: customFields, QSOLayout: qsoLayout, LogColumns: logColumns, NrPadded: nrPadded, StashExpiryMinutes: stashExpiryMinutes, FreqUnit: freqUnit, StartDate: normalizeDate(startDate), EndDate: normalizeDate(endDate), CreatedAt: now}, nil
+	return &Contest{ID: id, Name: name, StationCall: stationCall, QTH: qth, Bands: bands, Objective: objective, Status: "open", StationID: stationID, Visibility: visibility, Private: private, OwnerUserID: ownerUserID, CustomFields: customFields, QSOLayout: qsoLayout, LogColumns: logColumns, AccessRestricted: accessRestricted, NrPadded: nrPadded, StashExpiryMinutes: stashExpiryMinutes, FreqUnit: freqUnit, StartDate: normalizeDate(startDate), EndDate: normalizeDate(endDate), CreatedAt: now}, nil
 }
 
 // nullableDate returns the SQL argument for an optional date column: the
@@ -164,7 +247,7 @@ func normalizeDate(t *time.Time) *time.Time {
 func (s *Store) ListContests() ([]Contest, error) {
 	rows, err := s.db.Query(
 		`SELECT c.id, c.name, c.station_call, c.qth, c.bands, c.objective, c.status, c.station_id,
-		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.log_columns, c.access_restricted, c.nr_padded, c.stash_expiry_minutes, c.freq_unit, c.start_date, c.end_date, c.created_at,
+		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.log_columns, c.access_restricted, c.visibility, c.nr_padded, c.stash_expiry_minutes, c.freq_unit, c.start_date, c.end_date, c.created_at,
 		        MAX(q.time_utc) AS last_activity_at
 		 FROM contests c
 		 LEFT JOIN qsos q ON q.contest_id = c.id
@@ -180,10 +263,11 @@ func (s *Store) ListContests() ([]Contest, error) {
 		var bandsStr string
 		var lastAct sql.NullTime
 		var startDate, endDate sql.NullTime
-		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.AccessRestricted, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt, &lastAct); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt, &lastAct); err != nil {
 			return nil, err
 		}
 		c.Bands = bandsFromString(bandsStr)
+		c.Visibility = NormalizeVisibility(c.Visibility, c.Private, c.AccessRestricted)
 		c.CreatedAt = c.CreatedAt.UTC()
 		if startDate.Valid {
 			d := startDate.Time.UTC()
@@ -205,17 +289,18 @@ func (s *Store) ListContests() ([]Contest, error) {
 // GetContest returns a single contest by ID.
 func (s *Store) GetContest(id int64) (*Contest, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, access_restricted, nr_padded, stash_expiry_minutes, freq_unit, start_date, end_date, created_at FROM contests WHERE id = $1`, id)
+		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, access_restricted, visibility, nr_padded, stash_expiry_minutes, freq_unit, start_date, end_date, created_at FROM contests WHERE id = $1`, id)
 	var c Contest
 	var bandsStr string
 	var startDate, endDate sql.NullTime
-	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.AccessRestricted, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrContestNotFound
 		}
 		return nil, err
 	}
 	c.Bands = bandsFromString(bandsStr)
+	c.Visibility = NormalizeVisibility(c.Visibility, c.Private, c.AccessRestricted)
 	c.CreatedAt = c.CreatedAt.UTC()
 	if startDate.Valid {
 		d := startDate.Time.UTC()
@@ -228,9 +313,24 @@ func (s *Store) GetContest(id int64) (*Contest, error) {
 	return &c, nil
 }
 
+// SetContestVisibility flips a contest's visibility mode and keeps the legacy
+// private / access_restricted booleans in sync so older queries and audit
+// hooks remain accurate.
+func (s *Store) SetContestVisibility(contestID int64, visibility string) error {
+	visibility = NormalizeVisibility(visibility, false, false)
+	private := visibility == VisibilityPrivate
+	accessRestricted := visibility != VisibilityOpen
+	_, err := s.db.Exec(
+		`UPDATE contests SET visibility = $1, private = $2, access_restricted = $3 WHERE id = $4`,
+		visibility, private, accessRestricted, contestID,
+	)
+	return err
+}
+
 // UpdateContest updates name, station_call, qth, bands, objective and status of an existing contest.
 // startDate/endDate follow the same optional semantics as CreateContest — pass
-// nil to store SQL NULL (clears the date).
+// nil to store SQL NULL (clears the date). Visibility is *not* touched here;
+// call SetContestVisibility() to change it (owner-only endpoint).
 func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, bands []string, objective, stationID, customFields, qsoLayout, logColumns string, nrPadded bool, stashExpiryMinutes int64, freqUnit string, startDate, endDate *time.Time) error {
 	if stashExpiryMinutes <= 0 {
 		stashExpiryMinutes = 60
@@ -265,7 +365,7 @@ func (s *Store) DuplicateContest(srcID int64, newName string, ownerUserID int64)
 		src.Bands,
 		src.Objective,
 		src.StationID,
-		src.Private,
+		src.Visibility,
 		ownerUserID,
 		src.CustomFields,
 		src.QSOLayout,
@@ -311,13 +411,16 @@ func (s *Store) AutoCloseExpiredContests(now time.Time) ([]int64, error) {
 	return ids, rows.Err()
 }
 
-// DeleteContest removes a contest, its access list, participants, and any
-// outstanding share tokens that point at it.
+// DeleteContest removes a contest, its access list, participants, group
+// access rows, and any outstanding share tokens that point at it.
 func (s *Store) DeleteContest(id int64) error {
 	if _, err := s.db.Exec(`DELETE FROM contest_access WHERE contest_id = $1`, id); err != nil {
 		return err
 	}
 	if _, err := s.db.Exec(`DELETE FROM contest_participants WHERE contest_id = $1`, id); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`DELETE FROM contest_group_access WHERE contest_id = $1`, id); err != nil {
 		return err
 	}
 	if err := s.DeleteSharesForContest(id); err != nil {
@@ -407,13 +510,22 @@ func (s *Store) GrantContestAccessByUsername(contestID int64, username string) (
 
 // ----- contest participants -----
 
+// Per-contest participant roles. Owner has full rights (edit contest, manage
+// members, edit/delete any QSO); editor may edit/delete any QSO but not
+// manage the contest; logger may create QSOs and edit/delete only their own.
+const (
+	ContestRoleOwner  = "owner"
+	ContestRoleEditor = "editor"
+	ContestRoleLogger = "logger"
+)
+
 // ContestParticipant represents a user's participation in a contest.
 type ContestParticipant struct {
 	ContestID int64     `json:"contest_id"`
 	UserID    int64     `json:"user_id"`
 	Username  string    `json:"username"`
 	Callsign  string    `json:"callsign"`
-	Role      string    `json:"role"`   // "owner" | "user"
+	Role      string    `json:"role"`   // "owner" | "editor" | "logger"
 	Status    string    `json:"status"` // "active" | "pending"
 	JoinedAt  time.Time `json:"joined_at"`
 }
@@ -430,7 +542,7 @@ func (s *Store) AddContestParticipant(contestID, userID int64, role, status stri
 // RequestContestParticipant inserts the user as a pending participant if not already present.
 func (s *Store) RequestContestParticipant(contestID, userID int64) error {
 	_, err := s.db.Exec(
-		`INSERT INTO contest_participants (contest_id, user_id, role, status, joined_at) VALUES ($1, $2, 'user', 'pending', $3) ON CONFLICT DO NOTHING`,
+		`INSERT INTO contest_participants (contest_id, user_id, role, status, joined_at) VALUES ($1, $2, 'logger', 'pending', $3) ON CONFLICT DO NOTHING`,
 		contestID, userID, time.Now().UTC(),
 	)
 	return err

@@ -35,6 +35,12 @@ type QSO struct {
 	Notes       string    `json:"notes"`
 	ContestName string    `json:"contest_name"`
 	Extras      string    `json:"extras,omitempty"` // JSON-encoded custom-field values
+	// OperatorUserID identifies the account that logged this QSO. Used by
+	// the per-contest permission model to decide whether a "logger"-role
+	// participant may edit/delete this row (they can, if it's their own).
+	// 0 for QSOs logged before the column was introduced; those pre-
+	// existing rows are only editable by editors/owners.
+	OperatorUserID int64 `json:"operator_user_id,omitempty"`
 }
 
 // Settings holds global defaults; station/contest info lives in each Contest.
@@ -146,6 +152,12 @@ func (s *Store) migrate() error {
 			contest_name  TEXT NOT NULL DEFAULT '',
 			extras        TEXT NOT NULL DEFAULT ''
 		)`,
+		// operator_user_id records which account logged the QSO. Added
+		// for the per-contest permission model so "logger"-role
+		// participants can only edit/delete their own rows. Pre-existing
+		// rows default to 0 (owned by no one, editable only by
+		// editors/owners of the contest).
+		`ALTER TABLE qsos ADD COLUMN IF NOT EXISTS operator_user_id BIGINT NOT NULL DEFAULT 0`,
 		`CREATE INDEX IF NOT EXISTS idx_qsos_time ON qsos(time_utc DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_qsos_callsign ON qsos(callsign)`,
 		`CREATE INDEX IF NOT EXISTS idx_qsos_contest ON qsos(contest_id)`,
@@ -221,8 +233,8 @@ func (s *Store) InsertQSO(q *QSO) (int64, error) {
 	err := s.db.QueryRow(
 		`INSERT INTO qsos (time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
 			nr_sent, nr_received, dok,
-			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, contest_id, extras)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, contest_id, extras, operator_user_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 		 RETURNING id`,
 		q.Time,
 		strings.ToUpper(q.Callsign),
@@ -231,7 +243,7 @@ func (s *Store) InsertQSO(q *QSO) (int64, error) {
 		q.NrSent, q.NrReceived, strings.ToUpper(q.DOK),
 		strings.ToUpper(q.Locator), q.ITUZone, q.CQZone, q.Lighthouse,
 		strings.ToUpper(q.Operator), strings.ToUpper(q.StationCall), q.Notes, q.ContestName,
-		q.ContestID, q.Extras,
+		q.ContestID, q.Extras, q.OperatorUserID,
 	).Scan(&id)
 	if err != nil {
 		return 0, err
@@ -248,7 +260,7 @@ func (s *Store) ListQSOs(contestID int64, limit int) ([]QSO, error) {
 	rows, err := s.db.Query(
 		`SELECT id, COALESCE(contest_id, 0), time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
 			nr_sent, nr_received, dok,
-			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, extras
+			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, extras, operator_user_id
 		 FROM qsos WHERE contest_id = $1 ORDER BY id DESC LIMIT $2`, contestID, limit)
 	if err != nil {
 		return nil, err
@@ -260,7 +272,7 @@ func (s *Store) ListQSOs(contestID int64, limit int) ([]QSO, error) {
 		if err := rows.Scan(&q.ID, &q.ContestID, &q.Time, &q.Callsign, &q.Name, &q.Band, &q.FreqHz, &q.Mode,
 			&q.RSTSent, &q.RSTReceived, &q.NrSent, &q.NrReceived, &q.DOK,
 			&q.Locator, &q.ITUZone, &q.CQZone,
-			&q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName, &q.Extras); err != nil {
+			&q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName, &q.Extras, &q.OperatorUserID); err != nil {
 			return nil, err
 		}
 		q.Time = q.Time.UTC()
@@ -274,7 +286,7 @@ func (s *Store) AllQSOs(contestID int64) ([]QSO, error) {
 	rows, err := s.db.Query(
 		`SELECT id, COALESCE(contest_id, 0), time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
 			nr_sent, nr_received, dok,
-			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, extras
+			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, extras, operator_user_id
 		 FROM qsos WHERE contest_id = $1 ORDER BY time_utc ASC, id ASC`, contestID)
 	if err != nil {
 		return nil, err
@@ -286,7 +298,7 @@ func (s *Store) AllQSOs(contestID int64) ([]QSO, error) {
 		if err := rows.Scan(&q.ID, &q.ContestID, &q.Time, &q.Callsign, &q.Name, &q.Band, &q.FreqHz, &q.Mode,
 			&q.RSTSent, &q.RSTReceived, &q.NrSent, &q.NrReceived, &q.DOK,
 			&q.Locator, &q.ITUZone, &q.CQZone,
-			&q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName, &q.Extras); err != nil {
+			&q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName, &q.Extras, &q.OperatorUserID); err != nil {
 			return nil, err
 		}
 		q.Time = q.Time.UTC()
@@ -345,12 +357,12 @@ func (s *Store) GetQSO(id int64) (*QSO, error) {
 	row := s.db.QueryRow(
 		`SELECT id, COALESCE(contest_id, 0), time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
 			nr_sent, nr_received, dok,
-			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, extras
+			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, extras, operator_user_id
 		 FROM qsos WHERE id = $1`, id)
 	var q QSO
 	err := row.Scan(&q.ID, &q.ContestID, &q.Time, &q.Callsign, &q.Name, &q.Band, &q.FreqHz, &q.Mode,
 		&q.RSTSent, &q.RSTReceived, &q.NrSent, &q.NrReceived, &q.DOK,
-		&q.Locator, &q.ITUZone, &q.CQZone, &q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName, &q.Extras)
+		&q.Locator, &q.ITUZone, &q.CQZone, &q.Lighthouse, &q.Operator, &q.StationCall, &q.Notes, &q.ContestName, &q.Extras, &q.OperatorUserID)
 	if err != nil {
 		return nil, err
 	}

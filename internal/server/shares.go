@@ -238,8 +238,10 @@ func (s *Server) handleImportShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ownerID := int64(0)
+	visibility := store.VisibilityOpen
 	if in.Private {
 		ownerID = sess.UserID
+		visibility = store.VisibilityPrivate
 	}
 	c, err := s.store.CreateContest(
 		in.Name,
@@ -248,7 +250,7 @@ func (s *Server) handleImportShare(w http.ResponseWriter, r *http.Request) {
 		p.Bands,
 		p.Objective,
 		"",
-		in.Private,
+		visibility,
 		ownerID,
 		p.CustomFields,
 		p.QSOLayout,
