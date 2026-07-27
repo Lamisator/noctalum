@@ -837,7 +837,7 @@ set -euo pipefail
 ROOT=/src
 OUT=/out
 ARCH="${arch}"
-BUILD=/build
+BUILD=/tmp/build
 mkdir -p "\$BUILD"
 
 # Reusable cmake configure+build.  Puts the binary at \$BUILD/<project>/<binary>.
@@ -972,7 +972,7 @@ build_cpp_windows_docker() {
 set -euo pipefail
 ROOT=/src
 OUT=/out
-BUILD=/build
+BUILD=/tmp/build
 TOOLCHAIN=$MXE_ROOT/usr/$MXE_TARGET/share/cmake/mxe-conf.cmake
 CMAKE=$MXE_ROOT/usr/bin/$MXE_TARGET-cmake
 mkdir -p "$BUILD"
@@ -1105,7 +1105,7 @@ build_cpp_macos_docker() {
 set -euo pipefail
 ROOT=/src
 OUT=/out
-BUILD=/build
+BUILD=/tmp/build
 mkdir -p "$BUILD"
 
 pack_mac() {
