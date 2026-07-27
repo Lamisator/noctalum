@@ -340,6 +340,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/roles/", s.requirePerm(PermUsersManage, s.handleRoleByID))
 	mux.HandleFunc("/api/contests", s.requireAuth(s.handleContests))
 	mux.HandleFunc("/api/contests/", s.requireAuth(s.handleContestByID))
+	mux.HandleFunc("/api/groups", s.requireAuth(s.handleGroups))
+	mux.HandleFunc("/api/groups/", s.requireAuth(s.handleGroupByID))
 	// Share preview is public — the token is a bearer credential and the
 	// payload carries no PII.  Importing a share creates a contest and
 	// requires auth.
@@ -925,7 +927,9 @@ func sessionInfo(sess *Session) map[string]any {
 		"contest_objective":  sess.ContestObjective(),
 		"contest_station_id": sess.ContestStationID(),
 		"contest_private":       sess.ContestPrivate(),
+		"contest_visibility":    sess.ContestVisibility(),
 		"contest_owner_user_id": sess.ContestOwnerID(),
+		"contest_my_role":       sess.ContestMyRole(),
 		"contest_fields":        sess.ContestFields(),
 		"contest_qso_layout":    sess.ContestQSOLayout(),
 		"contest_log_columns":   sess.ContestLogColumns(),
@@ -1828,7 +1832,7 @@ func (s *Server) autoCloseExpiredContests() {
 			log.Printf("contest auto-close: reload %d: %v", id, err)
 			continue
 		}
-		s.sessions.UpdateContestOnSessions(c.ID, c.Status, c.StationCall, c.Name, c.QTH, strings.Join(c.Bands, ","), c.Objective, c.StationID, c.Private, c.OwnerUserID, c.CustomFields, c.QSOLayout, c.LogColumns, c.NrPadded, c.FreqUnit)
+		s.sessions.UpdateContestOnSessions(c.ID, c.Status, c.StationCall, c.Name, c.QTH, strings.Join(c.Bands, ","), c.Objective, c.StationID, c.Private, c.Visibility, c.OwnerUserID, c.CustomFields, c.QSOLayout, c.LogColumns, c.NrPadded, c.FreqUnit)
 		s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
 			"id":                   c.ID,
 			"name":                 c.Name,
@@ -2501,7 +2505,9 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			QTH                string   `json:"qth"`
 			Bands              []string `json:"bands"`
 			Objective          string   `json:"objective"`
-			Private            bool     `json:"private"`
+			Private            bool     `json:"private"`    // legacy — will be mapped into Visibility
+			Visibility         string   `json:"visibility"` // "open" | "groups" | "private"
+			GroupIDs           []int64  `json:"group_ids"`  // only meaningful when Visibility=="groups"
 			CustomFields       string   `json:"custom_fields"`
 			QSOLayout          string   `json:"qso_layout"`
 			LogColumns         string   `json:"log_columns"`
@@ -2539,7 +2545,12 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		}
 		canManage := HasPermission(sess.Permissions, PermContestsManage)
 		canCreatePrivate := HasPermission(sess.Permissions, PermContestsCreatePrivate) || HasPermission(sess.Permissions, PermContestsManagePrivate)
-		if in.Private {
+		// Resolve visibility, honouring the legacy "private" bool when
+		// no explicit value was sent. VisibilityPrivate demands the
+		// same create_private / manage_private / manage perms as before;
+		// open / groups are gated by contests.manage.
+		visibility := store.NormalizeVisibility(in.Visibility, in.Private, false)
+		if visibility == store.VisibilityPrivate {
 			if !canManage && !canCreatePrivate {
 				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsCreatePrivate, "create private contest")
 				writeError(w, http.StatusForbidden, "missing permission: "+PermContestsCreatePrivate)
@@ -2566,19 +2577,26 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ownerID := int64(0)
-		visibility := store.VisibilityOpen
-		if in.Private {
+		if visibility == store.VisibilityPrivate {
 			ownerID = sess.UserID
-			visibility = store.VisibilityPrivate
 		}
 		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, visibility, ownerID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedCreate, stashExpiryCreate, in.FreqUnit, startDateCreate, endDateCreate)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		_ = s.store.AddContestParticipant(c.ID, sess.UserID, "owner", "active")
+		_ = s.store.AddContestParticipant(c.ID, sess.UserID, store.ContestRoleOwner, "active")
+		// Attach the initial group access list when this is a "groups"
+		// visibility contest. Silent-ignore for other visibilities so
+		// stale UI state doesn't cause a hard error.
+		if visibility == store.VisibilityGroups && len(in.GroupIDs) > 0 {
+			if err := s.store.SetContestGroups(c.ID, in.GroupIDs); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
 		s.audit(r, store.AuditInfo, AuditContestCreate, sess.Username, in.Name,
-			"call: "+in.StationCall)
+			"call: "+in.StationCall+" visibility: "+visibility)
 		writeJSON(w, http.StatusCreated, c)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -2639,7 +2657,13 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		bandsStr := strings.Join(c.Bands, ",")
-		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective, c.StationID, c.Private, c.OwnerUserID, c.CustomFields, c.QSOLayout, c.LogColumns, c.NrPadded, c.FreqUnit)
+		sess.SetContest(c.ID, c.Status, c.StationCall, c.Name, c.QTH, bandsStr, c.Objective, c.StationID, c.Private, c.Visibility, c.OwnerUserID, c.CustomFields, c.QSOLayout, c.LogColumns, c.NrPadded, c.FreqUnit)
+		// Resolve the caller's per-contest role so the frontend can
+		// hide edit/delete affordances without a second round-trip.
+		effRole, _, roleErr := s.effectiveContestRoleForSession(sess, c.ID)
+		if roleErr == nil {
+			sess.SetContestMyRole(effRole)
+		}
 		s.audit(r, store.AuditInfo, AuditContestSelect, sess.Username, c.Name, "call: "+c.StationCall)
 		// Refresh operator panels: previous contest now lacks this user, new contest gains them.
 		s.broadcastOperators()
@@ -2653,7 +2677,9 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"contest_objective":     c.Objective,
 			"contest_station_id":    c.StationID,
 			"contest_private":       c.Private,
+			"contest_visibility":    c.Visibility,
 			"contest_owner_user_id": c.OwnerUserID,
+			"contest_my_role":       effRole,
 			"contest_fields":        c.CustomFields,
 			"contest_qso_layout":    c.QSOLayout,
 			"contest_log_columns":   c.LogColumns,
@@ -2855,6 +2881,118 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		}
 
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// Visibility management: /api/contests/{id}/visibility (owner or admin).
+	if sub == "visibility" {
+		c, err := s.store.GetContest(id)
+		if errors.Is(err, store.ErrContestNotFound) {
+			writeError(w, http.StatusNotFound, "contest not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		sess := sessionFor(s, r)
+		if !ContestAdminOverride(sess.Permissions, c.Visibility) {
+			part, _ := s.store.GetContestParticipant(id, sess.UserID)
+			if part == nil || part.Role != store.ContestRoleOwner || part.Status != "active" {
+				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "change visibility: not owner")
+				writeError(w, http.StatusForbidden, "only the contest owner may change visibility")
+				return
+			}
+		}
+		if r.Method != http.MethodPut {
+			writeError(w, http.StatusMethodNotAllowed, "PUT only")
+			return
+		}
+		var in struct {
+			Visibility string `json:"visibility"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		newVis := store.NormalizeVisibility(in.Visibility, false, false)
+		if err := s.store.SetContestVisibility(id, newVis); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.audit(r, store.AuditInfo, AuditContestVisibilityChange, sess.Username, c.Name,
+			c.Visibility+" -> "+newVis)
+		s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
+			"id":         id,
+			"visibility": newVis,
+		}})
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Group access: /api/contests/{id}/groups (owner or admin) — GET returns
+	// the current group list, PUT replaces it wholesale.
+	if sub == "groups" {
+		c, err := s.store.GetContest(id)
+		if errors.Is(err, store.ErrContestNotFound) {
+			writeError(w, http.StatusNotFound, "contest not found")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		sess := sessionFor(s, r)
+		if r.Method == http.MethodGet {
+			// Any user who can see the contest can see which groups
+			// have access — reuses the per-contest role check as a
+			// visibility gate.
+			effRole, _, err := s.effectiveContestRoleForSession(sess, id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if !ContestRoleAtLeast(effRole, store.ContestRoleLogger) {
+				writeError(w, http.StatusForbidden, "you do not have access to this contest")
+				return
+			}
+			gs, err := s.store.GetContestGroups(id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if gs == nil {
+				gs = []store.Group{}
+			}
+			writeJSON(w, http.StatusOK, gs)
+			return
+		}
+		if r.Method != http.MethodPut {
+			writeError(w, http.StatusMethodNotAllowed, "GET or PUT only")
+			return
+		}
+		if !ContestAdminOverride(sess.Permissions, c.Visibility) {
+			part, _ := s.store.GetContestParticipant(id, sess.UserID)
+			if part == nil || part.Role != store.ContestRoleOwner || part.Status != "active" {
+				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "change group access: not owner")
+				writeError(w, http.StatusForbidden, "only the contest owner may change group access")
+				return
+			}
+		}
+		var in struct {
+			GroupIDs []int64 `json:"group_ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if err := s.store.SetContestGroups(id, in.GroupIDs); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.audit(r, store.AuditInfo, AuditContestGroupAccessChange, sess.Username, c.Name,
+			fmt.Sprintf("group_ids: %v", in.GroupIDs))
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
@@ -3268,7 +3406,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"status: "+in.Status+", call: "+strings.ToUpper(in.StationCall))
 		bandsStrUpd := strings.Join(in.Bands, ",")
 		// Propagate to any sessions that have this contest selected.
-		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH, bandsStrUpd, in.Objective, in.StationID, existing.Private, existing.OwnerUserID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut, putFreqUnit)
+		s.sessions.UpdateContestOnSessions(id, in.Status, strings.ToUpper(in.StationCall), in.Name, putQTH, bandsStrUpd, in.Objective, in.StationID, existing.Private, existing.Visibility, existing.OwnerUserID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut, putFreqUnit)
 		s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
 			"id":                   id,
 			"name":                 in.Name,

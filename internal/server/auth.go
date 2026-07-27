@@ -122,8 +122,10 @@ type Session struct {
 	contestBands     string
 	contestObjective string
 	contestStationID string
-	contestPrivate   bool
-	contestOwnerID   int64
+	contestPrivate    bool
+	contestVisibility string // "open" | "groups" | "private"
+	contestOwnerID    int64
+	contestMyRole     string // "owner" | "editor" | "logger" | ""
 	contestFields     string // JSON array of CustomField
 	contestQSOLayout  string // JSON object describing the New QSO mask layout
 	contestLogColumns string // JSON-encoded ordered array of {key,on} for log table columns
@@ -189,6 +191,32 @@ func (s *Session) ContestPrivate() bool {
 	return s.contestPrivate
 }
 
+// ContestVisibility returns the active contest's visibility mode.
+// Returns "" when no contest is selected.
+func (s *Session) ContestVisibility() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.contestVisibility
+}
+
+// ContestMyRole returns the caller's per-contest role on the currently
+// selected contest, or "" when no contest is selected or the role has
+// not been resolved yet.
+func (s *Session) ContestMyRole() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.contestMyRole
+}
+
+// SetContestMyRole records the caller's per-contest role after
+// contest selection so the frontend can render UI without another
+// round-trip.
+func (s *Session) SetContestMyRole(role string) {
+	s.mu.Lock()
+	s.contestMyRole = role
+	s.mu.Unlock()
+}
+
 // ContestOwnerID returns the user id of the contest owner (0 if not private).
 func (s *Session) ContestOwnerID() int64 {
 	s.mu.Lock()
@@ -235,7 +263,7 @@ func (s *Session) ContestFreqUnit() string {
 }
 
 // SetContest sets the active contest for this session (full version).
-func (s *Session) SetContest(id int64, status, call, name, qth, bands, objective, stationID string, private bool, ownerID int64, fields, qsoLayout, logColumns string, nrPadded bool, freqUnit string) {
+func (s *Session) SetContest(id int64, status, call, name, qth, bands, objective, stationID string, private bool, visibility string, ownerID int64, fields, qsoLayout, logColumns string, nrPadded bool, freqUnit string) {
 	s.mu.Lock()
 	s.contestID = id
 	s.contestStatus = status
@@ -246,6 +274,7 @@ func (s *Session) SetContest(id int64, status, call, name, qth, bands, objective
 	s.contestObjective = objective
 	s.contestStationID = stationID
 	s.contestPrivate = private
+	s.contestVisibility = visibility
 	s.contestOwnerID = ownerID
 	s.contestFields = fields
 	s.contestQSOLayout = qsoLayout
@@ -267,7 +296,9 @@ func (s *Session) ClearContest() {
 	s.contestObjective = ""
 	s.contestStationID = ""
 	s.contestPrivate = false
+	s.contestVisibility = ""
 	s.contestOwnerID = 0
+	s.contestMyRole = ""
 	s.contestFields = ""
 	s.contestQSOLayout = ""
 	s.contestLogColumns = ""
@@ -459,13 +490,13 @@ func (s *SessionStore) RefreshUser(u store.User) {
 
 // UpdateContestOnSessions refreshes contest fields on every session that has
 // the given contest selected (called after an admin edits a contest).
-func (s *SessionStore) UpdateContestOnSessions(contestID int64, status, call, name, qth, bands, objective, stationID string, private bool, ownerID int64, fields, qsoLayout, logColumns string, nrPadded bool, freqUnit string) {
+func (s *SessionStore) UpdateContestOnSessions(contestID int64, status, call, name, qth, bands, objective, stationID string, private bool, visibility string, ownerID int64, fields, qsoLayout, logColumns string, nrPadded bool, freqUnit string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, sess := range s.sessions {
 		id, _, _, _ := sess.ContestInfo()
 		if id == contestID {
-			sess.SetContest(contestID, status, call, name, qth, bands, objective, stationID, private, ownerID, fields, qsoLayout, logColumns, nrPadded, freqUnit)
+			sess.SetContest(contestID, status, call, name, qth, bands, objective, stationID, private, visibility, ownerID, fields, qsoLayout, logColumns, nrPadded, freqUnit)
 		}
 	}
 }

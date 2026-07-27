@@ -68,6 +68,15 @@ const (
 	AuditBackupRestore  = "backup.restore"
 	AuditExport              = "export"
 	AuditAccessDenied        = "access.denied"
+	// Groups + per-contest permission overhaul.
+	AuditGroupCreate         = "group.create"
+	AuditGroupUpdate         = "group.update"
+	AuditGroupDelete         = "group.delete"
+	AuditGroupMemberAdd      = "group.member_add"
+	AuditGroupMemberRemove   = "group.member_remove"
+	AuditGroupMemberRoleChange = "group.member_role_change"
+	AuditContestVisibilityChange = "contest.visibility_change"
+	AuditContestGroupAccessChange = "contest.group_access_change"
 )
 
 // AllAuditActions is used by the UI to populate the action filter dropdown.
@@ -87,6 +96,9 @@ var AllAuditActions = []string{
 	AuditCallsignRequestCreate, AuditCallsignRequestWithdraw, AuditCallsignRequestApprove, AuditCallsignRequestReject,
 	AuditExport,
 	AuditAccessDenied,
+	AuditGroupCreate, AuditGroupUpdate, AuditGroupDelete,
+	AuditGroupMemberAdd, AuditGroupMemberRemove, AuditGroupMemberRoleChange,
+	AuditContestVisibilityChange, AuditContestGroupAccessChange,
 }
 
 // audit writes one entry to the store, discarding errors after logging them.
