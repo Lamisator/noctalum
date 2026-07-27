@@ -91,6 +91,10 @@
         <span class="nav-pill-icon">&#9786;</span>
         <span data-i18n="contestScreen.users">Users</span>
       </button>
+      <button id="groups-admin-btn" class="nav-pill-btn perm-required" data-perm="groups.manage">
+        <span class="nav-pill-icon">&#128101;</span>
+        <span data-i18n="contestScreen.groups">Groups</span>
+      </button>
       <button id="audit-admin-btn" class="nav-pill-btn perm-required" data-perm="audit.log">
         <span class="nav-pill-icon">&#9776;</span>
         <span data-i18n="contestScreen.auditLog">Audit Log</span>
@@ -806,6 +810,34 @@
         <button id="new-role-btn" class="primary" data-i18n="users.newRole">New role</button>
       </div>
       <div id="roles-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="groups-admin-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="groups.title">Groups</h1>
+  </div>
+  <div class="admin-screen-body">
+    <div class="card">
+      <div class="history-header">
+        <h2 data-i18n="groups.title">Groups</h2>
+        <button id="new-group-btn" class="primary" data-i18n="groups.newGroup">New group</button>
+      </div>
+      <p class="muted small" data-i18n="groups.intro">Groups let you grant several users at once access to a contest. Group owners can add or remove members; contest owners choose which groups may enter their contest.</p>
+      <table id="groups-table">
+        <thead>
+          <tr>
+            <th data-i18n="groups.colName">Name</th>
+            <th data-i18n="groups.colMembers">Members</th>
+            <th data-i18n="groups.colMyRole">Your role</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="groups-tbody"></tbody>
+      </table>
+      <div id="groups-empty" class="muted small hidden" data-i18n="groups.empty">No groups yet.</div>
     </div>
   </div>
 </div>

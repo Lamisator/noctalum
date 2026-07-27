@@ -697,7 +697,7 @@
   // ----- screens -----
   function show(which) {
     ['setup-screen', 'login-screen', 'contest-screen', 'global-settings-screen',
-     'contests-admin-screen', 'users-admin-screen', 'audit-admin-screen', 'featurerequests-admin-screen',
+     'contests-admin-screen', 'users-admin-screen', 'groups-admin-screen', 'audit-admin-screen', 'featurerequests-admin-screen',
      'callsign-requests-admin-screen', 'backups-admin-screen',
      'my-featurerequests-screen', 'my-settings-screen', 'changelog-screen', 'dok-cache-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
     $(which).classList.remove('hidden');
@@ -792,6 +792,7 @@
   $('featurerequests-admin-btn').addEventListener('click', () => { if (!hasPerm('feature_requests.read')) return; showAdminScreen('featurerequests-admin-screen', refreshFeatureRequests); });
   $('callsign-requests-admin-btn')?.addEventListener('click', () => { if (!hasPerm('callsign_requests.review')) return; showAdminScreen('callsign-requests-admin-screen', refreshCallsignRequests); });
   $('backups-admin-btn')?.addEventListener('click', () => { if (!hasPerm('backups.manage')) return; showAdminScreen('backups-admin-screen', refreshBackups); });
+  $('groups-admin-btn')?.addEventListener('click', () => { if (!hasPerm('groups.manage')) return; showAdminScreen('groups-admin-screen', refreshGroups); });
 
   document.querySelectorAll('.admin-back-btn').forEach(btn => {
     btn.addEventListener('click', () => showContestScreen());
@@ -7084,6 +7085,208 @@
         throw new Error(j.error || t('common.saveFailed'));
       }
       refreshUsers();
+    });
+  }
+
+  // ----- groups admin -----
+  //
+  // Groups are reusable sets of users a contest owner can grant access to.
+  // Any authed user with groups.manage may create a group and becomes its
+  // first owner; only the group's owners (or someone with users.manage)
+  // may rename it, delete it, or change membership. The server enforces
+  // this authoritatively — this UI just hides affordances the caller
+  // wouldn't be able to use.
+  let allGroups = [];
+  async function refreshGroups() {
+    if (!hasPerm('groups.manage')) return;
+    const r = await api('/api/groups');
+    if (!r.ok) return;
+    allGroups = await r.json();
+    renderGroups();
+  }
+  function renderGroups() {
+    const tbody = $('groups-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    const empty = $('groups-empty');
+    if (!allGroups.length) {
+      if (empty) empty.classList.remove('hidden');
+      return;
+    }
+    if (empty) empty.classList.add('hidden');
+    for (const g of allGroups) {
+      const tr = document.createElement('tr');
+      const canManage = isAdmin() || hasPerm('users.manage') || g.my_role === 'owner';
+      const roleLabel = g.my_role === 'owner'
+        ? escHtml(t('groups.roleOwner'))
+        : (g.my_role === 'member' ? escHtml(t('groups.roleMember')) : `<span class="muted">${escHtml(t('groups.roleNone'))}</span>`);
+      tr.innerHTML = `
+        <td>${escHtml(g.name)}</td>
+        <td>${Number(g.member_count || 0)}</td>
+        <td>${roleLabel}</td>
+        <td class="actions">
+          <button class="ghost" data-action="view" data-id="${Number(g.id)}">${escHtml(t('common.view'))}</button>
+          ${canManage ? `<button class="ghost" data-action="edit" data-id="${Number(g.id)}">${escHtml(t('common.edit'))}</button>` : ''}
+          ${canManage ? `<button class="ghost" data-action="delete" data-id="${Number(g.id)}">${escHtml(t('common.delete'))}</button>` : ''}
+        </td>
+      `;
+      tr.querySelectorAll('button').forEach(b => b.addEventListener('click', () => groupAction(g, b.dataset.action)));
+      tbody.appendChild(tr);
+    }
+  }
+  async function groupAction(g, action) {
+    if (action === 'view' || action === 'edit') {
+      const r = await api('/api/groups/' + g.id);
+      if (!r.ok) return;
+      const detail = await r.json();
+      const canManage = isAdmin() || hasPerm('users.manage') || (detail.members || []).some(m => m.user_id === me.user_id && m.is_owner);
+      groupModal(detail, action === 'edit' && canManage);
+    } else if (action === 'delete') {
+      if (!await showConfirm(t('groups.deleteConfirm', { name: g.name }), { ok: t('common.delete') })) return;
+      const r = await api('/api/groups/' + g.id, { method: 'DELETE' });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(j.error || t('common.deleteFailed'));
+        return;
+      }
+      refreshGroups();
+    }
+  }
+  $('new-group-btn')?.addEventListener('click', () => groupCreateModal());
+  function groupCreateModal() {
+    showModal(`
+      <h3>${escHtml(t('groups.newGroup'))}</h3>
+      <form>
+        <label>${escHtml(t('groups.name'))}</label>
+        <input name="name" required maxlength="120" />
+        <div class="modal-err error"></div>
+        <div class="modal-actions">
+          <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
+          <button type="submit" class="primary">${escHtml(t('common.create'))}</button>
+        </div>
+      </form>
+    `, async (form) => {
+      const res = await api('/api/groups', { method: 'POST', body: JSON.stringify({ name: form.name.value.trim() }) });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || t('common.saveFailed'));
+      }
+      refreshGroups();
+    });
+  }
+  // groupModal renders a rich view: rename input (editable only when
+  // canManage) plus a members list with add / remove / owner-toggle.
+  // Because member mutations happen synchronously (one HTTP call each),
+  // the modal re-renders itself after every change instead of relying on
+  // form submit. The form submit only handles the rename.
+  function groupModal(group, canManage) {
+    const memberRows = (group.members || []).map(m => `
+      <tr>
+        <td>${escHtml(m.username)}</td>
+        <td>${escHtml(fmtCall(m.callsign))}</td>
+        <td>${canManage
+          ? `<input type="checkbox" data-owner-toggle data-uid="${Number(m.user_id)}" ${m.is_owner ? 'checked' : ''} />`
+          : (m.is_owner ? '✓' : '')}</td>
+        <td>${canManage ? `<button class="ghost small" data-member-remove data-uid="${Number(m.user_id)}">${escHtml(t('common.remove'))}</button>` : ''}</td>
+      </tr>
+    `).join('');
+    showModal(`
+      <h3>${escHtml(t('groups.modalTitle'))}: ${escHtml(group.name)}</h3>
+      <form>
+        <label>${escHtml(t('groups.name'))}</label>
+        <input name="name" value="${escHtml(group.name)}" ${canManage ? '' : 'disabled'} required maxlength="120" />
+        <h4 style="margin-top:16px">${escHtml(t('groups.members'))}</h4>
+        ${canManage ? `
+          <div class="group-add-row" style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
+            <label style="flex:1">${escHtml(t('groups.addUsername'))}
+              <input id="gm-add-username" type="text" autocomplete="off" />
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;padding-bottom:6px">
+              <input id="gm-add-is-owner" type="checkbox" />
+              <span>${escHtml(t('groups.owner'))}</span>
+            </label>
+            <button type="button" id="gm-add-btn" class="primary">${escHtml(t('groups.addMember'))}</button>
+          </div>
+          <div id="gm-add-error" class="error small"></div>
+        ` : ''}
+        <table>
+          <thead>
+            <tr>
+              <th>${escHtml(t('users.colUsername'))}</th>
+              <th>${escHtml(t('users.colCallsign'))}</th>
+              <th>${escHtml(t('groups.owner'))}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>${memberRows}</tbody>
+        </table>
+        <div class="modal-err error"></div>
+        <div class="modal-actions">
+          <button type="button" class="ghost cancel-btn">${escHtml(t('common.close'))}</button>
+          ${canManage ? `<button type="submit" class="primary">${escHtml(t('common.save'))}</button>` : ''}
+        </div>
+      </form>
+    `, async (form) => {
+      const newName = form.name.value.trim();
+      if (newName !== group.name) {
+        const r = await api('/api/groups/' + group.id, { method: 'PUT', body: JSON.stringify({ name: newName }) });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.error || t('common.saveFailed'));
+        }
+      }
+      refreshGroups();
+    });
+    // Wire the per-member controls only when the caller can manage.
+    if (!canManage) return;
+    const addErr = document.getElementById('gm-add-error');
+    document.getElementById('gm-add-btn')?.addEventListener('click', async () => {
+      if (addErr) addErr.textContent = '';
+      const username = document.getElementById('gm-add-username').value.trim();
+      const isOwner = document.getElementById('gm-add-is-owner').checked;
+      if (!username) return;
+      const r = await api('/api/groups/' + group.id + '/members', {
+        method: 'POST',
+        body: JSON.stringify({ username, is_owner: isOwner }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        if (addErr) addErr.textContent = j.error || t('common.saveFailed');
+        return;
+      }
+      // Reload the modal with fresh state.
+      const g2 = await (await api('/api/groups/' + group.id)).json();
+      groupModal(g2, true);
+    });
+    document.querySelectorAll('[data-owner-toggle]').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        const uid = Number(cb.dataset.uid);
+        const r = await api('/api/groups/' + group.id + '/members/' + uid, {
+          method: 'PUT',
+          body: JSON.stringify({ is_owner: cb.checked }),
+        });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          alert(j.error || t('common.saveFailed'));
+          // Reload to reflect actual server state.
+          const g2 = await (await api('/api/groups/' + group.id)).json();
+          groupModal(g2, true);
+        }
+      });
+    });
+    document.querySelectorAll('[data-member-remove]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const uid = Number(btn.dataset.uid);
+        if (!await showConfirm(t('groups.removeConfirm'), { ok: t('common.remove') })) return;
+        const r = await api('/api/groups/' + group.id + '/members/' + uid, { method: 'DELETE' });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          alert(j.error || t('common.deleteFailed'));
+          return;
+        }
+        const g2 = await (await api('/api/groups/' + group.id)).json();
+        groupModal(g2, true);
+      });
     });
   }
 
