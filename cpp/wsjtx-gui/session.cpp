@@ -3,6 +3,7 @@
 
 #include <QDateTime>
 #include <QHostAddress>
+#include <QTimeZone>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -29,8 +30,9 @@ QString extractError(const QByteArray& body) {
 }
 
 // UTC time_t → RFC3339, matching the format the server accepts.
+// Uses the QTimeZone overload — Qt 6.6 deprecated the Qt::TimeSpec form.
 QString rfc3339Utc(qint64 secs) {
-    return QDateTime::fromSecsSinceEpoch(secs, Qt::UTC).toString(Qt::ISODate);
+    return QDateTime::fromSecsSinceEpoch(secs, QTimeZone::UTC).toString(Qt::ISODate);
 }
 
 // "host:port" → (host, port).  host may be empty for the wildcard interface.

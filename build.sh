@@ -1234,7 +1234,7 @@ if $build_cpp; then
     echo "==> C++ Linux (Docker)"
     build_cpp_linux_docker
     if $build_cpp_windows; then
-      echo "==> C++ Windows (Docker + MXE)"
+      echo "==> C++ Windows (Docker + Fedora mingw64)"
       build_cpp_windows_docker
     else
       cpp_skipped+=("windows/amd64  (--cpp-no-windows)")
