@@ -6,11 +6,9 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -20,13 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/noctalum/noctalum/internal/wsjtx"
 	"golang.org/x/term"
-)
-
-const (
-	wsjtxMagic  = uint32(0xADBCCBDA)
-	msgLogQSO   = uint32(5)
-	julianEpoch = int64(2440588) // Julian day of Unix epoch 1970-01-01
 )
 
 type contest struct {
@@ -36,30 +29,11 @@ type contest struct {
 	Status      string `json:"status"`
 }
 
-type logQSOMsg struct {
-	DateTimeOff      time.Time
-	DxCall           string
-	DxGrid           string
-	DialFrequency    uint64
-	Mode             string
-	ReportSent       string
-	ReportReceived   string
-	TxPower          string
-	Comments         string
-	Name             string
-	DateTimeOn       time.Time
-	OperatorCall     string
-	MyCall           string
-	MyGrid           string
-	ExchangeSent     string
-	ExchangeReceived string
-}
-
 func main() {
-	serverFlag  := flag.String("server", "http://localhost:8080", "Noctalum server URL")
-	userFlag    := flag.String("user", "", "username — required")
-	passFlag    := flag.String("pass", "", "password (omit to be prompted)")
-	udpFlag     := flag.String("udp", "0.0.0.0:2237", "UDP address to listen for WSJT-X messages")
+	serverFlag := flag.String("server", "http://localhost:8080", "Noctalum server URL")
+	userFlag := flag.String("user", "", "username — required")
+	passFlag := flag.String("pass", "", "password (omit to be prompted)")
+	udpFlag := flag.String("udp", "0.0.0.0:2237", "UDP address to listen for WSJT-X messages")
 	forceDupFlag := flag.Bool("force-dup", false, "submit QSOs even if the server flags them as duplicates")
 	flag.Parse()
 
@@ -121,7 +95,7 @@ func main() {
 			log.Printf("udp read: %v", err)
 			continue
 		}
-		msg, err := parseLogQSO(buf[:n])
+		msg, err := wsjtx.ParseLogQSO(buf[:n])
 		if err != nil {
 			continue // not a LOG_QSO packet, silently ignore
 		}
@@ -219,12 +193,8 @@ func doSelectContest(c *http.Client, server, csrf string, id int64) error {
 }
 
 // submitQSO posts a parsed WSJT-X QSO to the Noctalum server.
-func submitQSO(c *http.Client, server, csrf string, m *logQSOMsg, forceDup bool) error {
-	t := m.DateTimeOn
-	if t.IsZero() {
-		t = m.DateTimeOff
-	}
-	notes := strings.TrimSpace(m.Name + " " + m.Comments)
+func submitQSO(c *http.Client, server, csrf string, m *wsjtx.LogQSO, forceDup bool) error {
+	notes := m.Notes()
 
 	payload := map[string]any{
 		"callsign":     strings.ToUpper(strings.TrimSpace(m.DxCall)),
@@ -233,7 +203,7 @@ func submitQSO(c *http.Client, server, csrf string, m *logQSOMsg, forceDup bool)
 		"rst_sent":     strings.TrimSpace(m.ReportSent),
 		"rst_received": strings.TrimSpace(m.ReportReceived),
 		"locator":      strings.ToUpper(strings.TrimSpace(m.DxGrid)),
-		"time":         t.Format(time.RFC3339),
+		"time":         m.Time().Format(time.RFC3339),
 	}
 	if notes != "" {
 		payload["notes"] = notes
@@ -287,133 +257,4 @@ func listenUDP(addr string) (net.PacketConn, error) {
 		return conn, nil
 	}
 	return net.ListenPacket("udp4", addr)
-}
-
-// ---------- WSJT-X binary protocol (NetworkMessage schema 2/3) ----------
-//
-// Header: magic(uint32) schema(uint32) type(uint32) id(utf8-string)
-// LOG_QSO body: DateTimeOff(QDateTime) DxCall(utf8) DxGrid(utf8) DialFreq(uint64)
-//   Mode(utf8) RptSent(utf8) RptRcvd(utf8) TxPower(utf8) Comments(utf8)
-//   Name(utf8) DateTimeOn(QDateTime) OpCall(utf8) MyCall(utf8) MyGrid(utf8)
-//   ExchSent(utf8) ExchRcvd(utf8) [AdifPropMode(utf8) if schema>=3]
-//
-// utf8-string: uint32 byte-count (0xFFFFFFFF = null/empty) + UTF-8 bytes
-// QDateTime:   uint64 Julian-day + uint32 ms-since-midnight + uint8 timeSpec
-
-func ru32(r io.Reader) (uint32, error) {
-	var v uint32
-	return v, binary.Read(r, binary.BigEndian, &v)
-}
-
-func ru64(r io.Reader) (uint64, error) {
-	var v uint64
-	return v, binary.Read(r, binary.BigEndian, &v)
-}
-
-func rstr(r io.Reader) (string, error) {
-	n, err := ru32(r)
-	if err != nil {
-		return "", err
-	}
-	if n == 0 || n == 0xFFFFFFFF {
-		return "", nil
-	}
-	buf := make([]byte, n)
-	if _, err := io.ReadFull(r, buf); err != nil {
-		return "", err
-	}
-	return string(buf), nil
-}
-
-func rdt(r io.Reader) (time.Time, error) {
-	jd, err := ru64(r)
-	if err != nil {
-		return time.Time{}, err
-	}
-	ms, err := ru32(r)
-	if err != nil {
-		return time.Time{}, err
-	}
-	var spec uint8
-	if err := binary.Read(r, binary.BigEndian, &spec); err != nil {
-		return time.Time{}, err
-	}
-	sec := (int64(jd)-julianEpoch)*86400 + int64(ms)/1000
-	ns := int64(ms%1000) * 1e6
-	return time.Unix(sec, ns).UTC(), nil
-}
-
-func parseLogQSO(data []byte) (*logQSOMsg, error) {
-	r := bytes.NewReader(data)
-
-	magic, err := ru32(r)
-	if err != nil || magic != wsjtxMagic {
-		return nil, fmt.Errorf("not wsjtx magic")
-	}
-	if _, err := ru32(r); err != nil { // schema
-		return nil, err
-	}
-	msgType, err := ru32(r)
-	if err != nil || msgType != msgLogQSO {
-		return nil, fmt.Errorf("not LOG_QSO (type %d)", msgType)
-	}
-	if _, err := rstr(r); err != nil { // client id
-		return nil, err
-	}
-
-	var m logQSOMsg
-	if m.DateTimeOff, err = rdt(r); err != nil {
-		return nil, fmt.Errorf("DateTimeOff: %w", err)
-	}
-	if m.DxCall, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("DxCall: %w", err)
-	}
-	if m.DxGrid, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("DxGrid: %w", err)
-	}
-	if m.DialFrequency, err = ru64(r); err != nil {
-		return nil, fmt.Errorf("DialFrequency: %w", err)
-	}
-	if m.Mode, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("Mode: %w", err)
-	}
-	if m.ReportSent, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("ReportSent: %w", err)
-	}
-	if m.ReportReceived, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("ReportReceived: %w", err)
-	}
-	if m.TxPower, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("TxPower: %w", err)
-	}
-	if m.Comments, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("Comments: %w", err)
-	}
-	if m.Name, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("Name: %w", err)
-	}
-	if m.DateTimeOn, err = rdt(r); err != nil {
-		return nil, fmt.Errorf("DateTimeOn: %w", err)
-	}
-	if m.OperatorCall, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("OperatorCall: %w", err)
-	}
-	if m.MyCall, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("MyCall: %w", err)
-	}
-	if m.MyGrid, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("MyGrid: %w", err)
-	}
-	if m.ExchangeSent, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("ExchangeSent: %w", err)
-	}
-	if m.ExchangeReceived, err = rstr(r); err != nil {
-		return nil, fmt.Errorf("ExchangeReceived: %w", err)
-	}
-	// schema >= 3 appends AdifPropagationMode; we read it implicitly by ignoring EOF
-
-	if m.DxCall == "" {
-		return nil, fmt.Errorf("empty DX callsign")
-	}
-	return &m, nil
 }

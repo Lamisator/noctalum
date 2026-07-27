@@ -36,15 +36,14 @@
 # separate containers.  macOS GUI builds require Xcode and must be done natively
 # with `wails build` on a Mac (see cmd/helper-gui/README.md).
 #
-# The C++ programs under cpp/ (helper, helper-gui, wsjtx, wsjtx-gui) build in
-# three per-platform Docker images that are inline-defined below:
+# The C++ programs under cpp/ (helper, helper-gui, wsjtx) build in
+# two per-platform Docker images that are inline-defined below:
 #   - noctalum-cpp-linux    Debian bookworm + Qt6 + linuxdeploy → AppImage
-#   - noctalum-cpp-windows  Fedora + MinGW-w64 + Qt6           → .exe+DLL bundle in .zip
-#                           (wsjtx-gui only; Fedora's mingw64-qt6 packaging
-#                            doesn't include qtserialport / qtwebsockets,
-#                            so helper-gui Windows still ships from the
-#                            existing Go/Wails toolchain)
 #   - noctalum-cpp-macos    Debian bookworm + osxcross + Qt6 static → .app in .zip (unsigned)
+#
+# The WSJT-X bridge GUI (formerly cpp/wsjtx-gui) migrated to a Go/Fyne
+# implementation in cmd/wsjtx-gui — it uses the same infrastructure as
+# helper-gui below and ships as a single static binary per OS.
 #
 # The macOS image needs a macOS SDK tarball at cpp/third_party/osxcross-sdk/,
 # which Apple's license forbids redistributing.  See cpp/third_party/osxcross-sdk/README
@@ -84,7 +83,11 @@ build_wsjtx=true
 build_gui=true
 build_notifier=true
 build_cpp=true
-build_cpp_windows=true
+# Legacy toggle from the days when the C++ wsjtx-gui was the sole thing
+# that needed a mingw64 Docker image.  Now that wsjtx-gui migrated to Go
+# there's no C++ Windows step; the flag stays only so --cpp-no-windows
+# from old scripts doesn't break parsing.
+build_cpp_windows=false
 # macOS is opt-in until the osxcross SDK story is sorted — the SDK
 # tarball has to be dropped in manually, the image build takes ~20 min
 # on the first pass, and cross-compiling Qt for macOS from Linux is
@@ -330,23 +333,27 @@ fi
 #   $5  extra -tags (beyond "desktop,production")
 #   $6  extra -ldflags prefix (e.g. "-H windowsgui")
 #   $7  optional --platform flag for Docker (e.g. linux/arm64)
+#   $8  project subdir under $ROOT (default: cmd/helper-gui)
 run_gui_build() {
   local out="$1" image="$2" target_os="$3" target_arch="$4"
   local extra_tags="${5:-}" extra_ldflags="${6:-}" platform_flag="${7:-}"
+  local subdir="${8:-cmd/helper-gui}"
 
   local all_tags="desktop,production"
   [ -n "$extra_tags" ] && all_tags="${all_tags},${extra_tags}"
 
-  # Append with_rigctld if the bins are ready.
+  # Append with_rigctld if the bins are ready (helper-gui only — the
+  # WSJT-X bridge doesn't drive rigctld, so pkg_tags returns "" and this
+  # is a no-op there).
   local rtag
-  rtag="$(pkg_tags "cmd/helper-gui" "$target_os" "$target_arch")"
+  rtag="$(pkg_tags "$subdir" "$target_os" "$target_arch")"
   [ -n "$rtag" ] && all_tags="${all_tags},${rtag}"
 
   echo "==> $out  (CGO=1, ${target_os}/${target_arch}  tags=${all_tags})"
 
   if $native_build; then
     (
-      cd "$ROOT/cmd/helper-gui"
+      cd "$ROOT/$subdir"
       CGO_ENABLED=1 GOOS="$target_os" GOARCH="$target_arch" \
         go build -trimpath -mod=mod -tags "$all_tags" \
           -ldflags="${extra_ldflags:+${extra_ldflags} }$LDFLAGS" \
@@ -360,7 +367,7 @@ run_gui_build() {
     "$RUNTIME" run --rm \
       ${platform_flag:+--platform "$platform_flag"} \
       --user "$(id -u):$(id -g)" \
-      -v "$ROOT":/src -w /src/cmd/helper-gui \
+      -v "$ROOT":/src -w "/src/$subdir" \
       -v "$CACHE_DIR/go-build":/.cache/go-build \
       -v "$CACHE_DIR/go-mod":/go/pkg/mod \
       -e HOME=/tmp \
@@ -556,6 +563,129 @@ DOCKERFILE
   fi
 }
 
+# ── WSJT-X bridge GUI (Fyne, single static binary per OS) ───────────────
+#
+# cmd/wsjtx-gui uses Fyne + GLFW + OpenGL, so it needs different Linux
+# dev headers than helper-gui (which uses WebKitGTK).  Windows reuses the
+# helper-gui mingw64 image because both projects just want a plain C
+# cross-compiler.  macOS ships from a native `go build` on a Mac (see
+# cmd/wsjtx-gui/README.md).
+
+# Toolchain image with the OpenGL / X11 / Wayland / xkbcommon headers Fyne
+# pulls in through go-gl and glfw.  Kept separate from the helper-gui
+# WebKitGTK image so the two GUI stacks don't cross-contaminate.
+ensure_wsjtx_gui_linux_image() {
+  local arch="$1"
+  local image="noctalum-gui-fyne-linux-${arch}:latest"
+  local platform_flag=""
+  [ "$arch" = "arm64" ] && platform_flag="--platform linux/arm64"
+
+  local existing_arch
+  existing_arch="$("$RUNTIME" image inspect "$image" --format '{{.Architecture}}' 2>/dev/null || true)"
+  if [ -n "$existing_arch" ] && [ "$existing_arch" != "$arch" ]; then
+    "$RUNTIME" rmi "$image" >/dev/null 2>&1 || true
+    existing_arch=""
+  fi
+  if [ -n "$existing_arch" ]; then return 0; fi
+
+  echo "    building $image (one-time, ~3-5 min)"
+  # These are the same headers fyne.io/fyne/v2 documents as required for
+  # a build-from-source: libgl (OpenGL), libx*-dev (X11), libxkbcommon
+  # (input), libwayland (native Wayland backend), libxxf86vm (fullscreen
+  # switching).  bookworm has all of them.
+  "$RUNTIME" build ${platform_flag:-} -t "$image" - <<'DOCKERFILE'
+FROM golang:1.25-bookworm
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config build-essential \
+    libgl1-mesa-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+    libxinerama-dev libxxf86vm-dev libxkbcommon-dev libwayland-dev
+DOCKERFILE
+}
+
+build_wsjtx_gui_linux_amd64() {
+  if $native_build; then
+    if run_gui_build "noctalum-wsjtx-gui-linux-amd64" "" linux amd64 "" "" "" "cmd/wsjtx-gui"; then
+      gui_built+=("wsjtx-gui/linux/amd64")
+    else
+      echo "    skipping wsjtx-gui linux/amd64 — go build failed (Fyne deps installed?)"
+      gui_skipped+=("wsjtx-gui/linux/amd64")
+    fi
+    return
+  fi
+  if ! ensure_wsjtx_gui_linux_image amd64; then
+    echo "    skipping wsjtx-gui linux/amd64 — toolchain image build failed"
+    gui_skipped+=("wsjtx-gui/linux/amd64")
+    return
+  fi
+  if run_gui_build "noctalum-wsjtx-gui-linux-amd64" "noctalum-gui-fyne-linux-amd64:latest" \
+       linux amd64 "" "" "" "cmd/wsjtx-gui"; then
+    gui_built+=("wsjtx-gui/linux/amd64")
+  else
+    gui_skipped+=("wsjtx-gui/linux/amd64")
+  fi
+}
+
+build_wsjtx_gui_linux_arm64() {
+  if $native_build; then
+    if run_gui_build "noctalum-wsjtx-gui-linux-arm64" "" linux arm64 "" "" "" "cmd/wsjtx-gui"; then
+      gui_built+=("wsjtx-gui/linux/arm64")
+    else
+      gui_skipped+=("wsjtx-gui/linux/arm64")
+    fi
+    return
+  fi
+  if ! ensure_wsjtx_gui_linux_image arm64; then
+    gui_skipped+=("wsjtx-gui/linux/arm64")
+    return
+  fi
+  if run_gui_build "noctalum-wsjtx-gui-linux-arm64" "noctalum-gui-fyne-linux-arm64:latest" \
+       linux arm64 "" "" "linux/arm64" "cmd/wsjtx-gui"; then
+    gui_built+=("wsjtx-gui/linux/arm64")
+  else
+    gui_skipped+=("wsjtx-gui/linux/arm64")
+  fi
+}
+
+build_wsjtx_gui_windows_amd64() {
+  # Reuse the helper-gui mingw64 image — Fyne on Windows just needs a
+  # working mingw64 gcc, exactly what that image already provides.  If
+  # the image doesn't exist yet, build_gui_windows_amd64() would have
+  # built it too; force it here by calling the image-ensure logic
+  # inline (skipping the actual helper-gui build).
+  if $native_build; then
+    # -H windowsgui suppresses the console window on Windows.
+    if run_gui_build "noctalum-wsjtx-gui-windows-amd64.exe" "" windows amd64 "" "-H windowsgui" "" "cmd/wsjtx-gui"; then
+      gui_built+=("wsjtx-gui/windows/amd64")
+    else
+      gui_skipped+=("wsjtx-gui/windows/amd64")
+    fi
+    return
+  fi
+  local image="noctalum-gui-windows-amd64:latest"
+  if ! "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then
+    echo "    building $image (one-time, ~3-5 min)"
+    if ! "$RUNTIME" build -t "$image" - <<'DOCKERFILE'
+FROM golang:1.25-bookworm
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    gcc-mingw-w64-x86-64
+DOCKERFILE
+    then
+      gui_skipped+=("wsjtx-gui/windows/amd64")
+      return 0
+    fi
+  fi
+  if run_gui_build "noctalum-wsjtx-gui-windows-amd64.exe" "$image" \
+       windows amd64 "" "-H windowsgui" "" "cmd/wsjtx-gui"; then
+    gui_built+=("wsjtx-gui/windows/amd64")
+  else
+    gui_skipped+=("wsjtx-gui/windows/amd64")
+  fi
+}
+
 # macOS GUI builds require Xcode / the macOS SDK and cannot be cross-compiled
 # from Linux.  Run `wails build` natively on a Mac and copy the resulting
 # binary into the downloads directory (see cmd/helper-gui/README.md).
@@ -568,11 +698,12 @@ if $build_gui; then
     native_os="$(go env GOOS)"
     native_arch="$(go env GOARCH)"
     case "${native_os}/${native_arch}" in
-      linux/amd64)   build_gui_linux_amd64 ;;
-      linux/arm64)   build_gui_linux_arm64 ;;
-      windows/amd64) build_gui_windows_amd64 ;;
+      linux/amd64)   build_gui_linux_amd64;   build_wsjtx_gui_linux_amd64 ;;
+      linux/arm64)   build_gui_linux_arm64;   build_wsjtx_gui_linux_arm64 ;;
+      windows/amd64) build_gui_windows_amd64; build_wsjtx_gui_windows_amd64 ;;
       darwin/*)
         echo "  macOS GUI: run 'wails build' natively on a Mac (see cmd/helper-gui/README.md)"
+        echo "  macOS wsjtx-gui: run 'go build ./cmd/wsjtx-gui' natively on a Mac"
         gui_skipped+=("${native_os}/${native_arch}") ;;
       *)
         echo "  GUI: no native build defined for ${native_os}/${native_arch}"
@@ -582,6 +713,9 @@ if $build_gui; then
     build_gui_linux_amd64
     build_gui_linux_arm64
     build_gui_windows_amd64
+    build_wsjtx_gui_linux_amd64
+    build_wsjtx_gui_linux_arm64
+    build_wsjtx_gui_windows_amd64
   fi
 fi
 
@@ -786,14 +920,9 @@ build_cpp_linux_native() {
                        "Noctalum Helper (C++)" "$out" || return 1
   cpp_built+=("helper-gui-cpp/linux/${arch}")
 
-  out="noctalum-wsjtx-gui-linux-${arch}.AppImage"
-  echo "==> $out"
-  if ! pkg-config --exists Qt6Core Qt6Widgets Qt6Network; then
-    echo "error: missing qt6-base-dev" >&2; return 1
-  fi
-  package_gui_appimage "wsjtx-gui" "noctalum-wsjtx-gui" \
-                       "Noctalum WSJT-X Bridge" "$out" || return 1
-  cpp_built+=("wsjtx-gui/linux/${arch}")
+  # The former cpp/wsjtx-gui migrated to cmd/wsjtx-gui (Go/Fyne); it now
+  # ships from the build_wsjtx_gui_* functions above.  Nothing to build
+  # here.
 }
 
 # ── Docker path: one image per target OS ────────────────────────────────
@@ -926,7 +1055,7 @@ DESKTOP
 pack_cli "wsjtx"      "noctalum-wsjtx"      "noctalum-wsjtx-cpp-linux-\${ARCH}.AppImage"
 pack_cli "helper"     "noctalum-helper"     "noctalum-helper-cpp-linux-\${ARCH}.AppImage"
 pack_gui "helper-gui" "noctalum-helper-gui" "Noctalum Helper (C++)"   "noctalum-helper-gui-cpp-linux-\${ARCH}.AppImage"
-pack_gui "wsjtx-gui"  "noctalum-wsjtx-gui"  "Noctalum WSJT-X Bridge"  "noctalum-wsjtx-gui-linux-\${ARCH}.AppImage"
+# wsjtx-gui migrated to Go/Fyne — no C++ Linux build any more.
 INNERSCRIPT
   chmod +x "$script"
 
@@ -944,129 +1073,18 @@ INNERSCRIPT
     return 1
   fi
   cpp_built+=("wsjtx-cpp/linux/${arch}" "helper-cpp/linux/${arch}"
-              "helper-gui-cpp/linux/${arch}" "wsjtx-gui/linux/${arch}")
+              "helper-gui-cpp/linux/${arch}")
 }
 
-# ── Windows cross-compile (MXE on Debian bullseye) ──────────────────────
-
-ensure_cpp_windows_image() {
-  local image="noctalum-cpp-windows:latest"
-  if "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then return 0; fi
-  echo "    building $image (one-time, ~4-6 min)"
-  # Fedora ships dynamic mingw64-qt6-qtbase (Widgets+Network+Core+Gui) via
-  # its MinGW SIG.  The -static variants I originally reached for don't
-  # actually exist in Fedora's repos, and neither do qtserialport /
-  # qtwebsockets for mingw64 at the time of writing.  That constrains
-  # what we can cross-compile from Linux:
-  #
-  #   wsjtx-gui   needs Widgets + Network → cross-compiles fine
-  #   helper-gui  needs Widgets + Network + WebSockets + SerialPort →
-  #               can't be built here.  The Go/Wails helper-gui at
-  #               cmd/helper-gui already covers Windows via a separate
-  #               toolchain (see build_gui_windows_amd64 above), so
-  #               operators aren't left without a Windows helper.
-  #
-  # We ship the resulting wsjtx-gui.exe as a zipped bundle containing
-  # the exe plus the required Qt6 DLLs and the qwindows platform plugin
-  # (Qt's cross-platform-plugin plumbing needs it next to the exe under
-  # platforms/qwindows.dll).
-  "$RUNTIME" build -t "$image" - <<'DOCKERFILE' >&2
-FROM fedora:41
-RUN dnf install -y --setopt=install_weak_deps=False \
-      cmake ninja-build file zip which findutils \
-      mingw64-gcc mingw64-gcc-c++ mingw64-winpthreads \
-      mingw64-qt6-qtbase \
- && dnf clean all
-DOCKERFILE
-}
-
+# The Fedora + MinGW-w64 + Qt6 image (formerly noctalum-cpp-windows) is
+# gone — nothing on the C++ side needed a Windows cross-compile once the
+# wsjtx-gui migrated to Go.  build_cpp_windows_docker is kept as a stub
+# so the outer flow's `if $build_cpp_windows; then …` branch stays a
+# no-op instead of tripping over an undefined function should someone
+# flip --cpp-no-windows off from an old script.
 build_cpp_windows_docker() {
-  ensure_cpp_windows_image || {
-    echo "error: noctalum-cpp-windows image build failed (Fedora mingw64-qt6-qtbase still available?)" >&2
-    return 1
-  }
-
-  local script; script="$(mktemp)"
-  cat > "$script" <<'INNERSCRIPT'
-#!/bin/bash
-set -euo pipefail
-ROOT=/src
-OUT=/out
-BUILD=/tmp/build
-QT_SYSROOT=/usr/x86_64-w64-mingw32/sys-root/mingw
-QT_BIN="$QT_SYSROOT/bin"
-QT_PLUGINS="$QT_SYSROOT/lib/qt6/plugins"
-mkdir -p "$BUILD"
-
-# Iterative DLL walker: given a PE binary, follow its import table via
-# objdump and copy every referenced DLL that lives in the mingw sysroot
-# into $dst.  Skips system DLLs (kernel32, user32, …) that already exist
-# on every Windows install.
-copy_deps() {
-  local exe="$1" dst="$2"
-  local queue=("$exe") seen=""
-  while [ ${#queue[@]} -gt 0 ]; do
-    local file="${queue[0]}"
-    queue=("${queue[@]:1}")
-    for dll in $(x86_64-w64-mingw32-objdump -p "$file" 2>/dev/null \
-                 | awk '/DLL Name:/ {print $3}'); do
-      case " $seen " in *" $dll "*) continue ;; esac
-      seen="$seen $dll"
-      if [ -f "$QT_BIN/$dll" ] && [ ! -f "$dst/$dll" ]; then
-        cp "$QT_BIN/$dll" "$dst/"
-        queue+=("$dst/$dll")
-      fi
-    done
-  done
-}
-
-pack_win_gui() {
-  local project="$1" binary="$2" out_zip="$3"
-  local bd="$BUILD/$project"
-  rm -rf "$bd" && mkdir -p "$bd"
-  # mingw64-cmake is a Fedora wrapper that runs cmake with the mingw64
-  # toolchain preloaded — only valid for configure.  Once the build tree
-  # is generated we drive Ninja directly for the compile step.
-  ( cd "$bd" \
-    && mingw64-cmake -G Ninja -DCMAKE_BUILD_TYPE=Release "$ROOT/cpp/$project" \
-    && ninja ) >&2
-  local exe="$bd/${binary}.exe"
-  [ -f "$exe" ] || { echo "no $exe produced" >&2; return 1; }
-
-  # Assemble a bundle dir with the exe + its DLLs + the qwindows platform
-  # plugin.  Qt loads the platform plugin from ./platforms/ next to the
-  # exe on Windows; without it the app dies with "no Qt platform plugin".
-  local bundle="$bd/bundle"
-  rm -rf "$bundle" && mkdir -p "$bundle/platforms"
-  cp "$exe" "$bundle/"
-  cp "$QT_PLUGINS/platforms/qwindows.dll" "$bundle/platforms/"
-  copy_deps "$exe" "$bundle"
-  # Platform plugin has its own DLL deps — scan it too.
-  copy_deps "$bundle/platforms/qwindows.dll" "$bundle"
-
-  ( cd "$bundle" && zip -qr "$OUT/$out_zip" . )
-}
-
-# wsjtx-gui: only project whose Qt6 dependency set (Widgets + Network)
-# is fully covered by the modules Fedora ships in mingw64-qt6-qtbase.
-pack_win_gui "wsjtx-gui" "noctalum-wsjtx-gui" "noctalum-wsjtx-gui-windows-amd64.zip"
-INNERSCRIPT
-  chmod +x "$script"
-
-  "$RUNTIME" run --rm \
-    --user "$(id -u):$(id -g)" \
-    -v "$ROOT":/src:ro \
-    -v "$OUT_DIR":/out \
-    -v "$script":/build.sh:ro \
-    noctalum-cpp-windows:latest \
-    bash /build.sh
-  local rc=$?
-  rm -f "$script"
-  if [ $rc -ne 0 ]; then
-    echo "error: C++ Windows build failed (exit $rc)" >&2
-    return 1
-  fi
-  cpp_built+=("wsjtx-gui/windows/amd64")
+  echo "  C++ Windows cross-compile is retired — wsjtx-gui ships as a Go binary now"
+  return 0
 }
 
 # ── macOS cross-compile (osxcross with user-supplied SDK) ───────────────
@@ -1205,8 +1223,8 @@ PLIST
 
 # Only x86_64 for now — arm64 needs a matching arm64 SDK tarball; when
 # both are provided we can lipo two bundles into one universal binary.
-pack_mac "wsjtx-gui"  "noctalum-wsjtx-gui"  "Noctalum WSJT-X Bridge" x86_64 \
-         "noctalum-wsjtx-gui-darwin-amd64.zip"
+# wsjtx-gui migrated to Go/Fyne — its macOS build is a native `go build`
+# on a Mac (see cmd/wsjtx-gui/README.md).
 pack_mac "helper-gui" "noctalum-helper-gui" "Noctalum Helper"        x86_64 \
          "noctalum-helper-gui-cpp-darwin-amd64.zip"
 INNERSCRIPT
@@ -1225,7 +1243,7 @@ INNERSCRIPT
     echo "error: C++ macOS build failed (exit $rc)" >&2
     return 1
   fi
-  cpp_built+=("wsjtx-gui/darwin/amd64" "helper-gui-cpp/darwin/amd64")
+  cpp_built+=("helper-gui-cpp/darwin/amd64")
 }
 
 # ── Dispatch ────────────────────────────────────────────────────────────
@@ -1246,12 +1264,10 @@ if $build_cpp; then
   else
     echo "==> C++ Linux (Docker)"
     build_cpp_linux_docker
-    if $build_cpp_windows; then
-      echo "==> C++ Windows (Docker + Fedora mingw64)"
-      build_cpp_windows_docker
-    else
-      cpp_skipped+=("windows/amd64  (--cpp-no-windows)")
-    fi
+    # C++ Windows cross-compile is retired (wsjtx-gui moved to Go).  The
+    # $build_cpp_windows toggle is left in place for CLI compatibility
+    # but nothing consumes it any more.
+    :
     if $build_cpp_macos; then
       echo "==> C++ macOS (Docker + osxcross)"
       build_cpp_macos_docker
