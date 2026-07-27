@@ -1,0 +1,48 @@
+macOS SDK for cross-compilation
+================================
+
+The C++ macOS build (`./build.sh` → noctalum-cpp-macos image) uses osxcross
+to link against Apple frameworks from a Linux host.  osxcross needs a real
+macOS SDK.  Apple's SDK Agreement forbids redistributing it, so this
+directory is intentionally empty in git — you extract the SDK yourself
+from a Mac that you own and drop the tarball here.
+
+What to drop here
+-----------------
+One file: `MacOSX<version>.sdk.tar.xz`.  For example:
+
+    MacOSX14.4.sdk.tar.xz
+    MacOSX13.3.sdk.tar.xz
+
+The build picks the highest-numbered `MacOSX*.sdk.tar.xz` it finds.  Any
+SDK from Xcode 11 or newer works; newer is better (later deployment target
+support).  The build pins the deployment target to macOS 11.0, so the
+resulting .app runs on Big Sur and newer.
+
+How to package the SDK
+----------------------
+On the Mac (needs Xcode or the Command Line Tools installed):
+
+    # 1. Clone the osxcross helper repo (matches the version baked into
+    #    our Docker image).
+    git clone https://github.com/tpoechtrager/osxcross ~/osxcross
+
+    # 2. Package the SDK from the currently-selected Xcode.
+    cd ~/osxcross
+    ./tools/gen_sdk_package.sh
+
+    # 3. Copy the produced MacOSX<version>.sdk.tar.xz over to this
+    #    directory on your build host.
+    scp MacOSX*.sdk.tar.xz your-build-host:/path/to/noctalum/cpp/third_party/osxcross-sdk/
+
+If Xcode isn't installed (Command Line Tools only), use
+`./tools/gen_sdk_package_pbzx.sh` from the same repo — same output.
+
+Skipping the macOS build
+------------------------
+If you don't have (or don't want to package) a Mac SDK, run
+
+    ./build.sh --cpp-no-macos
+
+and macOS artifacts will not be produced.  Deploy still succeeds; the
+Downloads page just shows "not available" on the macOS cards.

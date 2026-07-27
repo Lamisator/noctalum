@@ -28,3 +28,8 @@ cmd/helper-gui/rigctld-bins/
 
 # Claude Code local settings (machine-specific paths and permissions)
 .claude/settings.local.json
+
+# macOS SDK tarball for osxcross cross-compile — Apple's SDK licence forbids
+# redistribution.  See cpp/third_party/osxcross-sdk/README for how to package
+# one from a Mac.
+cpp/third_party/osxcross-sdk/*.tar.xz
