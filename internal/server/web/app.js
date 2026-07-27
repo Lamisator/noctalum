@@ -5418,6 +5418,27 @@
     const readOnly = !canEdit;
     const canSeeParticipants = canManageContest || isOwner;
     const d = readOnly ? ' disabled' : '';
+    // Visibility + group access — owner-only, editable inline via the
+    // dedicated /visibility and /groups endpoints (the main PUT
+    // /api/contests/{id} intentionally never touches visibility).
+    const curVisibility = c.visibility || (c.private ? 'private' : 'open');
+    const visibilitySection = canEdit
+      ? `<div class="participants-section" style="margin-top:8px">
+           <div class="participants-section-header">${escHtml(t('contestScreen.visibility'))}</div>
+           <div class="vis-controls" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+             <select id="edit-visibility-select">
+               <option value="open"    ${curVisibility === 'open'    ? 'selected' : ''}>${escHtml(t('contestScreen.visibilityOpen'))}</option>
+               <option value="groups"  ${curVisibility === 'groups'  ? 'selected' : ''}>${escHtml(t('contestScreen.visibilityGroups'))}</option>
+               <option value="private" ${curVisibility === 'private' ? 'selected' : ''}>${escHtml(t('contestScreen.visibilityPrivate'))}</option>
+             </select>
+             <span id="edit-visibility-status" class="muted small"></span>
+           </div>
+           <div id="edit-visibility-groups" class="hidden" style="margin-top:8px">
+             <div class="muted small">${escHtml(t('contestScreen.visibilityGroupsHelp'))}</div>
+             <div id="edit-visibility-groups-list" style="margin-top:4px"><span class="muted small">${escHtml(t('common.loading'))}</span></div>
+           </div>
+         </div>`
+      : '';
     const participantsSection = canSeeParticipants
       ? `<div class="participants-section">
            <div class="participants-section-header">${escHtml(t('contestScreen.participants'))}</div>
@@ -5450,6 +5471,7 @@
     showModal(`
       <h3>${escHtml(readOnly ? t('topbar.contestSettings') : t('contestScreen.editTitle'))}</h3>
       ${statusToggleHtml}
+      ${visibilitySection}
       ${participantsSection}
       <form${readOnly ? ' class="contest-modal-readonly"' : ''}>
         <label>${escHtml(t('contestScreen.contestName'))}</label>
@@ -5543,6 +5565,82 @@
     }
     // Load participants if visible
     if (canSeeParticipants) loadModalParticipants(c.id, canManageContest);
+    // Visibility + group-access controls (owner-only). Uses the dedicated
+    // /visibility and /groups sub-endpoints — the main PUT never touches
+    // these so an accidental edit can't silently flip access rules.
+    const visSel = document.getElementById('edit-visibility-select');
+    const visStatus = document.getElementById('edit-visibility-status');
+    const visGroupsWrap = document.getElementById('edit-visibility-groups');
+    const visGroupsList = document.getElementById('edit-visibility-groups-list');
+    async function loadContestGroupSelection() {
+      if (!visGroupsList) return;
+      const [allR, curR] = await Promise.all([
+        api('/api/groups'),
+        api('/api/contests/' + c.id + '/groups'),
+      ]);
+      if (!allR.ok || !curR.ok) {
+        visGroupsList.innerHTML = `<span class="error small">${escHtml(t('contestScreen.visibilityGroupsLoadFail'))}</span>`;
+        return;
+      }
+      const allGrp = await allR.json();
+      const curGrp = await curR.json();
+      const curIds = new Set((curGrp || []).map(g => g.id));
+      if (!allGrp.length) {
+        visGroupsList.innerHTML = `<span class="muted small">${escHtml(t('contestScreen.visibilityGroupsEmpty'))}</span>`;
+        return;
+      }
+      visGroupsList.innerHTML = allGrp.map(g => `
+        <label class="checkbox-row" style="display:flex;gap:6px;align-items:center;margin:2px 0">
+          <input type="checkbox" class="vis-group-cb" value="${Number(g.id)}" ${curIds.has(g.id) ? 'checked' : ''} />
+          <span>${escHtml(g.name)} <span class="muted small">(${Number(g.member_count || 0)})</span></span>
+        </label>
+      `).join('') + `
+        <button type="button" id="vis-groups-save" class="ghost small" style="margin-top:6px">${escHtml(t('common.save'))}</button>
+        <span id="vis-groups-status" class="muted small" style="margin-left:8px"></span>`;
+      document.getElementById('vis-groups-save').addEventListener('click', async () => {
+        const ids = Array.from(document.querySelectorAll('.vis-group-cb:checked')).map(cb => Number(cb.value));
+        const statusEl = document.getElementById('vis-groups-status');
+        const r = await api('/api/contests/' + c.id + '/groups', {
+          method: 'PUT', body: JSON.stringify({ group_ids: ids }),
+        });
+        if (r.ok) {
+          if (statusEl) statusEl.textContent = t('common.saved');
+        } else {
+          const j = await r.json().catch(() => ({}));
+          if (statusEl) statusEl.textContent = j.error || t('common.saveFailed');
+        }
+      });
+    }
+    function reflectVisibilityGroupsPanel() {
+      if (!visGroupsWrap) return;
+      if (visSel.value === 'groups') {
+        visGroupsWrap.classList.remove('hidden');
+        loadContestGroupSelection();
+      } else {
+        visGroupsWrap.classList.add('hidden');
+      }
+    }
+    if (visSel) {
+      reflectVisibilityGroupsPanel();
+      visSel.addEventListener('change', async () => {
+        const newVis = visSel.value;
+        if (visStatus) visStatus.textContent = t('common.loading');
+        const r = await api('/api/contests/' + c.id + '/visibility', {
+          method: 'PUT', body: JSON.stringify({ visibility: newVis }),
+        });
+        if (r.ok) {
+          if (visStatus) visStatus.textContent = t('common.saved');
+          c.visibility = newVis;
+          c.private = newVis === 'private';
+          reflectVisibilityGroupsPanel();
+        } else {
+          const j = await r.json().catch(() => ({}));
+          if (visStatus) visStatus.textContent = j.error || t('common.saveFailed');
+          // Revert the dropdown to what the server still holds.
+          visSel.value = curVisibility;
+        }
+      });
+    }
     // Delete contest button
     const deleteBtn = document.getElementById('modal-delete-contest-btn');
     if (deleteBtn) {
@@ -5571,22 +5669,38 @@
     if (!r.ok) { list.innerHTML = `<span class="error small">${escHtml(t('contestScreen.participantLoadFail'))}</span>`; return; }
     const participants = await r.json();
 
+    // Role vocabulary: owner / editor / logger. Legacy "user" is treated
+    // as an alias for "logger" on read so old rows render sensibly.
+    const roleLabel = (r) => {
+      if (r === 'owner') return t('contestScreen.roleOwner');
+      if (r === 'editor') return t('contestScreen.roleEditor');
+      return t('contestScreen.roleLogger'); // logger, or legacy user
+    };
+    const roleSelect = (p) => {
+      const cur = p.role === 'user' ? 'logger' : p.role;
+      return `<select class="ptc-role-select small" data-uid="${p.user_id}">
+        <option value="logger" ${cur === 'logger' ? 'selected' : ''}>${escHtml(t('contestScreen.roleLogger'))}</option>
+        <option value="editor" ${cur === 'editor' ? 'selected' : ''}>${escHtml(t('contestScreen.roleEditor'))}</option>
+        <option value="owner"  ${cur === 'owner'  ? 'selected' : ''}>${escHtml(t('contestScreen.roleOwner'))}</option>
+      </select>`;
+    };
     const rows = (participants && participants.length)
       ? participants.map(p => {
-          const rolePill = `<span class="participant-role-pill ${escHtml(p.role)}">${escHtml(p.role === 'owner' ? t('contestScreen.roleOwner') : t('contestScreen.roleUser'))}</span>`;
+          const cur = p.role === 'user' ? 'logger' : p.role;
+          const rolePill = `<span class="participant-role-pill ${escHtml(cur)}">${escHtml(roleLabel(p.role))}</span>`;
           const statusPill = `<span class="participant-status-pill ${escHtml(p.status)}">${escHtml(p.status === 'active' ? t('contestScreen.participantActive') : t('contestScreen.participantPending'))}</span>`;
           const isSelf = p.user_id === me?.user_id;
           let actions = '';
           if (p.status === 'pending') {
             actions += `<button class="ghost small ptc-approve" data-uid="${p.user_id}">${escHtml(t('contestScreen.approveRequest'))}</button>`;
           }
-          if (p.status === 'active' && p.role === 'user') {
-            actions += `<button class="ghost small ptc-promote" data-uid="${p.user_id}">&uarr;</button>`;
+          // Owner-only can promote/demote; owner may always demote self.
+          // A logger cannot self-promote; the dropdown is only rendered
+          // when the caller has manage rights.
+          if (p.status === 'active' && canManage) {
+            actions += roleSelect(p);
           }
-          if (p.status === 'active' && p.role === 'owner' && isSelf) {
-            actions += `<button class="ghost small ptc-demote" data-uid="${p.user_id}">&darr;</button>`;
-          }
-          if (canManage || (isSelf && p.role !== 'owner')) {
+          if (canManage || (isSelf && cur !== 'owner')) {
             actions += `<button class="ghost small ptc-remove" data-uid="${p.user_id}">&times;</button>`;
           }
           return `<div class="participant-row" data-uid="${p.user_id}">
@@ -5638,24 +5752,22 @@
         else alert(t('contestScreen.participantUpdateFail'));
       });
     });
-    list.querySelectorAll('.ptc-promote').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const uid = Number(btn.dataset.uid);
+    list.querySelectorAll('.ptc-role-select').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        const uid = Number(sel.dataset.uid);
+        const role = sel.value;
         const res = await api('/api/contests/' + contestID + '/participants/' + uid, {
-          method: 'PUT', body: JSON.stringify({ role: 'owner', status: 'active' }),
+          method: 'PUT', body: JSON.stringify({ role, status: 'active' }),
         });
-        if (res.ok) loadModalParticipants(contestID, canManage);
-        else alert(t('contestScreen.participantUpdateFail'));
-      });
-    });
-    list.querySelectorAll('.ptc-demote').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const uid = Number(btn.dataset.uid);
-        const res = await api('/api/contests/' + contestID + '/participants/' + uid, {
-          method: 'PUT', body: JSON.stringify({ role: 'user', status: 'active' }),
-        });
-        if (res.ok) loadModalParticipants(contestID, canManage);
-        else alert(t('contestScreen.participantUpdateFail'));
+        if (res.ok) {
+          loadModalParticipants(contestID, canManage);
+        } else {
+          const j = await res.json().catch(() => ({}));
+          alert(j.error || t('contestScreen.participantUpdateFail'));
+          // Reload to reflect actual server state (e.g. the "cannot
+          // demote the last owner" server-side guard).
+          loadModalParticipants(contestID, canManage);
+        }
       });
     });
     list.querySelectorAll('.ptc-remove').forEach(btn => {
