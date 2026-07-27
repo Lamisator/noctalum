@@ -605,6 +605,77 @@ func (s *Store) RemoveContestParticipant(contestID, userID int64) error {
 	return err
 }
 
+// EffectiveContestRole returns the highest role a user has on a contest, or
+// the empty string if the user has no access at all. Order (strongest first):
+// "owner" > "editor" > "logger" > "".
+//
+// Callers pass adminOverride=true to short-circuit the check for users that
+// hold a global permission (contest.admin, or a contests.manage variant that
+// covers this contest's visibility mode); those users are treated as owners
+// without needing a participant row. This keeps the global perm model
+// working alongside per-contest roles.
+//
+// Resolution order:
+//  1. adminOverride → "owner".
+//  2. Active participant row → that row's role.
+//  3. VisibilityOpen → "logger" (auto-join opportunity).
+//  4. VisibilityGroups + user in any linked group → "logger".
+//  5. VisibilityPrivate + explicit contest_access grant → "logger" (legacy
+//     access list is still honoured so existing shares keep working).
+//  6. Otherwise → "".
+//
+// Pending participants (status='pending') are treated as no access.
+func (s *Store) EffectiveContestRole(contestID, userID int64, adminOverride bool) (string, error) {
+	if adminOverride {
+		return ContestRoleOwner, nil
+	}
+	part, err := s.GetContestParticipant(contestID, userID)
+	if err != nil {
+		return "", err
+	}
+	if part != nil && part.Status == "active" {
+		return part.Role, nil
+	}
+	c, err := s.GetContest(contestID)
+	if err != nil {
+		return "", err
+	}
+	switch c.Visibility {
+	case VisibilityOpen:
+		return ContestRoleLogger, nil
+	case VisibilityGroups:
+		ok, err := s.UserInAnyContestGroup(contestID, userID)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return ContestRoleLogger, nil
+		}
+	case VisibilityPrivate:
+		hasAccess, err := s.HasContestAccess(contestID, userID)
+		if err != nil {
+			return "", err
+		}
+		if hasAccess {
+			return ContestRoleLogger, nil
+		}
+	}
+	return "", nil
+}
+
+// CountContestOwners returns the number of active participants with the
+// "owner" role in the given contest. Callers use this to guard the last
+// owner from self-demotion / removal.
+func (s *Store) CountContestOwners(contestID int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM contest_participants
+		 WHERE contest_id = $1 AND role = 'owner' AND status = 'active'`,
+		contestID,
+	).Scan(&n)
+	return n, err
+}
+
 // GetUserParticipations returns all contest participations for a user, keyed by contest ID.
 func (s *Store) GetUserParticipations(userID int64) (map[int64]ContestParticipant, error) {
 	rows, err := s.db.Query(
