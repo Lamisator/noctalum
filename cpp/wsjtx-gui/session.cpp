@@ -30,9 +30,13 @@ QString extractError(const QByteArray& body) {
 }
 
 // UTC time_t → RFC3339, matching the format the server accepts.
-// Uses the QTimeZone overload — Qt 6.6 deprecated the Qt::TimeSpec form.
+// Uses the QTimeZone overload — the Qt::TimeSpec form is deprecated in
+// Qt 6.6+.  QTimeZone::utc() (static method) exists back to Qt 5.2, so
+// this compiles cleanly on Debian bookworm's Qt 6.4 and on Fedora 41's
+// Qt 6.7 alike.  QTimeZone::UTC (the enum-style constant) would have
+// been prettier but that was only added in Qt 6.5.
 QString rfc3339Utc(qint64 secs) {
-    return QDateTime::fromSecsSinceEpoch(secs, QTimeZone::UTC).toString(Qt::ISODate);
+    return QDateTime::fromSecsSinceEpoch(secs, QTimeZone::utc()).toString(Qt::ISODate);
 }
 
 // "host:port" → (host, port).  host may be empty for the wildcard interface.
