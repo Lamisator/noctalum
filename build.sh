@@ -841,12 +841,14 @@ BUILD=/tmp/build
 mkdir -p "\$BUILD"
 
 # Reusable cmake configure+build.  Puts the binary at \$BUILD/<project>/<binary>.
+# Both cmake and ninja are piped to stderr so their progress output doesn't
+# contaminate the stdout capture in pack_cli/pack_gui (\`bin=\$(cmake_one ...)\`).
 cmake_one() {
   local project="\$1" binary="\$2"
   rm -rf "\$BUILD/\$project" && mkdir -p "\$BUILD/\$project"
-  cd "\$BUILD/\$project"
-  cmake -G Ninja -DCMAKE_BUILD_TYPE=Release "\$ROOT/cpp/\$project" >/dev/null
-  ninja
+  ( cd "\$BUILD/\$project" \
+    && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release "\$ROOT/cpp/\$project" \
+    && ninja ) >&2
   echo "\$BUILD/\$project/\$binary"
 }
 
