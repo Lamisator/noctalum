@@ -1108,14 +1108,19 @@
       // operators can pick between the Go original and the native
       // implementation without the two collapsing into one row.
       {
+        // C++ helper-gui now cross-compiles for Windows and macOS too (Docker
+        // + MXE for .exe, Docker + osxcross for .app.zip).  Card is visible
+        // on every OS; if a per-platform artifact is missing, the empty
+        // state below tells the user which platform we didn't build for.
         type: 'helper-gui-cpp',
         icon: '🖥️',
         nameKey: 'downloads.appHelperGuiCppName',
         variantKey: 'downloads.appHelperGuiCppVariant',
         descKey: 'downloads.appHelperGuiCppDesc',
-        linuxOnly: true,
       },
       {
+        // CLI C++ helpers stay Linux-only — the terminal / rigctld setup
+        // doesn't make sense on Windows/macOS where operators want the GUI.
         type: 'helper-cpp',
         icon: '⌨️',
         nameKey: 'downloads.appHelperCliCppName',
@@ -1132,12 +1137,12 @@
         linuxOnly: true,
       },
       {
+        // wsjtx-gui ships as AppImage (Linux), .exe (Windows), .app.zip (macOS).
         type: 'wsjtx-gui',
         icon: '📡',
         nameKey: 'downloads.appWsjtxGuiName',
         variantKey: 'downloads.appWsjtxGuiVariant',
         descKey: 'downloads.appWsjtxGuiDesc',
-        linuxOnly: true,
       },
     ];
 
@@ -1192,7 +1197,7 @@
     // stolen by the Go-helper card.
     const grouped = {};
     for (const f of files) {
-      const m = f.match(/^noctalum-(helper-gui-cpp|helper-gui|helper-cpp|helper|wsjtx-gui|wsjtx-cpp|wsjtx)-(.+?)(?:\.AppImage|\.exe)?$/);
+      const m = f.match(/^noctalum-(helper-gui-cpp|helper-gui|helper-cpp|helper|wsjtx-gui|wsjtx-cpp|wsjtx)-(.+?)(?:\.AppImage|\.exe|\.zip)?$/);
       if (!m) continue;
       const [, type, platform] = m;
       if (!grouped[type]) grouped[type] = [];
