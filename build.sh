@@ -32,9 +32,13 @@
 #
 # The C++ programs under cpp/ (helper, helper-gui, wsjtx, wsjtx-gui) build in
 # three per-platform Docker images that are inline-defined below:
-#   - noctalum-cpp-linux    Ubuntu + Qt6 + linuxdeploy → AppImage
-#   - noctalum-cpp-windows  Debian + MXE Qt6 static  → .exe (statically linked)
-#   - noctalum-cpp-macos    osxcross + Qt6 static    → .app in .zip (unsigned)
+#   - noctalum-cpp-linux    Debian bookworm + Qt6 + linuxdeploy → AppImage
+#   - noctalum-cpp-windows  Fedora + MinGW-w64 + Qt6           → .exe+DLL bundle in .zip
+#                           (wsjtx-gui only; Fedora's mingw64-qt6 packaging
+#                            doesn't include qtserialport / qtwebsockets,
+#                            so helper-gui Windows still ships from the
+#                            existing Go/Wails toolchain)
+#   - noctalum-cpp-macos    Debian bookworm + osxcross + Qt6 static → .app in .zip (unsigned)
 #
 # The macOS image needs a macOS SDK tarball at cpp/third_party/osxcross-sdk/,
 # which Apple's license forbids redistributing.  See cpp/third_party/osxcross-sdk/README
@@ -936,32 +940,36 @@ ensure_cpp_windows_image() {
   local image="noctalum-cpp-windows:latest"
   if "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then return 0; fi
   echo "    building $image (one-time, ~4-6 min)"
-  # Fedora's MinGW SIG maintains a mature mingw64-qt6-* package set.  We use
-  # the STATIC variants so the resulting .exe has no DLL dependencies (the
-  # dynamic Qt6 for MinGW would need ~50 MB of Qt6*.dll bundled next to
-  # the exe and is a distribution nightmare).  mingw64-cmake is a wrapper
-  # that preloads Fedora's redhat-mingw64.cmake toolchain so cmake finds
-  # the cross Qt6 automatically — no -DCMAKE_TOOLCHAIN_FILE gymnastics.
+  # Fedora ships dynamic mingw64-qt6-qtbase (Widgets+Network+Core+Gui) via
+  # its MinGW SIG.  The -static variants I originally reached for don't
+  # actually exist in Fedora's repos, and neither do qtserialport /
+  # qtwebsockets for mingw64 at the time of writing.  That constrains
+  # what we can cross-compile from Linux:
   #
-  # MXE was the first thing I reached for; their apt repo doesn't ship Qt6
-  # packages on bullseye (only Qt5), so the image never came up.  Fedora's
-  # mingw-qt6 packaging is well-tested and updated with each Fedora release.
+  #   wsjtx-gui   needs Widgets + Network → cross-compiles fine
+  #   helper-gui  needs Widgets + Network + WebSockets + SerialPort →
+  #               can't be built here.  The Go/Wails helper-gui at
+  #               cmd/helper-gui already covers Windows via a separate
+  #               toolchain (see build_gui_windows_amd64 above), so
+  #               operators aren't left without a Windows helper.
+  #
+  # We ship the resulting wsjtx-gui.exe as a zipped bundle containing
+  # the exe plus the required Qt6 DLLs and the qwindows platform plugin
+  # (Qt's cross-platform-plugin plumbing needs it next to the exe under
+  # platforms/qwindows.dll).
   "$RUNTIME" build -t "$image" - <<'DOCKERFILE' >&2
 FROM fedora:41
 RUN dnf install -y --setopt=install_weak_deps=False \
       cmake ninja-build file zip which findutils \
-      mingw64-gcc mingw64-gcc-c++ mingw64-winpthreads-static \
-      mingw64-qt6-qtbase-static \
-      mingw64-qt6-qtwebsockets-static \
-      mingw64-qt6-qtserialport-static \
-      mingw64-qt6-qttools \
+      mingw64-gcc mingw64-gcc-c++ mingw64-winpthreads \
+      mingw64-qt6-qtbase \
  && dnf clean all
 DOCKERFILE
 }
 
 build_cpp_windows_docker() {
   ensure_cpp_windows_image || {
-    echo "error: noctalum-cpp-windows image build failed (Fedora mingw64-qt6-* packages still available?)" >&2
+    echo "error: noctalum-cpp-windows image build failed (Fedora mingw64-qt6-qtbase still available?)" >&2
     return 1
   }
 
@@ -972,28 +980,60 @@ set -euo pipefail
 ROOT=/src
 OUT=/out
 BUILD=/tmp/build
+QT_SYSROOT=/usr/x86_64-w64-mingw32/sys-root/mingw
+QT_BIN="$QT_SYSROOT/bin"
+QT_PLUGINS="$QT_SYSROOT/lib/qt6/plugins"
 mkdir -p "$BUILD"
 
-pack_win() {
-  local project="$1" binary="$2" out="$3"
+# Iterative DLL walker: given a PE binary, follow its import table via
+# objdump and copy every referenced DLL that lives in the mingw sysroot
+# into $dst.  Skips system DLLs (kernel32, user32, …) that already exist
+# on every Windows install.
+copy_deps() {
+  local exe="$1" dst="$2"
+  local queue=("$exe") seen=""
+  while [ ${#queue[@]} -gt 0 ]; do
+    local file="${queue[0]}"
+    queue=("${queue[@]:1}")
+    for dll in $(x86_64-w64-mingw32-objdump -p "$file" 2>/dev/null \
+                 | awk '/DLL Name:/ {print $3}'); do
+      case " $seen " in *" $dll "*) continue ;; esac
+      seen="$seen $dll"
+      if [ -f "$QT_BIN/$dll" ] && [ ! -f "$dst/$dll" ]; then
+        cp "$QT_BIN/$dll" "$dst/"
+        queue+=("$dst/$dll")
+      fi
+    done
+  done
+}
+
+pack_win_gui() {
+  local project="$1" binary="$2" out_zip="$3"
   local bd="$BUILD/$project"
   rm -rf "$bd" && mkdir -p "$bd"
-  # mingw64-cmake wraps cmake with Fedora's redhat-mingw64.cmake toolchain
-  # so Qt6_DIR resolves to the cross-compiled Qt6 automatically.
   ( cd "$bd" \
-    && mingw64-cmake -G Ninja -DCMAKE_BUILD_TYPE=Release \
-                     -DBUILD_SHARED_LIBS=OFF \
-                     "$ROOT/cpp/$project" \
+    && mingw64-cmake -G Ninja -DCMAKE_BUILD_TYPE=Release "$ROOT/cpp/$project" \
     && mingw64-cmake --build . ) >&2
   local exe="$bd/${binary}.exe"
   [ -f "$exe" ] || { echo "no $exe produced" >&2; return 1; }
-  cp "$exe" "$OUT/$out"
+
+  # Assemble a bundle dir with the exe + its DLLs + the qwindows platform
+  # plugin.  Qt loads the platform plugin from ./platforms/ next to the
+  # exe on Windows; without it the app dies with "no Qt platform plugin".
+  local bundle="$bd/bundle"
+  rm -rf "$bundle" && mkdir -p "$bundle/platforms"
+  cp "$exe" "$bundle/"
+  cp "$QT_PLUGINS/platforms/qwindows.dll" "$bundle/platforms/"
+  copy_deps "$exe" "$bundle"
+  # Platform plugin has its own DLL deps — scan it too.
+  copy_deps "$bundle/platforms/qwindows.dll" "$bundle"
+
+  ( cd "$bundle" && zip -qr "$OUT/$out_zip" . )
 }
 
-pack_win "wsjtx-gui"  "noctalum-wsjtx-gui"  "noctalum-wsjtx-gui-windows-amd64.exe"
-# helper-gui needs Qt6 SerialPort + WebSockets in addition to Widgets;
-# both are provided by the mingw64-qt6-* packages above.
-pack_win "helper-gui" "noctalum-helper-gui" "noctalum-helper-gui-cpp-windows-amd64.exe"
+# wsjtx-gui: only project whose Qt6 dependency set (Widgets + Network)
+# is fully covered by the modules Fedora ships in mingw64-qt6-qtbase.
+pack_win_gui "wsjtx-gui" "noctalum-wsjtx-gui" "noctalum-wsjtx-gui-windows-amd64.zip"
 INNERSCRIPT
   chmod +x "$script"
 
@@ -1010,7 +1050,7 @@ INNERSCRIPT
     echo "error: C++ Windows build failed (exit $rc)" >&2
     return 1
   fi
-  cpp_built+=("wsjtx-gui/windows/amd64" "helper-gui-cpp/windows/amd64")
+  cpp_built+=("wsjtx-gui/windows/amd64")
 }
 
 # ── macOS cross-compile (osxcross with user-supplied SDK) ───────────────
