@@ -6,7 +6,7 @@
 # macOS, and Windows (so each operator can grab the right binary for their PC).
 #
 # Usage:
-#   ./build.sh                          # build everything (server, helper, wsjtx, GUI)
+#   ./build.sh                          # build everything (server, helper, wsjtx, GUI, C++)
 #   ./build.sh --server-only            # only the noctalum server
 #   ./build.sh --helper-only            # only the noctalum-helper
 #   ./build.sh --wsjtx-only             # only the noctalum-wsjtx bridge
@@ -14,23 +14,36 @@
 #   ./build.sh --notifier-only          # only the Telegram-deploy notifier
 #   ./build.sh --no-gui                 # skip the GUI helper
 #   ./build.sh --no-helpers             # skip helper, WSJT-X bridge, and GUI (server + notifier only)
-#   ./build.sh --cpp-only               # only the C++ helper AppImages (Linux)
-#   ./build.sh --no-cpp                 # skip the C++ AppImages (default is to build)
+#   ./build.sh --cpp-only               # only the C++ helper packages (Linux+Windows+macOS)
+#   ./build.sh --no-cpp                 # skip the C++ builds (default is to build)
+#   ./build.sh --cpp-no-windows         # skip the C++ Windows cross-compile
+#   ./build.sh --cpp-no-macos           # skip the C++ macOS cross-compile
 #   ./build.sh --target linux/amd64     # restrict to one OS/arch
 #   ./build.sh --image golang:1.26      # use a different builder image
-#   ./build.sh --native                 # use the local Go toolchain instead of Docker
-#                                       # (non-GUI: cross-compiles all targets;
-#                                       #  GUI: native platform only, CGO libs required)
+#   ./build.sh --native                 # use the local toolchain instead of Docker
+#                                       # (Go: cross-compiles all targets;
+#                                       #  Go GUI: native platform only, CGO libs required;
+#                                       #  C++: Linux only, needs qt6-base-dev + friends)
 #
 # The GUI helper (cmd/helper-gui) needs CGO + a platform-specific WebKit/WebView2
 # toolchain.  This script builds Linux (amd64 + arm64) and Windows (amd64) in
 # separate containers.  macOS GUI builds require Xcode and must be done natively
 # with `wails build` on a Mac (see cmd/helper-gui/README.md).
 #
-# The C++ AppImages (cpp/{helper,helper-gui,wsjtx,wsjtx-gui}) are always built natively —
-# no cross-compile support.  They need cmake, ninja, g++, pkg-config, and the
-# usual Qt6 / libwebsockets / nlohmann-json / libcurl dev packages.  If any of
-# those are missing the C++ builds are skipped with a clear message.
+# The C++ programs under cpp/ (helper, helper-gui, wsjtx, wsjtx-gui) build in
+# three per-platform Docker images that are inline-defined below:
+#   - noctalum-cpp-linux    Ubuntu + Qt6 + linuxdeploy → AppImage
+#   - noctalum-cpp-windows  Debian + MXE Qt6 static  → .exe (statically linked)
+#   - noctalum-cpp-macos    osxcross + Qt6 static    → .app in .zip (unsigned)
+#
+# The macOS image needs a macOS SDK tarball at cpp/third_party/osxcross-sdk/,
+# which Apple's license forbids redistributing.  See cpp/third_party/osxcross-sdk/README
+# for how to extract MacOSX*.sdk.tar.xz from a Mac you own.
+#
+# Failure modes: if a build was explicitly requested but the toolchain image
+# can't be built or the cross-compile fails, build.sh exits non-zero.  There
+# are no silent skips — deploy.sh runs under `set -e` and will abort in turn.
+# Use --cpp-no-windows / --cpp-no-macos to opt out of specific platforms.
 
 set -euo pipefail
 
@@ -61,6 +74,8 @@ build_wsjtx=true
 build_gui=true
 build_notifier=true
 build_cpp=true
+build_cpp_windows=true
+build_cpp_macos=true
 single_target=""
 native_build=false
 
@@ -74,6 +89,8 @@ while [ $# -gt 0 ]; do
     --cpp-only)      build_server=false; build_helper=false; build_wsjtx=false; build_gui=false; build_notifier=false; build_cpp=true; shift ;;
     --no-gui)        build_gui=false; shift ;;
     --no-cpp)        build_cpp=false; shift ;;
+    --cpp-no-windows) build_cpp_windows=false; shift ;;
+    --cpp-no-macos)  build_cpp_macos=false; shift ;;
     --no-helpers)    build_helper=false; build_wsjtx=false; build_gui=false; build_cpp=false; shift ;;
     --target)      single_target="$2"; shift 2 ;;
     --image)       GO_IMAGE="$2"; shift 2 ;;
@@ -83,15 +100,15 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Pick a container runtime (not needed for --native, and not needed at all
-# when the only requested job is the C++ AppImages — they always build
-# natively with cmake).
+# Pick a container runtime.  Needed for every non-native build target —
+# Go targets, Go GUI, AND (new) all three C++ per-platform builds.
 need_runtime=false
 $build_server   && need_runtime=true
 $build_helper   && need_runtime=true
 $build_wsjtx    && need_runtime=true
 $build_gui      && need_runtime=true
 $build_notifier && need_runtime=true
+$build_cpp      && need_runtime=true
 RUNTIME=""
 if $need_runtime && ! $native_build; then
   for c in docker podman; do
@@ -689,79 +706,497 @@ EOF
   mv "$produced" "$OUT_DIR/$out"
 }
 
-build_cpp_all() {
-  # Only Linux is supported.  Skip fast on other OSes.
-  case "$(uname -s)" in
-    Linux) ;;
-    *) echo "  C++ AppImages: Linux only (host is $(uname -s)) — skipping."
-       cpp_skipped+=("all/non-linux"); return 0 ;;
-  esac
+# ── C++ builds ─────────────────────────────────────────────────────────
+#
+# Three per-platform Docker images (built once, cached in the local Docker
+# storage), one native fallback via `--native` for the Linux side.  Each
+# helper wraps a `cmake --build && package` sequence that runs inside the
+# container; the container mounts $ROOT and writes the final artefact into
+# $OUT_DIR.  If any requested build fails, the enclosing script exits
+# non-zero (set -e), which cascades into deploy.sh aborting.
 
-  # Common tooling — bail out early with a clear message rather than half-way
-  # through the first cmake call.
-  echo "==> C++ AppImages (Linux, native)"
-  if ! check_cmd cmake ninja g++ pkg-config wget; then
-    echo "    skipping all C++ builds — install cmake/ninja-build/g++/pkg-config/wget"
-    cpp_skipped+=("all/toolchain")
-    return 0
-  fi
+cpp_built=()
+cpp_skipped=()   # only populated by explicit --cpp-no-* opt-outs
 
-  local arch out
+# Detect the current CPU arch used for AppImage packaging + image tags.
+cpp_host_arch() {
   case "$(uname -m)" in
-    x86_64)  arch="amd64" ;;
-    aarch64) arch="arm64" ;;
-    *) echo "    skipping — unsupported CPU arch $(uname -m)"
-       cpp_skipped+=("all/arch"); return 0 ;;
+    x86_64)  echo "amd64" ;;
+    aarch64) echo "arm64" ;;
+    *) return 1 ;;
   esac
+}
 
+# ── Native fallback (Linux only, for --native mode) ─────────────────────
+
+build_cpp_linux_native() {
+  echo "==> C++ AppImages (Linux, native)"
+  if [ "$(uname -s)" != "Linux" ]; then
+    echo "error: --native + --cpp only supports Linux (host is $(uname -s))" >&2
+    return 1
+  fi
+  if ! check_cmd cmake ninja g++ pkg-config wget; then
+    echo "error: native C++ build needs cmake/ninja-build/g++/pkg-config/wget" >&2
+    return 1
+  fi
+  local arch; arch="$(cpp_host_arch)" || {
+    echo "error: unsupported CPU arch $(uname -m)" >&2; return 1;
+  }
+
+  local out
   out="noctalum-wsjtx-cpp-linux-${arch}.AppImage"
   echo "==> $out"
-  if pkg-config --exists libcurl nlohmann_json \
-     && package_cli_appimage "wsjtx" "noctalum-wsjtx" "$out"; then
-    cpp_built+=("wsjtx-cpp/linux/${arch}")
-  else
-    echo "    skipping — missing libcurl4-openssl-dev or nlohmann-json3-dev"
-    cpp_skipped+=("wsjtx-cpp/linux/${arch}")
+  if ! pkg-config --exists libcurl nlohmann_json; then
+    echo "error: missing libcurl4-openssl-dev or nlohmann-json3-dev" >&2; return 1
   fi
+  package_cli_appimage "wsjtx" "noctalum-wsjtx" "$out" || return 1
+  cpp_built+=("wsjtx-cpp/linux/${arch}")
 
   out="noctalum-helper-cpp-linux-${arch}.AppImage"
   echo "==> $out"
-  if pkg-config --exists libwebsockets nlohmann_json \
-     && package_cli_appimage "helper" "noctalum-helper" "$out"; then
-    cpp_built+=("helper-cpp/linux/${arch}")
-  else
-    echo "    skipping — missing libwebsockets-dev/nlohmann-json3-dev/libncurses-dev"
-    cpp_skipped+=("helper-cpp/linux/${arch}")
+  if ! pkg-config --exists libwebsockets nlohmann_json; then
+    echo "error: missing libwebsockets-dev/nlohmann-json3-dev/libncurses-dev" >&2; return 1
   fi
+  package_cli_appimage "helper" "noctalum-helper" "$out" || return 1
+  cpp_built+=("helper-cpp/linux/${arch}")
 
   out="noctalum-helper-gui-cpp-linux-${arch}.AppImage"
   echo "==> $out"
-  if pkg-config --exists Qt6Core Qt6Widgets Qt6WebSockets Qt6SerialPort \
-     && package_gui_appimage "helper-gui" "noctalum-helper-gui" \
-                             "Noctalum Helper (C++)" "$out"; then
-    cpp_built+=("helper-gui-cpp/linux/${arch}")
-  else
-    echo "    skipping — missing qt6-base-dev/qt6-websockets-dev/qt6-serialport-dev"
-    cpp_skipped+=("helper-gui-cpp/linux/${arch}")
+  if ! pkg-config --exists Qt6Core Qt6Widgets Qt6WebSockets Qt6SerialPort; then
+    echo "error: missing qt6-base-dev/qt6-websockets-dev/qt6-serialport-dev" >&2; return 1
   fi
+  package_gui_appimage "helper-gui" "noctalum-helper-gui" \
+                       "Noctalum Helper (C++)" "$out" || return 1
+  cpp_built+=("helper-gui-cpp/linux/${arch}")
 
-  # WSJT-X GUI bridge (Qt6 Widgets + Network only — no WebSockets/SerialPort).
-  # Cross-platform sources; on Linux we ship it as an AppImage next to the
-  # other C++ helpers.
   out="noctalum-wsjtx-gui-linux-${arch}.AppImage"
   echo "==> $out"
-  if pkg-config --exists Qt6Core Qt6Widgets Qt6Network \
-     && package_gui_appimage "wsjtx-gui" "noctalum-wsjtx-gui" \
-                             "Noctalum WSJT-X Bridge" "$out"; then
-    cpp_built+=("wsjtx-gui/linux/${arch}")
-  else
-    echo "    skipping — missing qt6-base-dev"
-    cpp_skipped+=("wsjtx-gui/linux/${arch}")
+  if ! pkg-config --exists Qt6Core Qt6Widgets Qt6Network; then
+    echo "error: missing qt6-base-dev" >&2; return 1
   fi
+  package_gui_appimage "wsjtx-gui" "noctalum-wsjtx-gui" \
+                       "Noctalum WSJT-X Bridge" "$out" || return 1
+  cpp_built+=("wsjtx-gui/linux/${arch}")
 }
 
+# ── Docker path: one image per target OS ────────────────────────────────
+
+# Build the Ubuntu-based C++ Linux image (Qt6 + libcurl + libwebsockets +
+# ncurses + nlohmann-json + linuxdeploy + appimagetool bundled in).
+ensure_cpp_linux_image() {
+  local image="noctalum-cpp-linux:latest"
+  if "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then return 0; fi
+  echo "    building $image (one-time, ~4-6 min)"
+  "$RUNTIME" build -t "$image" - <<'DOCKERFILE' >&2
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+      cmake ninja-build g++ pkg-config \
+      wget file ca-certificates xz-utils patchelf \
+      qt6-base-dev qt6-websockets-dev qt6-serialport-dev \
+      libcurl4-openssl-dev nlohmann-json3-dev \
+      libwebsockets-dev libncurses-dev libssl-dev \
+      libgl1-mesa-dev libxkbcommon-dev libfontconfig1-dev \
+ && rm -rf /var/lib/apt/lists/*
+# Bake linuxdeploy + qt plugin + appimagetool into the image so nothing is
+# fetched at build time (build hosts might be air-gapped between runs).
+RUN wget -q -O /usr/local/bin/linuxdeploy \
+      https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
+ && wget -q -O /usr/local/bin/linuxdeploy-plugin-qt \
+      https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage \
+ && wget -q -O /usr/local/bin/appimagetool \
+      https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
+ && chmod +x /usr/local/bin/linuxdeploy /usr/local/bin/linuxdeploy-plugin-qt /usr/local/bin/appimagetool
+ENV APPIMAGE_EXTRACT_AND_RUN=1
+DOCKERFILE
+}
+
+build_cpp_linux_docker() {
+  local arch; arch="$(cpp_host_arch)" || {
+    echo "error: unsupported host arch $(uname -m) — cannot cross-arch C++ builds" >&2
+    return 1
+  }
+  ensure_cpp_linux_image || {
+    echo "error: noctalum-cpp-linux image build failed" >&2; return 1
+  }
+
+  # In-container build script: does all four cmake+package steps.  Writes
+  # AppImages to /out (== $OUT_DIR).  Any failure exits non-zero and the
+  # outer `set -e` catches it.
+  local script; script="$(mktemp)"
+  cat > "$script" <<INNERSCRIPT
+#!/bin/bash
+set -euo pipefail
+ROOT=/src
+OUT=/out
+ARCH="${arch}"
+BUILD=/build
+mkdir -p "\$BUILD"
+
+# Reusable cmake configure+build.  Puts the binary at \$BUILD/<project>/<binary>.
+cmake_one() {
+  local project="\$1" binary="\$2"
+  rm -rf "\$BUILD/\$project" && mkdir -p "\$BUILD/\$project"
+  cd "\$BUILD/\$project"
+  cmake -G Ninja -DCMAKE_BUILD_TYPE=Release "\$ROOT/cpp/\$project" >/dev/null
+  ninja
+  echo "\$BUILD/\$project/\$binary"
+}
+
+# CLI AppImage: appimagetool wraps the binary as-is (no shared libs bundled).
+pack_cli() {
+  local project="\$1" binary="\$2" out="\$3"
+  local bin; bin="\$(cmake_one "\$project" "\$binary")"
+  local ad="\$BUILD/appdir-\$project"
+  rm -rf "\$ad" && mkdir -p "\$ad/usr/bin"
+  cp "\$bin" "\$ad/usr/bin/\$binary"; chmod +x "\$ad/usr/bin/\$binary"
+  printf '#!/bin/sh\nexec "\$APPDIR/usr/bin/%s" "\$@"\n' "\$binary" > "\$ad/AppRun"
+  chmod +x "\$ad/AppRun"
+  cat > "\$ad/\$binary.desktop" <<DESKTOP
+[Desktop Entry]
+Name=\$binary
+Exec=\$binary
+Icon=\$binary
+Type=Application
+Categories=HamRadio;
+DESKTOP
+  cp "\$ROOT/noctalum.png" "\$ad/\$binary.png"
+  ARCH=x86_64 appimagetool "\$ad" "\$OUT/\$out" >/dev/null
+}
+
+# GUI AppImage: linuxdeploy + qt plugin bundles all Qt6 shared libs.  Runs
+# in a scratch cwd so linuxdeploy's PWD-drop AppImage naming is contained.
+pack_gui() {
+  local project="\$1" binary="\$2" desktop_name="\$3" out="\$4"
+  local bin; bin="\$(cmake_one "\$project" "\$binary")"
+  local ad="\$BUILD/appdir-\$project"
+  rm -rf "\$ad"
+  mkdir -p "\$ad/usr/bin" \
+           "\$ad/usr/share/applications" \
+           "\$ad/usr/share/icons/hicolor/256x256/apps"
+  cp "\$bin" "\$ad/usr/bin/\$binary"; chmod +x "\$ad/usr/bin/\$binary"
+  cat > "\$ad/usr/share/applications/\$binary.desktop" <<DESKTOP
+[Desktop Entry]
+Name=\$desktop_name
+Exec=\$binary
+Icon=\$binary
+Type=Application
+Categories=HamRadio;
+DESKTOP
+  cp "\$ROOT/noctalum.png" "\$ad/usr/share/icons/hicolor/256x256/apps/\$binary.png"
+
+  local wd="\$BUILD/appdir-out-\$project"
+  rm -rf "\$wd" && mkdir -p "\$wd"
+  ( cd "\$wd" && linuxdeploy --appdir "\$ad" --plugin qt --output appimage \
+        --desktop-file "\$ad/usr/share/applications/\$binary.desktop" ) >/dev/null
+  local produced; produced=\$(ls -1 "\$wd"/*.AppImage 2>/dev/null | head -1)
+  if [ -z "\$produced" ]; then
+    echo "error: linuxdeploy produced no AppImage in \$wd" >&2
+    return 1
+  fi
+  mv "\$produced" "\$OUT/\$out"
+}
+
+pack_cli "wsjtx"      "noctalum-wsjtx"      "noctalum-wsjtx-cpp-linux-\${ARCH}.AppImage"
+pack_cli "helper"     "noctalum-helper"     "noctalum-helper-cpp-linux-\${ARCH}.AppImage"
+pack_gui "helper-gui" "noctalum-helper-gui" "Noctalum Helper (C++)"   "noctalum-helper-gui-cpp-linux-\${ARCH}.AppImage"
+pack_gui "wsjtx-gui"  "noctalum-wsjtx-gui"  "Noctalum WSJT-X Bridge"  "noctalum-wsjtx-gui-linux-\${ARCH}.AppImage"
+INNERSCRIPT
+  chmod +x "$script"
+
+  "$RUNTIME" run --rm \
+    --user "$(id -u):$(id -g)" \
+    -v "$ROOT":/src:ro \
+    -v "$OUT_DIR":/out \
+    -v "$script":/build.sh:ro \
+    noctalum-cpp-linux:latest \
+    bash /build.sh
+  local rc=$?
+  rm -f "$script"
+  if [ $rc -ne 0 ]; then
+    echo "error: C++ Linux build failed (exit $rc)" >&2
+    return 1
+  fi
+  cpp_built+=("wsjtx-cpp/linux/${arch}" "helper-cpp/linux/${arch}"
+              "helper-gui-cpp/linux/${arch}" "wsjtx-gui/linux/${arch}")
+}
+
+# ── Windows cross-compile (MXE on Debian bullseye) ──────────────────────
+
+ensure_cpp_windows_image() {
+  local image="noctalum-cpp-windows:latest"
+  if "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then return 0; fi
+  echo "    building $image (one-time, ~5-8 min — pulls prebuilt MXE Qt6)"
+  # MXE (https://mxe.cc) ships prebuilt static MinGW-w64 + Qt6 toolchains
+  # via their apt repo, keyed for Debian bullseye.  We install only the
+  # x86_64 static.posix variant — Qt6 needs posix threads.
+  "$RUNTIME" build -t "$image" - <<'DOCKERFILE' >&2
+FROM debian:bullseye
+ENV DEBIAN_FRONTEND=noninteractive
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates wget gnupg2 apt-transport-https \
+      cmake ninja-build make file zip \
+ && install -d /etc/apt/keyrings \
+ && wget -qO - https://pkg.mxe.cc/repos/apt/conf/mxeapt.gpg > /etc/apt/keyrings/mxeapt.asc \
+ && echo 'deb [signed-by=/etc/apt/keyrings/mxeapt.asc] https://pkg.mxe.cc/repos/apt bullseye main' \
+      > /etc/apt/sources.list.d/mxeapt.list \
+ && apt-get update && apt-get install -y --no-install-recommends \
+      mxe-x86-64-w64-mingw32.static.posix-qtbase \
+      mxe-x86-64-w64-mingw32.static.posix-qtwebsockets \
+      mxe-x86-64-w64-mingw32.static.posix-qtserialport \
+ && rm -rf /var/lib/apt/lists/*
+ENV PATH="/usr/lib/mxe/usr/bin:$PATH"
+ENV MXE_ROOT=/usr/lib/mxe
+ENV MXE_TARGET=x86_64-w64-mingw32.static.posix
+DOCKERFILE
+}
+
+build_cpp_windows_docker() {
+  ensure_cpp_windows_image || {
+    echo "error: noctalum-cpp-windows image build failed (MXE Qt6 packages present in the repo?)" >&2
+    return 1
+  }
+
+  local script; script="$(mktemp)"
+  cat > "$script" <<'INNERSCRIPT'
+#!/bin/bash
+set -euo pipefail
+ROOT=/src
+OUT=/out
+BUILD=/build
+TOOLCHAIN=$MXE_ROOT/usr/$MXE_TARGET/share/cmake/mxe-conf.cmake
+CMAKE=$MXE_ROOT/usr/bin/$MXE_TARGET-cmake
+mkdir -p "$BUILD"
+
+pack_win() {
+  local project="$1" binary="$2" out="$3"
+  local bd="$BUILD/$project"
+  rm -rf "$bd" && mkdir -p "$bd"
+  ( cd "$bd" && "$CMAKE" -G Ninja -DCMAKE_BUILD_TYPE=Release "$ROOT/cpp/$project" \
+       && ninja ) >/dev/null
+  # MXE produces a fully-statically-linked .exe — no bundled DLLs needed.
+  local exe="$bd/${binary}.exe"
+  [ -f "$exe" ] || { echo "no $exe produced" >&2; return 1; }
+  cp "$exe" "$OUT/$out"
+}
+
+pack_win "wsjtx-gui"  "noctalum-wsjtx-gui"  "noctalum-wsjtx-gui-windows-amd64.exe"
+# helper-gui needs Qt6 SerialPort + WebSockets in addition to Widgets;
+# both are provided by the MXE packages above.
+pack_win "helper-gui" "noctalum-helper-gui" "noctalum-helper-gui-cpp-windows-amd64.exe"
+INNERSCRIPT
+  chmod +x "$script"
+
+  "$RUNTIME" run --rm \
+    --user "$(id -u):$(id -g)" \
+    -v "$ROOT":/src:ro \
+    -v "$OUT_DIR":/out \
+    -v "$script":/build.sh:ro \
+    noctalum-cpp-windows:latest \
+    bash /build.sh
+  local rc=$?
+  rm -f "$script"
+  if [ $rc -ne 0 ]; then
+    echo "error: C++ Windows build failed (exit $rc)" >&2
+    return 1
+  fi
+  cpp_built+=("wsjtx-gui/windows/amd64" "helper-gui-cpp/windows/amd64")
+}
+
+# ── macOS cross-compile (osxcross with user-supplied SDK) ───────────────
+
+# The SDK tarball has to come from a Mac the user owns — Apple's SDK
+# license forbids redistribution.  See cpp/third_party/osxcross-sdk/README.
+CPP_OSXCROSS_SDK_DIR="$ROOT/cpp/third_party/osxcross-sdk"
+
+ensure_cpp_macos_image() {
+  local image="noctalum-cpp-macos:latest"
+  if "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then return 0; fi
+
+  local sdk
+  sdk="$(ls "$CPP_OSXCROSS_SDK_DIR"/MacOSX*.sdk.tar.xz 2>/dev/null | sort | tail -1 || true)"
+  if [ -z "$sdk" ]; then
+    cat >&2 <<EOF
+error: no macOS SDK found at $CPP_OSXCROSS_SDK_DIR/MacOSX*.sdk.tar.xz
+       See $CPP_OSXCROSS_SDK_DIR/README for how to package it from a Mac.
+       Or pass --cpp-no-macos to skip the macOS cross-compile.
+EOF
+    return 1
+  fi
+  echo "    building $image (one-time, ~15-25 min — compiles osxcross + Qt6 static from source)"
+
+  # Build context: the SDK tarball + our Dockerfile.  We hand-craft the
+  # context tar so the multi-GB SDK stays out of the daemon's parent-dir
+  # scan.
+  local ctx; ctx="$(mktemp -d)"
+  cp "$sdk" "$ctx/sdk.tar.xz"
+  cat > "$ctx/Dockerfile" <<'DOCKERFILE'
+FROM debian:bookworm
+ENV DEBIAN_FRONTEND=noninteractive
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+      clang cmake ninja-build make patch git python3 \
+      libssl-dev liblzma-dev libxml2-dev libbz2-dev zlib1g-dev \
+      libtool automake autoconf pkg-config \
+      ca-certificates wget file xz-utils zip \
+      gcc g++ libc6-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# osxcross toolchain from source, pinned to a known-good commit.
+WORKDIR /opt
+RUN git clone --depth 1 https://github.com/tpoechtrager/osxcross
+COPY sdk.tar.xz /opt/osxcross/tarballs/
+RUN cd /opt/osxcross && UNATTENDED=1 ./build.sh \
+ && rm -rf tarballs build
+ENV PATH="/opt/osxcross/target/bin:$PATH"
+ENV OSXCROSS_HOST=x86_64-apple-darwin
+ENV OSXCROSS_TARGET_DIR=/opt/osxcross/target
+ENV MACOSX_DEPLOYMENT_TARGET=11.0
+
+# Qt6 built from source with only the modules we need, static, universal-
+# free (x86_64 only — arm64 needs a matching SDK).  A single static Qt
+# saves us from bundling per-plugin dylibs into every .app.
+RUN mkdir -p /opt/qt6-src /opt/qt6-build /opt/qt6-mac \
+ && cd /opt/qt6-src \
+ && wget -q https://download.qt.io/archive/qt/6.7/6.7.3/single/qt-everywhere-src-6.7.3.tar.xz \
+ && tar xf qt-everywhere-src-6.7.3.tar.xz --strip-components=1 \
+ && rm qt-everywhere-src-6.7.3.tar.xz \
+ && cd /opt/qt6-build \
+ && /opt/qt6-src/configure -release -static -prefix /opt/qt6-mac \
+      -platform linux-clang -xplatform macx-clang \
+      -device-option QMAKE_APPLE_DEVICE_ARCHS=x86_64 \
+      -device-option CROSS_COMPILE=/opt/osxcross/target/bin/x86_64-apple-darwin- \
+      -skip qtdeclarative -skip qtquick3d -skip qt3d -skip qtmultimedia \
+      -skip qtwebengine -skip qtdoc -skip qttools -skip qtsvg -skip qtlocation \
+      -no-feature-testlib -no-feature-sql -no-feature-cups -no-feature-printer \
+      -submodules qtbase,qtserialport,qtwebsockets \
+      -opensource -confirm-license \
+ && cmake --build . --parallel \
+ && cmake --install . \
+ && rm -rf /opt/qt6-src /opt/qt6-build
+
+ENV Qt6_DIR=/opt/qt6-mac/lib/cmake/Qt6
+DOCKERFILE
+  "$RUNTIME" build -t "$image" "$ctx" >&2
+  local rc=$?
+  rm -rf "$ctx"
+  return $rc
+}
+
+build_cpp_macos_docker() {
+  ensure_cpp_macos_image || {
+    echo "error: noctalum-cpp-macos image build failed" >&2
+    return 1
+  }
+
+  local script; script="$(mktemp)"
+  cat > "$script" <<'INNERSCRIPT'
+#!/bin/bash
+set -euo pipefail
+ROOT=/src
+OUT=/out
+BUILD=/build
+mkdir -p "$BUILD"
+
+pack_mac() {
+  local project="$1" binary="$2" bundle="$3" arch="$4" out="$5"
+  local bd="$BUILD/$project-$arch"
+  rm -rf "$bd" && mkdir -p "$bd"
+  cd "$bd"
+  cmake -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_TOOLCHAIN_FILE=/opt/osxcross/target/toolchain.cmake \
+        -DCMAKE_OSX_ARCHITECTURES="$arch" \
+        -DQt6_DIR="$Qt6_DIR" \
+        "$ROOT/cpp/$project" >/dev/null
+  ninja
+  # cmake's MACOSX_BUNDLE property should have produced $binary.app; if
+  # not (e.g. the project's CMakeLists didn't set BUNDLE), fall through.
+  local app
+  if [ -d "$binary.app" ]; then
+    app="$binary.app"
+  else
+    app="${binary}.app"
+    rm -rf "$app"
+    mkdir -p "$app/Contents/MacOS"
+    cp "$binary" "$app/Contents/MacOS/$binary"
+    cat > "$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>$bundle</string>
+  <key>CFBundleExecutable</key><string>$binary</string>
+  <key>CFBundleIdentifier</key><string>org.noctalum.$binary</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+</dict></plist>
+PLIST
+  fi
+  # Zip the bundle since macOS Gatekeeper strips the executable bit from
+  # loose .app trees delivered over HTTP.  Users unzip → right-click → Open.
+  ( cd "$bd" && zip -qr "$OUT/$out" "$binary.app" )
+}
+
+# Only x86_64 for now — arm64 needs a matching arm64 SDK tarball; when
+# both are provided we can lipo two bundles into one universal binary.
+pack_mac "wsjtx-gui"  "noctalum-wsjtx-gui"  "Noctalum WSJT-X Bridge" x86_64 \
+         "noctalum-wsjtx-gui-darwin-amd64.zip"
+pack_mac "helper-gui" "noctalum-helper-gui" "Noctalum Helper"        x86_64 \
+         "noctalum-helper-gui-cpp-darwin-amd64.zip"
+INNERSCRIPT
+  chmod +x "$script"
+
+  "$RUNTIME" run --rm \
+    --user "$(id -u):$(id -g)" \
+    -v "$ROOT":/src:ro \
+    -v "$OUT_DIR":/out \
+    -v "$script":/build.sh:ro \
+    noctalum-cpp-macos:latest \
+    bash /build.sh
+  local rc=$?
+  rm -f "$script"
+  if [ $rc -ne 0 ]; then
+    echo "error: C++ macOS build failed (exit $rc)" >&2
+    return 1
+  fi
+  cpp_built+=("wsjtx-gui/darwin/amd64" "helper-gui-cpp/darwin/amd64")
+}
+
+# ── Dispatch ────────────────────────────────────────────────────────────
+
 if $build_cpp; then
-  build_cpp_all
+  if $native_build; then
+    build_cpp_linux_native
+    if $build_cpp_windows; then
+      echo "error: --native + Windows cross-compile is not supported" >&2
+      echo "       drop --native (Docker path) or pass --cpp-no-windows" >&2
+      exit 1
+    fi
+    if $build_cpp_macos; then
+      echo "error: --native + macOS cross-compile is not supported" >&2
+      echo "       drop --native (Docker path) or pass --cpp-no-macos" >&2
+      exit 1
+    fi
+  else
+    echo "==> C++ Linux (Docker)"
+    build_cpp_linux_docker
+    if $build_cpp_windows; then
+      echo "==> C++ Windows (Docker + MXE)"
+      build_cpp_windows_docker
+    else
+      cpp_skipped+=("windows/amd64  (--cpp-no-windows)")
+    fi
+    if $build_cpp_macos; then
+      echo "==> C++ macOS (Docker + osxcross)"
+      build_cpp_macos_docker
+    else
+      cpp_skipped+=("darwin/amd64  (--cpp-no-macos)")
+    fi
+  fi
 fi
 
 echo
