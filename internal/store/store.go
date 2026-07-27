@@ -219,6 +219,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateCallsignRequests(); err != nil {
 		return err
 	}
+	if err := s.migrateLoginRequests(); err != nil {
+		return err
+	}
 	return nil
 }
 
