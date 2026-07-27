@@ -99,6 +99,7 @@ var AllAuditActions = []string{
 	AuditGroupCreate, AuditGroupUpdate, AuditGroupDelete,
 	AuditGroupMemberAdd, AuditGroupMemberRemove, AuditGroupMemberRoleChange,
 	AuditContestVisibilityChange, AuditContestGroupAccessChange,
+	AuditLoginPairApprove, AuditLoginPairDeny,
 }
 
 // audit writes one entry to the store, discarding errors after logging them.

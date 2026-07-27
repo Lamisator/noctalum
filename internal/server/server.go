@@ -283,6 +283,7 @@ func (s *Server) sessionCleanupLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.sessions.CleanExpired()
+			_ = s.store.DeleteExpiredLoginRequests()
 		}
 	}
 }
@@ -299,6 +300,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/me", s.handleMe)
 	mux.HandleFunc("/api/passkey/login/begin", s.handlePasskeyLoginBegin)
 	mux.HandleFunc("/api/passkey/login/finish", s.handlePasskeyLoginFinish)
+	mux.HandleFunc("/api/login-request/create", s.handleLoginRequestCreate)
+	mux.HandleFunc("/api/login-request/status", s.handleLoginRequestStatus)
 	mux.HandleFunc("/api/downloads", s.handleDownloadsList)
 	mux.HandleFunc("/downloads/", s.handleDownloadsFile)
 
@@ -310,6 +313,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/me/theme", s.requireAuth(s.handleMeTheme))
 	mux.HandleFunc("/api/me/last-seen-version", s.requireAuth(s.handleMeLastSeenVersion))
 	mux.HandleFunc("/api/me/callsign-request", s.requireAuth(s.handleMeCallsignRequest))
+	mux.HandleFunc("/api/login-request/", s.requireAuth(s.handleLoginRequestByID))
 	mux.HandleFunc("/api/passkey/register/begin", s.requireAuth(s.handlePasskeyRegisterBegin))
 	mux.HandleFunc("/api/passkey/register/finish", s.requireAuth(s.handlePasskeyRegisterFinish))
 	mux.HandleFunc("/api/passkey/credentials", s.requireAuth(s.handlePasskeyCredentials))
