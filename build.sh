@@ -763,7 +763,7 @@ build_cpp_linux_native() {
   out="noctalum-helper-gui-cpp-linux-${arch}.AppImage"
   echo "==> $out"
   if ! pkg-config --exists Qt6Core Qt6Widgets Qt6WebSockets Qt6SerialPort; then
-    echo "error: missing qt6-base-dev/qt6-websockets-dev/qt6-serialport-dev" >&2; return 1
+    echo "error: missing qt6-base-dev/libqt6websockets6-dev/libqt6serialport6-dev" >&2; return 1
   fi
   package_gui_appimage "helper-gui" "noctalum-helper-gui" \
                        "Noctalum Helper (C++)" "$out" || return 1
@@ -787,18 +787,23 @@ ensure_cpp_linux_image() {
   local image="noctalum-cpp-linux:latest"
   if "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then return 0; fi
   echo "    building $image (one-time, ~4-6 min)"
+  # Debian bookworm packages all three Qt6 modules we need (base, websockets,
+  # serialport) — Ubuntu 22.04 is missing the last two, and 24.04 gets us
+  # glibc 2.39 which makes the AppImage too new for older desktops.  Bookworm
+  # sits at glibc 2.36 and covers every distro from Debian 12 / Ubuntu 22.04
+  # onward.
   "$RUNTIME" build -t "$image" - <<'DOCKERFILE' >&2
-FROM ubuntu:22.04
+FROM debian:bookworm
 ENV DEBIAN_FRONTEND=noninteractive
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
       cmake ninja-build g++ pkg-config \
       wget file ca-certificates xz-utils patchelf \
-      qt6-base-dev qt6-websockets-dev qt6-serialport-dev \
+      qt6-base-dev libqt6websockets6-dev libqt6serialport6-dev \
       libcurl4-openssl-dev nlohmann-json3-dev \
       libwebsockets-dev libncurses-dev libssl-dev \
-      libgl1-mesa-dev libxkbcommon-dev libfontconfig1-dev \
+      libgl-dev libxkbcommon-dev libfontconfig1-dev \
  && rm -rf /var/lib/apt/lists/*
 # Bake linuxdeploy + qt plugin + appimagetool into the image so nothing is
 # fetched at build time (build hosts might be air-gapped between runs).
