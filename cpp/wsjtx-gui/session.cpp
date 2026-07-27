@@ -66,7 +66,27 @@ void Session::reset() {
     csrf_.clear();
     helperToken_.clear();
     tokenContestID_ = 0;
+    tokenStationCall_.clear();
     nam_.setCookieJar(new QNetworkCookieJar(&nam_));
+}
+
+// Extracts the "home" callsign component from cs, mirroring the server's
+// internal/server/validate.go BaseCallsign() helper: strip optional
+// leading ITU prefix and trailing portable/status suffixes (/P, /MM,
+// /QRP) by picking the longest slash-separated token that contains a
+// digit and is at least 3 characters long.  Comparing base calls means
+// "DM2LAP/P" still matches "DM2LAP".
+static QString baseCallsign(QString cs) {
+    cs = cs.trimmed().toUpper();
+    if (cs.isEmpty() || !cs.contains('/')) return cs;
+    QString base;
+    for (const QString& p : cs.split('/', Qt::SkipEmptyParts)) {
+        bool hasDigit = false;
+        for (QChar c : p) { if (c.isDigit()) { hasDigit = true; break; } }
+        if (p.size() < 3 || !hasDigit) continue;
+        if (p.size() > base.size()) base = p;
+    }
+    return base.isEmpty() ? cs : base;
 }
 
 // ── Token-based auth ────────────────────────────────────────────────────
@@ -92,6 +112,7 @@ std::optional<BridgeToken> Session::decodeToken(const QString& blob) {
     tk.serverBase  = o.value("s").toString().trimmed();
     tk.helperToken = o.value("t").toString().trimmed();
     tk.contestID   = static_cast<qint64>(o.value("c").toDouble());
+    tk.stationCall = o.value("sc").toString().trimmed().toUpper();
     if (tk.serverBase.isEmpty() || tk.helperToken.isEmpty() || tk.contestID <= 0) {
         return std::nullopt;
     }
@@ -109,9 +130,10 @@ bool Session::configureToken(const QString& blob) {
         emit errorRaised(tr("Bridge token is not valid — paste the whole \"noc1.…\" string from the Noctalum web UI."));
         return false;
     }
-    serverBase_     = normaliseBase(tk->serverBase);
-    helperToken_    = tk->helperToken;
-    tokenContestID_ = tk->contestID;
+    serverBase_       = normaliseBase(tk->serverBase);
+    helperToken_      = tk->helperToken;
+    tokenContestID_   = tk->contestID;
+    tokenStationCall_ = tk->stationCall;
     csrf_.clear();
     return true;
 }
@@ -274,6 +296,20 @@ void Session::onDatagramReady() {
         auto qso = parseLogQso(buf);
         if (!qso) continue;
 
+        // Client-side callsign filter: when the token names a specific
+        // station callsign, drop any QSO whose WSJT-X MyCall isn't the
+        // same on a base-callsign basis (DM2LAP still matches DM2LAP/P).
+        // The operator sees a warn line in the Activity log so it's
+        // clear why nothing hit the server.  Server-side re-checks the
+        // same rule on /api/wsjtx/qsos as a safety net.
+        if (!tokenStationCall_.isEmpty() && !qso->myCall.isEmpty() &&
+            baseCallsign(qso->myCall) != baseCallsign(tokenStationCall_)) {
+            emit qsoFailed(*qso, tr(
+                "skipped — WSJT-X station callsign %1 doesn't match the contest station %2")
+                .arg(qso->myCall, tokenStationCall_));
+            continue;
+        }
+
         QJsonObject payload{
             {"callsign",     qso->call},
             {"freq_hz",      static_cast<qint64>(qso->freqHz)},
@@ -287,9 +323,14 @@ void Session::onDatagramReady() {
 
         // Token mode uses a dedicated endpoint that authenticates via
         // X-Helper-Token and reads the target contest from the body — no
-        // session cookie, no /api/contests/*/select roundtrip.
+        // session cookie, no /api/contests/*/select roundtrip.  We also
+        // forward WSJT-X's MyCall so the server can enforce the same
+        // station-callsign check the client just made.
         const bool tokenMode = !helperToken_.isEmpty();
-        if (tokenMode) payload["contest_id"] = tokenContestID_;
+        if (tokenMode) {
+            payload["contest_id"] = tokenContestID_;
+            if (!qso->myCall.isEmpty()) payload["my_call"] = qso->myCall;
+        }
 
         QString url = serverBase_ + (tokenMode ? "/api/wsjtx/qsos" : "/api/qsos");
         if (forceDup_) url += "?force=1";

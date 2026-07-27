@@ -3268,8 +3268,9 @@
   $('ops-wsjtx-token-btn')?.addEventListener('click', () => {
     if (!me?.contest_id) return;
     contestWsjtxTokenModal({
-      id:   me.contest_id,
-      name: me.contest_name || '',
+      id:           me.contest_id,
+      name:         me.contest_name || '',
+      station_call: me.contest_call || '',
     });
   });
 
@@ -4711,19 +4712,26 @@
   }
 
   // ----- WSJT-X bridge token ---------------------------------------------
-  // The bridge accepts a copy-pasteable blob that packs three pieces of
+  // The bridge accepts a copy-pasteable blob that packs four pieces of
   // config into one string: the server URL, the operator's helper token,
-  // and the contest ID to log QSOs into. The token is a per-contest
-  // artifact (each contest gets a different blob because `c` is baked
-  // in) so the UI lives as a per-contest action, not a personal setting.
-  // The resulting token confers no more access than the operator already
-  // has — the server enforces per-contest write permission on every
-  // submission, exactly like the browser flow does.
-  function encodeWsjtxToken({ server, helper_token, contest_id }) {
-    const payload = JSON.stringify({ s: server, t: helper_token, c: contest_id });
+  // the contest ID to log QSOs into, and the contest's expected station
+  // callsign.  The station_call ("sc") lets the Qt bridge silently drop
+  // LOG_QSO datagrams that came from a WSJT-X session configured for a
+  // different callsign, so an operator who forgot to switch the token
+  // between contests doesn't pollute the wrong log.  The server checks
+  // the same field on every submission as a safety net.
+  //
+  // The token is a per-contest artifact (each contest gets a different
+  // blob because `c` + `sc` are baked in) so the UI lives as a per-
+  // contest action, not a personal setting.  It confers no more access
+  // than the operator already has — the server enforces per-contest
+  // write permission on every submission, exactly like the browser flow.
+  function encodeWsjtxToken({ server, helper_token, contest_id, station_call }) {
+    const payload = { s: server, t: helper_token, c: contest_id };
+    if (station_call) payload.sc = station_call;
     // Standard base64url (no padding) — mirrors the encoding the Qt
     // bridge uses when decoding.
-    const b64 = btoa(unescape(encodeURIComponent(payload)))
+    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))))
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     return 'noc1.' + b64;
   }
@@ -5861,6 +5869,7 @@
       server: location.origin,
       helper_token: me.helper_token,
       contest_id: c.id,
+      station_call: c.station_call || '',
     });
     showModal(`
       <h3>${escHtml(t('wsjtxToken.title'))}: ${escHtml(c.name)}</h3>

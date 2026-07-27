@@ -1293,12 +1293,21 @@ func (s *Server) handleWSJTXBridgeQSO(w http.ResponseWriter, r *http.Request) {
 
 	// The body is the standard QSO payload; contest_id is a regular field
 	// of store.QSO (already `omitempty`-tagged for other endpoints, but
-	// required here since there is no session-selected contest).
-	var in store.QSO
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+	// required here since there is no session-selected contest).  A
+	// non-standard `my_call` field is honoured too: WSJT-X names the
+	// station callsign the datagram was logged under, and we reject the
+	// QSO if it doesn't match the contest's expected callsign — this
+	// stops a bridge from silently polluting Contest A with QSOs from a
+	// WSJT-X session that was actually configured for Callsign B.
+	var body struct {
+		store.QSO
+		MyCall string `json:"my_call"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	in := body.QSO
 	if in.ContestID == 0 {
 		writeError(w, http.StatusBadRequest, "contest_id required")
 		return
@@ -1315,6 +1324,24 @@ func (s *Server) handleWSJTXBridgeQSO(w http.ResponseWriter, r *http.Request) {
 	if c.Status == "finished" {
 		writeError(w, http.StatusForbidden, "contest is finished (read-only)")
 		return
+	}
+	// When WSJT-X is configured with a different station callsign than
+	// the contest expects, refuse the QSO up-front — the operator almost
+	// certainly wants to log elsewhere.  Comparison is on BaseCallsign
+	// so DM2LAP still matches DM2LAP/P (compound-call operating).  An
+	// empty my_call means an older bridge that didn't ship the field;
+	// we let those through for backward compat and rely on the client
+	// filter alone.
+	if want := strings.TrimSpace(body.MyCall); want != "" {
+		if BaseCallsign(want) != BaseCallsign(c.StationCall) {
+			s.audit(r, store.AuditWarn, AuditQSOCreate, u.Username, in.Callsign,
+				"wsjtx create qso rejected: my_call "+want+" != station "+c.StationCall)
+			writeError(w, http.StatusUnprocessableEntity,
+				"WSJT-X reported station callsign "+want+
+					", but this contest expects "+c.StationCall+
+					" — reconfigure WSJT-X or paste the token for the matching contest")
+			return
+		}
 	}
 	admin := ContestAdminOverride(u.Permissions, c.Visibility)
 	effRole, err := s.store.EffectiveContestRole(c.ID, u.ID, admin)

@@ -93,6 +93,11 @@ private:
     // /api/qsos endpoint used by the classic login flow.
     QString                helperToken_;
     qint64                 tokenContestID_ = 0;
+    // Contest's expected station callsign (from the token's `sc` field,
+    // if present).  When set, incoming LOG_QSO datagrams whose MyCall
+    // doesn't match on base-callsign terms are dropped locally with a
+    // warn log line instead of being POSTed.
+    QString                tokenStationCall_;
     QUdpSocket             udp_;
     bool                   forceDup_ = false;
 };

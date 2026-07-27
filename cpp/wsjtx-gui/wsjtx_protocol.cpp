@@ -92,9 +92,16 @@ std::optional<LogQSO> parseLogQso(const QByteArray& data) {
         QString comments     = r.qtStr();
         QString name         = r.qtStr();
         qint64  dtOn         = r.qDateTimeSec();
-        // Remaining fields (operator_call, my_call, my_grid, exchange_sent,
-        // exchange_received, and — schema >= 3 — AdifPropagationMode) are
-        // parsed by the CLI bridge but not needed by the server.
+        (void)r.qtStr();                   // OperatorCall — the human op's
+                                            // own call in multi-op setups.
+                                            // Ignored: we care about the
+                                            // station identity, not who is
+                                            // behind the mic.
+        QString myCall       = r.qtStr();  // WSJT-X "MyCall" — station callsign
+        // Remaining fields (my_grid, exchange_sent, exchange_received, and —
+        // schema >= 3 — AdifPropagationMode) are read implicitly by the
+        // Reader falling off the end.  We stop here because the bridge only
+        // needs my_call.
 
         if (dxCall.isEmpty()) return std::nullopt;
         m.timeSec      = dtOn != 0 ? dtOn : dtOff;
@@ -105,6 +112,7 @@ std::optional<LogQSO> parseLogQso(const QByteArray& data) {
         m.rstSent      = reportSent.trimmed();
         m.rstReceived  = reportRcvd.trimmed();
         m.notes        = joinNotes(name, comments);
+        m.myCall       = upper(myCall.trimmed());
         return m;
     } catch (const std::exception&) {
         return std::nullopt;
