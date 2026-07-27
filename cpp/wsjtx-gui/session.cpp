@@ -1,6 +1,7 @@
 #include "session.hpp"
 #include "wsjtx_protocol.hpp"
 
+#include <QByteArray>
 #include <QDateTime>
 #include <QHostAddress>
 #include <QTimeZone>
@@ -63,7 +64,56 @@ Session::Session(QObject* parent) : QObject(parent) {
 
 void Session::reset() {
     csrf_.clear();
+    helperToken_.clear();
+    tokenContestID_ = 0;
     nam_.setCookieJar(new QNetworkCookieJar(&nam_));
+}
+
+// ── Token-based auth ────────────────────────────────────────────────────
+
+std::optional<BridgeToken> Session::decodeToken(const QString& blob) {
+    // Expected shape: "noc1." + base64url(JSON{"s":"…","t":"…","c":N}).
+    // Kept intentionally strict so a paste of the wrong string produces a
+    // clear "invalid token" error instead of a mysterious HTTP failure
+    // three steps later.
+    QString s = blob.trimmed();
+    const QString prefix = QStringLiteral("noc1.");
+    if (!s.startsWith(prefix)) return std::nullopt;
+    QByteArray raw = s.mid(prefix.size()).toUtf8();
+    // Qt's Base64UrlEncoding decoder accepts unpadded input, matching the
+    // encoding the web UI produces.
+    QByteArray json = QByteArray::fromBase64(raw,
+        QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+    if (json.isEmpty()) return std::nullopt;
+    auto doc = QJsonDocument::fromJson(json);
+    if (!doc.isObject()) return std::nullopt;
+    auto o = doc.object();
+    BridgeToken tk;
+    tk.serverBase  = o.value("s").toString().trimmed();
+    tk.helperToken = o.value("t").toString().trimmed();
+    tk.contestID   = static_cast<qint64>(o.value("c").toDouble());
+    if (tk.serverBase.isEmpty() || tk.helperToken.isEmpty() || tk.contestID <= 0) {
+        return std::nullopt;
+    }
+    // Same "bare host:port → https://" default the login flow applies,
+    // so pre-token config files that only carry a hostname keep working.
+    if (!tk.serverBase.startsWith("http://") && !tk.serverBase.startsWith("https://")) {
+        tk.serverBase = "https://" + tk.serverBase;
+    }
+    return tk;
+}
+
+bool Session::configureToken(const QString& blob) {
+    auto tk = decodeToken(blob);
+    if (!tk) {
+        emit errorRaised(tr("Bridge token is not valid — paste the whole \"noc1.…\" string from the Noctalum web UI."));
+        return false;
+    }
+    serverBase_     = normaliseBase(tk->serverBase);
+    helperToken_    = tk->helperToken;
+    tokenContestID_ = tk->contestID;
+    csrf_.clear();
+    return true;
 }
 
 bool Session::isListening() const {
@@ -82,6 +132,11 @@ void Session::httpJson(const QString& method,
     if (method != "GET") {
         req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
         if (!csrf_.isEmpty()) req.setRawHeader("X-CSRF-Token", csrf_.toUtf8());
+    }
+    // Token-mode QSO submissions authenticate purely by header — no cookie
+    // session exists, so the CSRF header above is a no-op.
+    if (!helperToken_.isEmpty()) {
+        req.setRawHeader("X-Helper-Token", helperToken_.toUtf8());
     }
 
     QNetworkReply* reply = nullptr;
@@ -230,7 +285,13 @@ void Session::onDatagramReady() {
         };
         if (!qso->notes.isEmpty()) payload["notes"] = qso->notes;
 
-        QString url = serverBase_ + "/api/qsos";
+        // Token mode uses a dedicated endpoint that authenticates via
+        // X-Helper-Token and reads the target contest from the body — no
+        // session cookie, no /api/contests/*/select roundtrip.
+        const bool tokenMode = !helperToken_.isEmpty();
+        if (tokenMode) payload["contest_id"] = tokenContestID_;
+
+        QString url = serverBase_ + (tokenMode ? "/api/wsjtx/qsos" : "/api/qsos");
         if (forceDup_) url += "?force=1";
 
         LogQSO captured = *qso;

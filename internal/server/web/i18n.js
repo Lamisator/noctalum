@@ -499,6 +499,12 @@
         passkeyRegFail: 'Registration failed',
         passkeyNoneYet: 'No passkeys registered yet.',
       },
+      wsjtxToken: {
+        title: 'WSJT-X bridge token',
+        intro: 'Copy the token for a contest into the Noctalum WSJT-X bridge to log in with one click — no username, password, or contest picker.',
+        contest: 'Contest',
+        none: 'No contests available yet — create one first.',
+      },
       callsignRequest: {
         title: 'Request callsign change',
         intro: 'Submit a new callsign together with a scan or photo of a document that proves the change (e.g. your amateur radio licence). An administrator will review and either approve or decline the request.',
@@ -1363,6 +1369,12 @@
         passkeyNamePlaceholder: 'Name des Passkeys (z. B. MacBook)',
         passkeyRegFail: 'Registrierung fehlgeschlagen',
         passkeyNoneYet: 'Noch keine Passkeys registriert.',
+      },
+      wsjtxToken: {
+        title: 'WSJT-X-Bridge-Token',
+        intro: 'Kopiere den Token für einen Contest in die Noctalum-WSJT-X-Bridge und melde dich mit einem Klick an — ganz ohne Benutzername, Passwort oder Contest-Auswahl.',
+        contest: 'Contest',
+        none: 'Noch keine Contests vorhanden — lege zuerst einen an.',
       },
       callsignRequest: {
         title: 'Rufzeichen-Änderung beantragen',

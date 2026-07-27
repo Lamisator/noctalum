@@ -321,6 +321,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/qsos", s.requireAuth(s.handleQSOs))
 	mux.HandleFunc("/api/qsos/reserve-nr", s.requireAuth(s.handleReserveNr))
 	mux.HandleFunc("/api/qsos/", s.requireAuth(s.handleQSOByID))
+	// Token-authenticated QSO ingest used by the WSJT-X bridge helper. It
+	// bypasses the cookie session entirely — the token identifies both the
+	// user (via their per-user helper token) and the target contest
+	// (contest_id in the body). No X-CSRF-Token is required because there
+	// is no session cookie to steal.
+	mux.HandleFunc("/api/wsjtx/qsos", s.handleWSJTXBridgeQSO)
 	mux.HandleFunc("/api/operators", s.requireAuth(s.handleOperators))
 	mux.HandleFunc("/api/rigs", s.requireAuth(s.handleRigs))
 	mux.HandleFunc("/api/rigs/select", s.requireAuth(s.handleSelectRig))
@@ -1244,6 +1250,200 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, store.AuditInfo, AuditQSOCreate, sess.Username, in.Callsign,
 		"contest: "+contestName+", band: "+in.Band+", mode: "+in.Mode)
 	s.hub.BroadcastToContest(contestID, Event{Type: "qso", Payload: in})
+	writeJSON(w, http.StatusCreated, in)
+}
+
+// handleWSJTXBridgeQSO ingests a QSO submitted by the WSJT-X GUI bridge in
+// "token" mode. The bridge authenticates by presenting the operator's
+// per-user helper token in the X-Helper-Token header and names the target
+// contest via the contest_id field of the JSON body — this is the same
+// information the browser derives from its session cookie + selected
+// contest, packed into a single copy-pasteable blob so the desktop bridge
+// can be one-click configured.
+//
+// The endpoint enforces the same rules as handleCreateQSO: qso.write global
+// permission, per-contest role of at least logger, contest not finished,
+// duplicate detection (?force=1 override), atomic NR assignment, and the
+// same "auto-join as logger participant on first activity" behaviour used
+// by the browser flow.
+func (s *Server) handleWSJTXBridgeQSO(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "POST required")
+		return
+	}
+	token := strings.TrimSpace(r.Header.Get("X-Helper-Token"))
+	if token == "" {
+		writeError(w, http.StatusUnauthorized, "missing X-Helper-Token header")
+		return
+	}
+	u, err := s.store.GetUserByHelperToken(token)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid helper token")
+		return
+	}
+	if u.Disabled {
+		writeError(w, http.StatusForbidden, "account disabled")
+		return
+	}
+	if !HasPermission(u.Permissions, PermQSOWrite) {
+		s.audit(r, store.AuditError, AuditAccessDenied, u.Username, PermQSOWrite, "wsjtx create qso")
+		writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
+		return
+	}
+
+	// The body is the standard QSO payload; contest_id is a regular field
+	// of store.QSO (already `omitempty`-tagged for other endpoints, but
+	// required here since there is no session-selected contest).
+	var in store.QSO
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if in.ContestID == 0 {
+		writeError(w, http.StatusBadRequest, "contest_id required")
+		return
+	}
+	c, err := s.store.GetContest(in.ContestID)
+	if errors.Is(err, store.ErrContestNotFound) {
+		writeError(w, http.StatusNotFound, "contest not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if c.Status == "finished" {
+		writeError(w, http.StatusForbidden, "contest is finished (read-only)")
+		return
+	}
+	admin := ContestAdminOverride(u.Permissions, c.Visibility)
+	effRole, err := s.store.EffectiveContestRole(c.ID, u.ID, admin)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ContestRoleAtLeast(effRole, store.ContestRoleLogger) {
+		s.audit(r, store.AuditError, AuditAccessDenied, u.Username, c.Name, "wsjtx create qso: no per-contest role")
+		writeError(w, http.StatusForbidden, "you are not authorized to log QSOs in this contest")
+		return
+	}
+	// Mirror the browser flow: register the operator as a logger
+	// participant the first time they submit into a contest they can reach
+	// without an explicit invite (open / groups-listed visibility).
+	if part, _ := s.store.GetContestParticipant(c.ID, u.ID); part == nil {
+		if err := s.store.AddContestParticipant(c.ID, u.ID, store.ContestRoleLogger, "active"); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	in.Callsign = strings.ToUpper(strings.TrimSpace(in.Callsign))
+	in.Operator = u.Callsign
+	in.ContestID = c.ID
+	in.StationCall = c.StationCall
+	in.ContestName = c.Name
+	in.OperatorUserID = u.ID
+
+	if !ValidCallsign(in.Callsign) {
+		writeError(w, http.StatusBadRequest, "invalid contacted callsign")
+		return
+	}
+	if in.Mode == "" {
+		writeError(w, http.StatusBadRequest, "mode required")
+		return
+	}
+	if in.RSTSent == "" {
+		in.RSTSent = DefaultRST(in.Mode)
+	}
+	if in.RSTReceived == "" {
+		in.RSTReceived = DefaultRST(in.Mode)
+	}
+	if !ValidReport(in.RSTSent, in.Mode) {
+		writeError(w, http.StatusBadRequest, "RST sent invalid for mode "+in.Mode)
+		return
+	}
+	if !ValidReport(in.RSTReceived, in.Mode) {
+		writeError(w, http.StatusBadRequest, "RST received invalid for mode "+in.Mode)
+		return
+	}
+	if !ValidLocator(in.Locator) {
+		writeError(w, http.StatusBadRequest, "invalid Maidenhead locator")
+		return
+	}
+	if !ValidZone(in.ITUZone) {
+		writeError(w, http.StatusBadRequest, "invalid ITU zone")
+		return
+	}
+	if !ValidZone(in.CQZone) {
+		writeError(w, http.StatusBadRequest, "invalid CQ zone")
+		return
+	}
+	if in.FreqHz < 0 {
+		writeError(w, http.StatusBadRequest, "invalid frequency")
+		return
+	}
+	if in.Band == "" && in.FreqHz > 0 {
+		in.Band = BandFromHz(in.FreqHz)
+	}
+	if in.Band == "" {
+		writeError(w, http.StatusBadRequest, "band could not be determined")
+		return
+	}
+	if in.FreqHz > 0 {
+		if inferred := BandFromHz(in.FreqHz); inferred != "" && inferred != in.Band {
+			mhz := strconv.FormatFloat(float64(in.FreqHz)/1_000_000.0, 'f', 3, 64)
+			writeError(w, http.StatusBadRequest, "frequency "+mhz+" MHz is in the "+inferred+" band, not "+in.Band)
+			return
+		}
+	}
+	if in.Time.IsZero() {
+		in.Time = time.Now().UTC()
+	}
+	if err := validateExtras(c.CustomFields, in.Extras); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	dup, err := s.store.FindDuplicate(c.ID, in.Callsign, in.Band, in.Mode, dupWindow)
+	if err == nil && dup && r.URL.Query().Get("force") != "1" {
+		writeError(w, http.StatusConflict, "possible duplicate within "+dupWindow.String())
+		return
+	}
+
+	// NR allocation matches handleCreateQSO exactly — same mutex, same
+	// map, so a browser and a WSJT-X bridge writing into the same contest
+	// cannot collide on serial numbers.
+	s.nrMu.Lock()
+	if s.nrNext == nil {
+		s.nrNext = make(map[int64]int)
+	}
+	if _, ok := s.nrNext[c.ID]; !ok {
+		maxNr, err := s.store.MaxNrSent(c.ID)
+		if err != nil {
+			s.nrMu.Unlock()
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.nrNext[c.ID] = maxNr + 1
+	}
+	in.NrSent = s.nrNext[c.ID]
+	s.nrNext[c.ID]++
+	s.nrMu.Unlock()
+
+	id, err := s.store.InsertQSO(&in)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	in.ID = id
+	if in.DOK != "" {
+		if baseCall := BaseCallsign(in.Callsign); s.store.GetCachedDOK(baseCall) == "" {
+			_ = s.store.UpsertCallsignDOK(baseCall, in.DOK)
+		}
+	}
+	s.audit(r, store.AuditInfo, AuditQSOCreate, u.Username, in.Callsign,
+		"contest: "+c.Name+", band: "+in.Band+", mode: "+in.Mode+", via: wsjtx-bridge")
+	s.hub.BroadcastToContest(c.ID, Event{Type: "qso", Payload: in})
 	writeJSON(w, http.StatusCreated, in)
 }
 

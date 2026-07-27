@@ -1,6 +1,7 @@
 #include "mainwindow.hpp"
 
 #include <QApplication>
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
@@ -14,7 +15,9 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QScrollBar>
+#include <QStackedWidget>
 #include <QVBoxLayout>
 
 namespace {
@@ -70,7 +73,7 @@ MainWindow::MainWindow() {
     applyStyle();
     setStage(Stage::LoggedOut);
     loadFromCredentials(CredentialStore::load());
-    appendLog(tr("Ready. Enter your Noctalum credentials to begin."));
+    appendLog(tr("Ready. Paste a bridge token or switch to username/password to begin."));
 }
 
 // ── UI construction ─────────────────────────────────────────────────────
@@ -103,64 +106,143 @@ void MainWindow::buildUi() {
         root->addLayout(bar);
     }
 
-    // ── Credentials card ──
+    // ── Credentials card (auth-mode toggle + swapped body) ──
     {
         auto* card = makeCard(tr("Connection"));
 
-        inServer_ = new QLineEdit();
-        inServer_->setPlaceholderText(QStringLiteral("https://log.example.org"));
-        inUser_ = new QLineEdit();
-        inUser_->setPlaceholderText(tr("callsign or username"));
-        inPass_ = new QLineEdit();
-        inPass_->setEchoMode(QLineEdit::Password);
+        // Mode toggle — token mode is the default because it's the
+        // one-click config path the web UI is designed to produce.
+        // Classic username/password is kept as an escape hatch.
+        rbToken_    = new QRadioButton(tr("Bridge token (one click)"));
+        rbPassword_ = new QRadioButton(tr("Username &amp; password"));
+        rbToken_->setChecked(true);
+        auto* modeGroup = new QButtonGroup(this);
+        modeGroup->addButton(rbToken_);
+        modeGroup->addButton(rbPassword_);
+        auto* modeRow = new QHBoxLayout();
+        modeRow->addWidget(rbToken_);
+        modeRow->addWidget(rbPassword_);
+        modeRow->addStretch();
+
+        // Shared fields (UDP + duplicate toggle) appear beneath the
+        // per-mode body so they belong to both flows.
         inUdp_ = new QLineEdit(QStringLiteral("0.0.0.0:2237"));
         inUdp_->setPlaceholderText(QStringLiteral("0.0.0.0:2237"));
-
-        cbRemember_ = new QCheckBox(tr("Remember credentials on this device"));
-        cbRemember_->setToolTip(tr(
-            "Credentials are saved to a per-user JSON file with owner-only "
-            "permissions. Leave unchecked on shared machines."));
         cbForceDup_ = new QCheckBox(tr("Log duplicates (send QSOs even when the server flags them)"));
 
-        auto* form = new QFormLayout();
-        form->setLabelAlignment(Qt::AlignRight);
-        form->setContentsMargins(4, 6, 4, 6);
-        form->setSpacing(10);
-        form->addRow(tr("Server URL"), inServer_);
-        form->addRow(tr("Username"),   inUser_);
-        form->addRow(tr("Password"),   inPass_);
-        form->addRow(tr("WSJT-X UDP"), inUdp_);
-        form->addRow(QString(),        cbRemember_);
-        form->addRow(QString(),        cbForceDup_);
+        // ── Token-mode sub-card ──
+        auto* tokenPage = new QWidget();
+        {
+            inToken_ = new QLineEdit();
+            inToken_->setPlaceholderText(QStringLiteral("noc1.…"));
+            inToken_->setEchoMode(QLineEdit::Password);
+            cbRememberToken_ = new QCheckBox(tr("Remember token on this device"));
+            cbRememberToken_->setToolTip(tr(
+                "The token is saved to a per-user JSON file with owner-only "
+                "permissions. Leave unchecked on shared machines."));
 
-        btnLogin_  = new QPushButton(tr("Log in"));
-        btnLogin_->setObjectName("primary");
-        btnLogin_->setDefault(true);
-        btnLogout_ = new QPushButton(tr("Log out"));
+            btnTokenStart_ = new QPushButton(tr("Start bridge"));
+            btnTokenStart_->setObjectName("primary");
+            btnTokenStart_->setDefault(true);
+            btnTokenStop_  = new QPushButton(tr("Stop"));
+
+            auto* form = new QFormLayout();
+            form->setLabelAlignment(Qt::AlignRight);
+            form->setContentsMargins(4, 6, 4, 6);
+            form->setSpacing(10);
+            form->addRow(tr("Bridge token"), inToken_);
+            form->addRow(tr("WSJT-X UDP"),   inUdp_);
+            form->addRow(QString(),          cbRememberToken_);
+            form->addRow(QString(),          cbForceDup_);
+
+            auto* actions = new QHBoxLayout();
+            actions->addStretch();
+            actions->addWidget(btnTokenStop_);
+            actions->addWidget(btnTokenStart_);
+
+            auto* body = new QVBoxLayout(tokenPage);
+            body->setContentsMargins(0, 0, 0, 0);
+            body->addWidget(muted(tr(
+                "Paste the token you copied from Noctalum → My Settings → "
+                "\"WSJT-X bridge token\". It contains the server URL, your "
+                "helper token, and the contest to log into.")));
+            body->addLayout(form);
+            body->addLayout(actions);
+
+            connect(btnTokenStart_, &QPushButton::clicked, this, &MainWindow::onTokenStartClicked);
+            connect(btnTokenStop_,  &QPushButton::clicked, this, &MainWindow::onStopClicked);
+            connect(inToken_,       &QLineEdit::returnPressed, btnTokenStart_, &QPushButton::click);
+        }
+
+        // ── Password-mode sub-card ──
+        auto* pwdPage = new QWidget();
+        {
+            inServer_ = new QLineEdit();
+            inServer_->setPlaceholderText(QStringLiteral("https://log.example.org"));
+            inUser_ = new QLineEdit();
+            inUser_->setPlaceholderText(tr("callsign or username"));
+            inPass_ = new QLineEdit();
+            inPass_->setEchoMode(QLineEdit::Password);
+
+            cbRemember_ = new QCheckBox(tr("Remember credentials on this device"));
+            cbRemember_->setToolTip(tr(
+                "Credentials are saved to a per-user JSON file with owner-only "
+                "permissions. Leave unchecked on shared machines."));
+
+            btnLogin_  = new QPushButton(tr("Log in"));
+            btnLogin_->setObjectName("primary");
+            btnLogout_ = new QPushButton(tr("Log out"));
+
+            auto* form = new QFormLayout();
+            form->setLabelAlignment(Qt::AlignRight);
+            form->setContentsMargins(4, 6, 4, 6);
+            form->setSpacing(10);
+            form->addRow(tr("Server URL"), inServer_);
+            form->addRow(tr("Username"),   inUser_);
+            form->addRow(tr("Password"),   inPass_);
+            form->addRow(QString(),        cbRemember_);
+
+            auto* actions = new QHBoxLayout();
+            actions->addStretch();
+            actions->addWidget(btnLogout_);
+            actions->addWidget(btnLogin_);
+
+            auto* body = new QVBoxLayout(pwdPage);
+            body->setContentsMargins(0, 0, 0, 0);
+            body->addLayout(form);
+            body->addLayout(actions);
+
+            connect(btnLogin_,  &QPushButton::clicked, this, &MainWindow::onLoginClicked);
+            connect(btnLogout_, &QPushButton::clicked, this, &MainWindow::onLogoutClicked);
+            connect(inPass_,    &QLineEdit::returnPressed, btnLogin_, &QPushButton::click);
+        }
+
+        authStack_ = new QStackedWidget();
+        authStack_->addWidget(tokenPage);   // index 0 → Token
+        authStack_->addWidget(pwdPage);     // index 1 → Password
+
         btnForget_ = new QPushButton(tr("Forget saved credentials"));
         btnForget_->setObjectName("ghost");
-
-        auto* row = new QHBoxLayout();
-        row->addWidget(btnForget_);
-        row->addStretch();
-        row->addWidget(btnLogout_);
-        row->addWidget(btnLogin_);
+        auto* footerRow = new QHBoxLayout();
+        footerRow->addWidget(btnForget_);
+        footerRow->addStretch();
 
         auto* body = new QVBoxLayout();
-        body->addLayout(form);
-        body->addLayout(row);
+        body->addLayout(modeRow);
+        body->addWidget(authStack_);
+        body->addLayout(footerRow);
         card->setLayout(body);
         root->addWidget(card);
 
-        connect(btnLogin_,  &QPushButton::clicked, this, &MainWindow::onLoginClicked);
-        connect(btnLogout_, &QPushButton::clicked, this, &MainWindow::onLogoutClicked);
-        connect(btnForget_, &QPushButton::clicked, this, &MainWindow::onForgetCredentialsClicked);
-        connect(inPass_,    &QLineEdit::returnPressed, btnLogin_, &QPushButton::click);
+        connect(rbToken_,    &QRadioButton::toggled, this, &MainWindow::onAuthModeChanged);
+        connect(rbPassword_, &QRadioButton::toggled, this, &MainWindow::onAuthModeChanged);
+        connect(btnForget_,  &QPushButton::clicked,  this, &MainWindow::onForgetCredentialsClicked);
     }
 
-    // ── Contest card ──
+    // ── Contest card (password mode only) ──
     {
         auto* card = makeCard(tr("Contest"));
+        contestCard_  = card;
         contestCombo_ = new QComboBox();
         contestCombo_->setMinimumHeight(30);
         btnStart_ = new QPushButton(tr("Start bridge"));
@@ -380,20 +462,31 @@ void MainWindow::applyStyle() {
 void MainWindow::setStage(Stage s) {
     stage_ = s;
     const bool loggedOut = (s == Stage::LoggedOut);
-    const bool listening = (s == Stage::Listening);
+    const bool listening = (s == Stage::Listening || s == Stage::TokenStreaming);
+    const bool tokenMode = (authMode() == AuthMode::Token);
 
+    // Password-mode inputs stay locked while a session is active; token
+    // mode has no login step so the fields only lock during listening.
     inServer_->setEnabled(loggedOut);
     inUser_->setEnabled(loggedOut);
     inPass_->setEnabled(loggedOut);
     cbRemember_->setEnabled(loggedOut);
-    btnLogin_->setEnabled(loggedOut);
-    btnLogout_->setEnabled(!loggedOut && !listening);
+    btnLogin_->setEnabled(loggedOut && !tokenMode);
+    btnLogout_->setEnabled(!loggedOut && !listening && !tokenMode);
 
-    contestCombo_->setEnabled(!loggedOut && !listening);
+    inToken_->setEnabled(!listening);
+    cbRememberToken_->setEnabled(!listening);
+    btnTokenStart_->setEnabled(!listening && tokenMode);
+    btnTokenStop_->setEnabled(s == Stage::TokenStreaming);
+
+    contestCombo_->setEnabled(!loggedOut && !listening && !tokenMode);
     btnStart_->setEnabled(s == Stage::LoggedIn && contestCombo_->count() > 0);
-    btnStop_->setEnabled(listening);
+    btnStop_->setEnabled(s == Stage::Listening);
     inUdp_->setEnabled(!listening);
     cbForceDup_->setEnabled(!listening);
+    rbToken_->setEnabled(loggedOut && !listening);
+    rbPassword_->setEnabled(loggedOut && !listening);
+    if (contestCard_) contestCard_->setVisible(!tokenMode);
 
     if (listening) {
         statusPill_->setText(tr("Listening"));
@@ -408,6 +501,35 @@ void MainWindow::setStage(Stage s) {
     // QSS pseudo-selectors need a re-polish after objectName changes.
     statusPill_->style()->unpolish(statusPill_);
     statusPill_->style()->polish(statusPill_);
+}
+
+MainWindow::AuthMode MainWindow::authMode() const {
+    return rbToken_ && rbToken_->isChecked() ? AuthMode::Token : AuthMode::Password;
+}
+
+void MainWindow::setAuthMode(AuthMode m) {
+    // Guard against re-entering the toggled() signal that fires while we
+    // flip the pair below.
+    QSignalBlocker b1(rbToken_), b2(rbPassword_);
+    rbToken_->setChecked(m == AuthMode::Token);
+    rbPassword_->setChecked(m == AuthMode::Password);
+    if (authStack_) authStack_->setCurrentIndex(m == AuthMode::Token ? 0 : 1);
+    setStage(stage_);  // re-apply enable/disable rules for the new mode
+}
+
+void MainWindow::onAuthModeChanged() {
+    if (!rbToken_ || !rbPassword_) return;
+    auto m = rbToken_->isChecked() ? AuthMode::Token : AuthMode::Password;
+    if (authStack_) authStack_->setCurrentIndex(m == AuthMode::Token ? 0 : 1);
+    // Fresh-state reset when the operator switches modes mid-session: no
+    // point keeping the old mode's phase indicators or a stale contest
+    // list around.
+    if (stage_ != Stage::Listening && stage_ != Stage::TokenStreaming) {
+        session_->reset();
+        contestCombo_->clear();
+        resetPhases();
+        setStage(Stage::LoggedOut);
+    }
 }
 
 // ── Actions ─────────────────────────────────────────────────────────────
@@ -428,9 +550,24 @@ void MainWindow::loadFromCredentials(const Credentials& c) {
     if (!c.user.isEmpty())   inUser_->setText(c.user);
     if (!c.udp.isEmpty())    inUdp_->setText(c.udp);
     if (c.rememberPass)      inPass_->setText(c.pass);
+    if (c.rememberToken)     inToken_->setText(c.token);
     cbRemember_->setChecked(c.rememberPass);
+    cbRememberToken_->setChecked(c.rememberToken);
     cbForceDup_->setChecked(c.forceDup);
-    if (c.rememberPass && !c.pass.isEmpty()) {
+
+    // Restore the last-used auth mode. New installs default to token
+    // (the mode built for one-click config); a legacy config that predates
+    // this field lands on password only if it carried a remembered
+    // password, otherwise the token default wins.
+    AuthMode m = AuthMode::Token;
+    if (c.authMode == QStringLiteral("password"))      m = AuthMode::Password;
+    else if (c.authMode == QStringLiteral("token"))    m = AuthMode::Token;
+    else if (c.rememberPass && !c.pass.isEmpty())      m = AuthMode::Password;
+    setAuthMode(m);
+
+    if (m == AuthMode::Token && c.rememberToken && !c.token.isEmpty()) {
+        appendLog(tr("Loaded saved token — press Start bridge to connect."));
+    } else if (m == AuthMode::Password && c.rememberPass && !c.pass.isEmpty()) {
         appendLog(tr("Loaded saved credentials — press Log in to continue."));
     }
 }
@@ -455,6 +592,42 @@ void MainWindow::onLogoutClicked() {
     appendLog(tr("Signed out."));
 }
 
+void MainWindow::onTokenStartClicked() {
+    QString blob = inToken_->text().trimmed();
+    if (blob.isEmpty()) {
+        QMessageBox::warning(this, tr("Start bridge"),
+            tr("Paste the bridge token from Noctalum → My Settings first."));
+        return;
+    }
+    if (!session_->configureToken(blob)) {
+        // configureToken already emitted errorRaised() → onError() logged.
+        return;
+    }
+    // The two phases the password flow uses don't apply here — the token
+    // combines both.  Mark them as "skipped" so the progress row shows
+    // the user what happened.
+    setPhase("login",   "done", tr("token accepted"));
+    setPhase("contest", "done", tr("contest embedded in token"));
+    appendLog(tr("Bridge token accepted — starting UDP listener…"), "ok");
+
+    // Persist the token/UDP/dup config only after we know the token
+    // parses.  A malformed paste is not saved.
+    Credentials c;
+    c.server        = inServer_->text().trimmed();
+    c.user          = inUser_->text().trimmed();
+    c.pass          = inPass_->text();
+    c.rememberPass  = cbRemember_->isChecked();
+    c.udp           = inUdp_->text().trimmed();
+    c.forceDup      = cbForceDup_->isChecked();
+    c.authMode      = QStringLiteral("token");
+    c.token         = blob;
+    c.rememberToken = cbRememberToken_->isChecked();
+    CredentialStore::save(c);
+
+    setStage(Stage::TokenStreaming);
+    session_->startListening(inUdp_->text().trimmed(), cbForceDup_->isChecked());
+}
+
 void MainWindow::onStartClicked() {
     if (contestCombo_->count() == 0) return;
     qint64 id = contestCombo_->currentData().toLongLong();
@@ -474,7 +647,9 @@ void MainWindow::onForgetCredentialsClicked() {
     if (r != QMessageBox::Yes) return;
     CredentialStore::clear();
     inPass_->clear();
+    inToken_->clear();
     cbRemember_->setChecked(false);
+    cbRememberToken_->setChecked(false);
     appendLog(tr("Saved credentials removed."));
 }
 
@@ -487,12 +662,15 @@ void MainWindow::onLoggedIn() {
     // Persist credentials AFTER a successful login so we never save
     // credentials the server would reject.
     Credentials c;
-    c.server       = inServer_->text().trimmed();
-    c.user         = inUser_->text().trimmed();
-    c.pass         = inPass_->text();
-    c.udp          = inUdp_->text().trimmed();
-    c.rememberPass = cbRemember_->isChecked();
-    c.forceDup     = cbForceDup_->isChecked();
+    c.server        = inServer_->text().trimmed();
+    c.user          = inUser_->text().trimmed();
+    c.pass          = inPass_->text();
+    c.udp           = inUdp_->text().trimmed();
+    c.rememberPass  = cbRemember_->isChecked();
+    c.forceDup      = cbForceDup_->isChecked();
+    c.authMode      = QStringLiteral("password");
+    c.token         = inToken_->text().trimmed();
+    c.rememberToken = cbRememberToken_->isChecked();
     CredentialStore::save(c);
 
     setStage(Stage::LoggedIn);
@@ -534,7 +712,14 @@ void MainWindow::onListeningStarted(QString bindDesc) {
 void MainWindow::onListeningStopped() {
     setPhase("listen", "idle");
     setPhase("qso",    "idle");
-    setStage(Stage::LoggedIn);
+    // Token mode has no in-between "signed in" stage — Stop returns the
+    // operator to the pasted-token idle state, not to a contest picker.
+    if (authMode() == AuthMode::Token) {
+        session_->reset();
+        setStage(Stage::LoggedOut);
+    } else {
+        setStage(Stage::LoggedIn);
+    }
     appendLog(tr("Stopped listening."));
 }
 
@@ -561,8 +746,8 @@ void MainWindow::onError(QString msg) {
     // can retry without the UI staying stuck in a half-disabled state.
     switch (stage_) {
         case Stage::LoggedOut:
-            btnLogin_->setEnabled(true);
             setPhase("login", "error", msg);
+            setStage(Stage::LoggedOut);
             break;
         case Stage::LoggedIn:
         case Stage::Selecting:
@@ -570,6 +755,7 @@ void MainWindow::onError(QString msg) {
             setStage(Stage::LoggedIn);
             break;
         case Stage::Listening:
+        case Stage::TokenStreaming:
             setPhase("listen", "error", msg);
             break;
     }

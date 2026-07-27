@@ -55,27 +55,35 @@ Credentials CredentialStore::load() {
     if (!doc.isObject()) return {};
     QJsonObject o = doc.object();
     Credentials c;
-    c.server       = o.value("server").toString();
-    c.user         = o.value("user").toString();
-    c.pass         = o.value("pass").toString();
-    c.udp          = o.value("udp").toString();
-    c.rememberPass = o.value("remember_pass").toBool();
-    c.forceDup     = o.value("force_dup").toBool();
-    // Guard against a stale password left behind by a store that was written
-    // before the remember-pass flag was flipped off out-of-band.
-    if (!c.rememberPass) c.pass.clear();
+    c.server        = o.value("server").toString();
+    c.user          = o.value("user").toString();
+    c.pass          = o.value("pass").toString();
+    c.udp           = o.value("udp").toString();
+    c.rememberPass  = o.value("remember_pass").toBool();
+    c.forceDup      = o.value("force_dup").toBool();
+    c.authMode      = o.value("auth_mode").toString();
+    c.token         = o.value("token").toString();
+    c.rememberToken = o.value("remember_token").toBool();
+    // Guard against a stale password/token left behind by a store that was
+    // written before the corresponding "remember" flag was flipped off
+    // out-of-band.
+    if (!c.rememberPass)  c.pass.clear();
+    if (!c.rememberToken) c.token.clear();
     return c;
 }
 
 void CredentialStore::save(const Credentials& c) {
     ensureDir(configDir());
     QJsonObject o;
-    o["server"]        = c.server;
-    o["user"]          = c.user;
-    o["pass"]          = c.rememberPass ? c.pass : QString();
-    o["udp"]           = c.udp;
-    o["remember_pass"] = c.rememberPass;
-    o["force_dup"]     = c.forceDup;
+    o["server"]         = c.server;
+    o["user"]           = c.user;
+    o["pass"]           = c.rememberPass  ? c.pass  : QString();
+    o["udp"]            = c.udp;
+    o["remember_pass"]  = c.rememberPass;
+    o["force_dup"]      = c.forceDup;
+    o["auth_mode"]      = c.authMode;
+    o["token"]          = c.rememberToken ? c.token : QString();
+    o["remember_token"] = c.rememberToken;
 
     QFile f(filePath());
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return;

@@ -11,6 +11,15 @@ struct Credentials {
     QString udp;
     bool    rememberPass = false;
     bool    forceDup     = false;
+
+    // WSJT-X bridge token flow (added in v0.76): the operator can skip
+    // username/password entirely by pasting a token that packs server URL,
+    // helper token, and contest ID into one blob.  `authMode` records which
+    // flow was last used ("password" or "token") so the window opens in the
+    // right mode; `token` is only persisted when rememberToken is true.
+    QString authMode;      // "password" (default, back-compat) or "token"
+    QString token;         // the raw "noc1.…" blob
+    bool    rememberToken = false;
 };
 
 // Small JSON-on-disk store, one file, cross-platform.  Placement mirrors the

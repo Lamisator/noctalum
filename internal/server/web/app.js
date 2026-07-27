@@ -4670,7 +4670,81 @@
     applyPermissionsToUI();
     loadMyPasskeys();
     loadMyCallsignRequest();
+    loadWsjtxBridgeToken();
   }
+
+  // ----- WSJT-X bridge token generator --------------------------------
+  // The bridge accepts a copy-pasteable blob that packs three pieces of
+  // config into one string: the server URL, the operator's helper token,
+  // and the contest ID to log QSOs into. Any authenticated user can
+  // generate one for any contest they can see, because the resulting
+  // token is only as authoritative as the underlying helper token — the
+  // server enforces per-contest write permission on every submission,
+  // exactly like the browser flow does.
+  function encodeWsjtxToken({ server, helper_token, contest_id }) {
+    const payload = JSON.stringify({ s: server, t: helper_token, c: contest_id });
+    // Standard base64url (no padding) — mirrors the encoding the Qt
+    // bridge uses when decoding.
+    const b64 = btoa(unescape(encodeURIComponent(payload)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return 'noc1.' + b64;
+  }
+
+  async function loadWsjtxBridgeToken() {
+    const sel = $('ms-wsjtx-contest');
+    const out = $('ms-wsjtx-token');
+    const emptyHint = $('ms-wsjtx-empty');
+    if (!sel || !out) return;
+    const res = await api('/api/contests');
+    if (!res.ok) return;
+    const contests = await res.json();
+    sel.innerHTML = '';
+    if (!contests || contests.length === 0) {
+      out.value = '';
+      out.disabled = true;
+      sel.disabled = true;
+      emptyHint?.classList.remove('hidden');
+      return;
+    }
+    emptyHint?.classList.add('hidden');
+    out.disabled = false;
+    sel.disabled = false;
+    for (const c of contests) {
+      const opt = document.createElement('option');
+      opt.value = String(c.id);
+      opt.textContent = `${c.name} · ${c.station_call}${c.status === 'finished' ? ' (finished)' : ''}`;
+      sel.appendChild(opt);
+    }
+    // Preselect the currently active contest if the user has one open,
+    // otherwise fall back to the first entry.
+    const activeId = me?.contest_id;
+    if (activeId && contests.some(c => c.id === activeId)) {
+      sel.value = String(activeId);
+    }
+    refreshWsjtxToken();
+  }
+
+  function refreshWsjtxToken() {
+    const sel = $('ms-wsjtx-contest');
+    const out = $('ms-wsjtx-token');
+    if (!sel || !out) return;
+    const cid = Number(sel.value);
+    if (!cid || !me?.helper_token) { out.value = ''; return; }
+    out.value = encodeWsjtxToken({
+      server: location.origin,
+      helper_token: me.helper_token,
+      contest_id: cid,
+    });
+  }
+
+  $('ms-wsjtx-contest')?.addEventListener('change', refreshWsjtxToken);
+  $('ms-wsjtx-copy')?.addEventListener('click', () => {
+    const input = $('ms-wsjtx-token');
+    if (!input || !input.value) return;
+    input.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    if (navigator.clipboard) navigator.clipboard.writeText(input.value).catch(() => {});
+  });
   $('ms-regen-token')?.addEventListener('click', async () => {
     if (!await showConfirm(t('settings.regenConfirm'), { ok: t('settings.regenButton') })) return;
     const res = await api('/api/me/helper-token', { method: 'POST' });
@@ -4683,6 +4757,9 @@
     // Keep the legacy tab-settings inputs in sync for any code path that still reads them.
     if ($('s-token')) $('s-token').value = j.helper_token;
     if ($('hint-token')) $('hint-token').textContent = j.helper_token;
+    // The bridge token embeds the helper token — regenerating one
+    // invalidates the other, so refresh the visible blob.
+    refreshWsjtxToken();
   });
   $('ms-copy-token')?.addEventListener('click', () => {
     const input = $('ms-token');
