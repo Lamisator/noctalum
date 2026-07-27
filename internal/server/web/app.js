@@ -660,6 +660,40 @@
     return me && me.contest_status === 'open';
   }
 
+  // ----- per-contest role helpers -----
+  //
+  // The server assigns each user one of {owner, editor, logger, ""} for the
+  // currently selected contest (fetched via /select and refreshed on /api/me).
+  // Owner can manage the contest; editor can edit/delete any QSO; logger
+  // can log new QSOs and edit/delete only their own rows.
+  const CONTEST_ROLE_RANK = { owner: 3, editor: 2, logger: 1, '': 0 };
+  function contestRoleAtLeast(want) {
+    const have = (me && me.contest_my_role) || '';
+    return (CONTEST_ROLE_RANK[have] || 0) >= (CONTEST_ROLE_RANK[want] || 0);
+  }
+  // Can the current session log new QSOs in the selected contest?
+  function canLogQSOs() {
+    return hasPerm('qso.write') && contestIsOpen() && contestRoleAtLeast('logger');
+  }
+  // Can the current session edit or delete this specific QSO?
+  // Editors + owners can touch any row; loggers can only touch their own.
+  function canEditQSO(q) {
+    if (!hasPerm('qso.write') || !contestIsOpen()) return false;
+    if (contestRoleAtLeast('editor')) return true;
+    if (!contestRoleAtLeast('logger')) return false;
+    return q && q.operator_user_id && me && q.operator_user_id === me.user_id;
+  }
+  // Can the current session manage this contest (settings, participants,
+  // groups, visibility)? Owner OR a matching global manager permission.
+  function canManageThisContest() {
+    if (!me) return false;
+    if (hasPerm('contest.admin')) return true;
+    const priv = !!me.contest_private || me.contest_visibility === 'private';
+    if (priv && hasPerm('contests.manage_private')) return true;
+    if (!priv && hasPerm('contests.manage')) return true;
+    return me.contest_my_role === 'owner';
+  }
+
   // ----- screens -----
   function show(which) {
     ['setup-screen', 'login-screen', 'contest-screen', 'global-settings-screen',
@@ -1391,7 +1425,9 @@
       me.contest_fields = j.contest_fields || '';
       me.contest_log_columns = j.contest_log_columns || '';
       me.contest_private = j.contest_private || false;
+      me.contest_visibility = j.contest_visibility || (j.contest_private ? 'private' : 'open');
       me.contest_owner_user_id = j.contest_owner_user_id || 0;
+      me.contest_my_role = j.contest_my_role || '';
       me.contest_nr_padded = j.contest_nr_padded !== false;
       me.contest_freq_unit = j.contest_freq_unit || 'kHz';
     }
@@ -4391,7 +4427,6 @@
     const tbody = $('qso-tbody');
     tbody.innerHTML = '';
     let shown = 0;
-    const canDelete = hasPerm('qso.write') && contestIsOpen();
 
     let source = qsos;
     let csFiltered = false;
@@ -4417,11 +4452,12 @@
       tr.style.cursor = 'pointer';
       let extras = {};
       if (q.extras) { try { extras = JSON.parse(q.extras); } catch {} }
+      const canDelRow = canEditQSO(q);
       tr.innerHTML = cols.map(col => `<td>${qsoColValue(q, col.key, extras)}</td>`).join('')
-        + `<td>${canDelete ? `<button class="del-btn" data-id="${Number(q.id)}">✕</button>` : ''}</td>`;
+        + `<td>${canDelRow ? `<button class="del-btn" data-id="${Number(q.id)}">✕</button>` : ''}</td>`;
       tr.addEventListener('click', (e) => {
         if (e.target.closest('.del-btn')) return;
-        const writable = hasPerm('qso.write') && contestIsOpen();
+        const writable = canEditQSO(q);
         // Read-only inspect (FR #62): show QRZ photo *and* the rest of the
         // detail panel — country flag, locator, distance — for the clicked
         // station, even when the contest is finished. We populate the QSO
@@ -4462,8 +4498,14 @@
     const btn = e.target.closest('.del-btn');
     if (!btn) return;
     if (!contestIsOpen()) return;
-    if (!await showConfirm(t('qso.deleteConfirm'), { ok: t('common.delete') })) return;
     const id = parseInt(btn.dataset.id, 10);
+    // Server also enforces this, but re-checking here avoids a wasted
+    // round-trip when the row's operator_user_id doesn't match a logger
+    // caller (e.g. someone stale-clicking a button that should have been
+    // hidden by the last renderQsos()).
+    const row = qsos.find(q => q.id === id);
+    if (!canEditQSO(row)) return;
+    if (!await showConfirm(t('qso.deleteConfirm'), { ok: t('common.delete') })) return;
     const res = await api('/api/qsos/' + id, { method: 'DELETE' });
     if (res.ok) { qsos = qsos.filter(q => q.id !== id); renderQsos(); }
   });
@@ -7155,6 +7197,14 @@
             if ('log_columns' in msg.payload) { me.contest_log_columns = msg.payload.log_columns; renderQsos(); }
             if ('nr_padded' in msg.payload) me.contest_nr_padded = msg.payload.nr_padded !== false;
             if ('freq_unit' in msg.payload) { me.contest_freq_unit = msg.payload.freq_unit || 'kHz'; updateFreqLabel(); renderQsos(); }
+            // Visibility flip (owner toggled open/groups/private): update
+            // cached mode so canManageThisContest / helpers reflect it,
+            // then re-render the log to refresh row-level affordances.
+            if ('visibility' in msg.payload) {
+              me.contest_visibility = msg.payload.visibility;
+              me.contest_private = msg.payload.visibility === 'private';
+              renderQsos();
+            }
             updateContestDisplay();
             applyContestReadonly();
             updateMap();
