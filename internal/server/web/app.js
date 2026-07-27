@@ -3261,6 +3261,18 @@
     });
   }
 
+  // "Show WSJT-X bridge token" button in the Status sidebar. The token
+  // ties to the currently-selected contest, not the operator — so this
+  // action lives inside the in-contest sidebar rather than in personal
+  // settings. Delegates to the same modal the contest-picker pill opens.
+  $('ops-wsjtx-token-btn')?.addEventListener('click', () => {
+    if (!me?.contest_id) return;
+    contestWsjtxTokenModal({
+      id:   me.contest_id,
+      name: me.contest_name || '',
+    });
+  });
+
   // ----- DX Cluster -----
   let clusterSpots = [];
   let clusterTimer = null;
