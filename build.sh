@@ -1011,9 +1011,12 @@ pack_win_gui() {
   local project="$1" binary="$2" out_zip="$3"
   local bd="$BUILD/$project"
   rm -rf "$bd" && mkdir -p "$bd"
+  # mingw64-cmake is a Fedora wrapper that runs cmake with the mingw64
+  # toolchain preloaded — only valid for configure.  Once the build tree
+  # is generated we drive Ninja directly for the compile step.
   ( cd "$bd" \
     && mingw64-cmake -G Ninja -DCMAKE_BUILD_TYPE=Release "$ROOT/cpp/$project" \
-    && mingw64-cmake --build . ) >&2
+    && ninja ) >&2
   local exe="$bd/${binary}.exe"
   [ -f "$exe" ] || { echo "no $exe produced" >&2; return 1; }
 
