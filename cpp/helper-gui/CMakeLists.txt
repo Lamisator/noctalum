@@ -10,7 +10,11 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets Network WebSockets SerialPort)
 
-add_executable(noctalum-helper-gui
+# WIN32     — Windows: attach as a GUI subsystem executable so no console
+#             window pops up alongside the app.
+# MACOSX_BUNDLE — macOS: cmake generates a .app tree instead of a bare
+#                 Mach-O binary; needed for a normal Dock/Finder experience.
+add_executable(noctalum-helper-gui WIN32 MACOSX_BUNDLE
     main.cpp
     mainwindow.cpp
     mainwindow.hpp
@@ -36,4 +40,14 @@ target_link_libraries(noctalum-helper-gui PRIVATE
 )
 target_compile_options(noctalum-helper-gui PRIVATE -Wall -Wextra)
 
-install(TARGETS noctalum-helper-gui RUNTIME DESTINATION bin)
+set_target_properties(noctalum-helper-gui PROPERTIES
+    MACOSX_BUNDLE_BUNDLE_NAME          "Noctalum Helper"
+    MACOSX_BUNDLE_GUI_IDENTIFIER       "org.noctalum.helper-gui"
+    MACOSX_BUNDLE_BUNDLE_VERSION       "0.1.0"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.0"
+)
+
+install(TARGETS noctalum-helper-gui
+    RUNTIME DESTINATION bin
+    BUNDLE  DESTINATION .
+)

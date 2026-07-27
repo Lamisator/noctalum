@@ -42,14 +42,22 @@ QGroupBox* card(const QString& title, QLayout* body) {
 }
 
 // Locate a rigctld on PATH; returns "rigctld" (bare) if we can't find it,
-// same behaviour as the Go GUI's DefaultRigctldBin().
+// same behaviour as the Go GUI's DefaultRigctldBin().  Uses Qt's per-OS
+// PATH separator (':' on POSIX, ';' on Windows) and appends ".exe" on
+// Windows so the Windows build actually finds the Hamlib installer's
+// rigctld.exe.
 QString default_rigctld_bin() {
-    QByteArray pathEnv = qgetenv("PATH");
-    for (const auto& dir : pathEnv.split(':')) {
-        QFileInfo fi(QString::fromLocal8Bit(dir) + "/rigctld");
+    const QString exe =
+#ifdef Q_OS_WIN
+        "rigctld.exe";
+#else
+        "rigctld";
+#endif
+    for (const auto& dir : qEnvironmentVariable("PATH").split(QDir::listSeparator(), Qt::SkipEmptyParts)) {
+        QFileInfo fi(dir + "/" + exe);
         if (fi.isExecutable()) return fi.absoluteFilePath();
     }
-    return "rigctld";
+    return exe;
 }
 }  // namespace
 
