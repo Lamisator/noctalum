@@ -1392,8 +1392,15 @@ if $build_server; then
   for t in "${server_targets[@]}";   do check_std noctalum          "$t" server;   done
 fi
 if $build_helper; then
-  for t in "${helper_targets[@]}";   do check_std noctalum-helper   "$t" helper;   done
-  # Helper AppImages piggy-back on the linux helper build.
+  # On linux the plain helper binary is consumed and deleted by
+  # build_helper_appimage (see the `rm -f "$binary"` in build_helper_appimage);
+  # only the .AppImage remains, and helper-appimage reports it below.
+  # Reporting a plain-binary FAIL for linux would be a false positive that
+  # buries the real FAILs in the summary table.
+  for t in "${helper_targets[@]}"; do
+    case "$t" in linux/*) continue ;; esac
+    check_std noctalum-helper "$t" helper
+  done
   for arch in amd64 arm64; do
     f="$OUT_DIR/noctalum-helper-linux-${arch}.AppImage"
     if [ -f "$f" ]; then record_report PASS helper-appimage "linux/${arch}"
