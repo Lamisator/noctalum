@@ -201,8 +201,13 @@ print_summary() {
   local pass_badge=$'\033[42;97;1m PASS \033[0m'
   local fail_badge=$'\033[41;97;1m FAIL \033[0m'
   local skip_badge=$'\033[100;97;1m SKIP \033[0m'
+  # `tr` operates byte-by-byte and mangles multi-byte characters —
+  # `tr ' ' '─'` would write only the first byte (0xE2) of the 3-byte
+  # UTF-8 for `─`, corrupting the whole line.  Build the divider by
+  # concatenating the character directly via a printf-repeated format
+  # (bash-safe UTF-8, no external dependencies).
   local bar
-  bar=$(printf '%*s' 72 '' | tr ' ' '─')
+  bar=$(printf '─%.0s' $(seq 1 72))
   echo
   echo "$bar"
   echo " Deployment summary"
