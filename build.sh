@@ -419,10 +419,33 @@ run_gui_build() {
   fi
 }
 
-# gui_built / gui_skipped are populated by each build_gui_* function and
-# reported in the final summary.
+# gui_built  — targets whose binary landed in dist/.
+# gui_skipped — targets that were *attempted* and failed (real FAIL).
+# gui_soft_skipped — targets we chose not to attempt because the local
+#                    environment can't run them (e.g. arm64 emulation
+#                    not registered).  Reported as SKIP so operators
+#                    don't chase a red badge for something they'd have
+#                    to opt in to enable.
 gui_built=()
 gui_skipped=()
+gui_soft_skipped=()
+
+# Returns 0 if the kernel can execute arm64 binaries (either native or
+# via a registered qemu-aarch64 binfmt_misc handler).  Used to pre-flight
+# arm64 Docker image builds — without emulation `docker build --platform
+# linux/arm64` explodes with `exec format error` from the base image's
+# entrypoint, which is a bad experience to hit late in a build.
+can_emulate_arm64() {
+  case "$(uname -m)" in
+    aarch64|arm64) return 0 ;;
+  esac
+  # binfmt_misc registers one file per handler; qemu-user-static's
+  # arm64 handler is named `qemu-aarch64`.  We also require it to be
+  # marked `enabled` in its first line (systemd-binfmt sometimes
+  # leaves stale disabled entries after a reboot).
+  local h=/proc/sys/fs/binfmt_misc/qemu-aarch64
+  [ -r "$h" ] && head -1 "$h" 2>/dev/null | grep -q '^enabled$'
+}
 
 build_gui_linux_amd64() {
   if $native_build; then
@@ -523,6 +546,16 @@ build_gui_linux_arm64() {
     fi
     return
   fi
+  # Bail out early when the host can't run arm64 binaries — trying to
+  # `docker build --platform linux/arm64` without QEMU registered ends
+  # in "exec format error" after several seconds of wasted apt-get.
+  if ! can_emulate_arm64; then
+    echo "    skipping linux/arm64 GUI build — no arm64 emulation on this host"
+    echo "    Enable once with:"
+    echo "      docker run --rm --privileged multiarch/qemu-user-static --reset -p yes"
+    gui_soft_skipped+=("linux/arm64")
+    return 0
+  fi
   local image="noctalum-gui-linux-arm64:$IMG_TAG"
 
   # If the image exists but is the wrong architecture (e.g. built without QEMU)
@@ -536,9 +569,7 @@ build_gui_linux_arm64() {
   fi
 
   if [ -z "$existing_arch" ]; then
-    echo "    building $image (one-time, ~5-10 min, needs QEMU arm64)"
-    echo "    If this fails, enable QEMU first:"
-    echo "      docker run --rm --privileged multiarch/qemu-user-static --reset -p yes"
+    echo "    building $image (one-time, ~5-10 min)"
     if ! "$RUNTIME" build --platform linux/arm64 -t "$image" - <<DOCKERFILE
 FROM $GO_IMAGE
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \\
@@ -548,7 +579,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \\
     libgtk-3-dev libwebkit2gtk-4.1-dev
 DOCKERFILE
     then
-      echo "    skipping linux/arm64 GUI build — arm64 Docker image build failed (no QEMU?)"
+      echo "    skipping linux/arm64 GUI build — arm64 Docker image build failed"
       gui_skipped+=("linux/arm64")
       return 0
     fi
@@ -671,6 +702,15 @@ build_wsjtx_gui_linux_arm64() {
       gui_skipped+=("wsjtx-gui/linux/arm64")
     fi
     return
+  fi
+  # Skip cleanly rather than wasting a Docker image build attempt when
+  # the host can't run arm64 binaries — same rationale as build_gui_linux_arm64.
+  if ! can_emulate_arm64; then
+    echo "    skipping wsjtx-gui linux/arm64 — no arm64 emulation on this host"
+    echo "    Enable once with:"
+    echo "      docker run --rm --privileged multiarch/qemu-user-static --reset -p yes"
+    gui_soft_skipped+=("wsjtx-gui/linux/arm64")
+    return 0
   fi
   if ! ensure_wsjtx_gui_linux_image arm64; then
     gui_skipped+=("wsjtx-gui/linux/arm64")
@@ -1351,8 +1391,9 @@ echo
 echo "Done. Artifacts:"
 ls -lh "$OUT_DIR" | awk 'NR>1 {printf "  %-40s %s\n", $9, $5}'
 if $build_gui; then
-  [ ${#gui_built[@]} -gt 0 ]   && echo "GUI built  : ${gui_built[*]}"
-  [ ${#gui_skipped[@]} -gt 0 ] && echo "GUI skipped: ${gui_skipped[*]}  (see messages above)"
+  [ ${#gui_built[@]} -gt 0 ]        && echo "GUI built  : ${gui_built[*]}"
+  [ ${#gui_skipped[@]} -gt 0 ]      && echo "GUI failed : ${gui_skipped[*]}  (see messages above)"
+  [ ${#gui_soft_skipped[@]} -gt 0 ] && echo "GUI skipped: ${gui_soft_skipped[*]}  (environment not set up)"
 fi
 if $build_cpp; then
   [ ${#cpp_built[@]} -gt 0 ]   && echo "C++ built  : ${cpp_built[*]}"
@@ -1424,6 +1465,12 @@ if $build_gui; then
   # gui_built / gui_skipped mix helper-gui (Wails) and wsjtx-gui (Fyne):
   # wsjtx-gui entries are prefixed with "wsjtx-gui/", the rest are
   # helper-gui.  Split so the summary table shows the right category.
+  #
+  # gui_skipped      → real build failures  → FAIL
+  # gui_soft_skipped → environment couldn't attempt (e.g. no arm64
+  #                    emulation registered) → SKIP so operators see
+  #                    a hint, not a red badge for something they'd
+  #                    have to opt in to enable.
   for x in "${gui_built[@]}"; do
     case "$x" in
       wsjtx-gui/*) record_report PASS wsjtx-gui  "${x#wsjtx-gui/}" ;;
@@ -1434,6 +1481,12 @@ if $build_gui; then
     case "$x" in
       wsjtx-gui/*) record_report FAIL wsjtx-gui  "${x#wsjtx-gui/}" ;;
       *)           record_report FAIL helper-gui "$x" ;;
+    esac
+  done
+  for x in "${gui_soft_skipped[@]}"; do
+    case "$x" in
+      wsjtx-gui/*) record_report SKIP wsjtx-gui  "${x#wsjtx-gui/}" ;;
+      *)           record_report SKIP helper-gui "$x" ;;
     esac
   done
 fi
