@@ -80,6 +80,69 @@ SSH_OPTS=(
 )
 
 # ------------------------------------------------------------------
+# Deployment summary table.
+# Each phase records itself via `record_step`; a single EXIT trap
+# renders a colour-coded table so failures can't slip past the
+# operator the way a silently-skipped `wsjtx-gui/windows/amd64`
+# build did in v0.19.  The table shows *what was deployed* and
+# *what was expected but missing*, which the raw stderr firehose
+# doesn't answer.
+# ------------------------------------------------------------------
+STEP_GROUPS=()
+STEP_NAMES=()
+STEP_STATUSES=()
+
+# record_step STATUS GROUP NAME
+#   STATUS = PASS | FAIL | SKIP
+record_step() {
+  STEP_STATUSES+=("$1")
+  STEP_GROUPS+=("$2")
+  STEP_NAMES+=("$3")
+}
+
+print_summary() {
+  local n=${#STEP_NAMES[@]}
+  [ "$n" -eq 0 ] && return
+  local reset=$'\033[0m'
+  # 42 = green bg, 41 = red bg, 100 = bright-black bg. 97 = bright white
+  # foreground.  Bold (1) makes the badge readable even on light-theme
+  # terminals that dim background colours.
+  local pass_badge=$'\033[42;97;1m PASS \033[0m'
+  local fail_badge=$'\033[41;97;1m FAIL \033[0m'
+  local skip_badge=$'\033[100;97;1m SKIP \033[0m'
+  local bar
+  bar=$(printf '%*s' 72 '' | tr ' ' '─')
+  echo
+  echo "$bar"
+  echo " Deployment summary"
+  echo "$bar"
+  local last_group=""
+  local i status group name badge
+  local pass=0 fail=0 skip=0
+  for i in $(seq 0 $((n-1))); do
+    status="${STEP_STATUSES[$i]}"
+    group="${STEP_GROUPS[$i]}"
+    name="${STEP_NAMES[$i]}"
+    if [ "$group" != "$last_group" ]; then
+      [ -n "$last_group" ] && echo
+      printf ' %s\n' "$group"
+      last_group="$group"
+    fi
+    case "$status" in
+      PASS) badge=$pass_badge; pass=$((pass+1)) ;;
+      FAIL) badge=$fail_badge; fail=$((fail+1)) ;;
+      *)    badge=$skip_badge; skip=$((skip+1)) ;;
+    esac
+    printf '   %b  %s\n' "$badge" "$name"
+  done
+  echo
+  echo "$bar"
+  printf ' Totals: %d PASS · %d FAIL · %d SKIP\n' "$pass" "$fail" "$skip"
+  echo "$bar"
+}
+trap print_summary EXIT
+
+# ------------------------------------------------------------------
 # Argument parsing.
 # The environment flag (-prod / -staging) is mandatory. We keep the
 # other flags (--skip-build, --countdown) after it in any order, and
@@ -188,7 +251,30 @@ if [ "$skip_build" = false ]; then
   fi
   [ "$cpp_no_windows" = true ] && build_args+=(--cpp-no-windows)
   [ "$cpp_macos"      = true ] && build_args+=(--cpp-macos)
-  "$ROOT/build.sh" "${build_args[@]}"
+  if "$ROOT/build.sh" "${build_args[@]}"; then
+    record_step PASS "Build" "build.sh run"
+  else
+    # build.sh failing exits the whole deploy — record it before we
+    # die so the summary trap prints the FAIL badge.
+    record_step FAIL "Build" "build.sh run"
+    exit 1
+  fi
+
+  # Ingest the per-artifact report build.sh dropped in dist/.build-report.tsv
+  # so the summary shows exactly which apps compiled and which fell
+  # through — the point of this exercise is that silently-missing
+  # binaries never surprise the operator again.
+  report="$ROOT/dist/.build-report.tsv"
+  if [ -f "$report" ]; then
+    while IFS=$'\t' read -r status category detail; do
+      [ -z "$status" ] && continue
+      record_step "$status" "Build: $category" "$detail"
+    done < "$report"
+  else
+    record_step FAIL "Build" "build report missing ($report)"
+  fi
+else
+  record_step SKIP "Build" "--skip-build"
 fi
 
 # ------------------------------------------------------------------
@@ -200,14 +286,23 @@ echo "Preparing remote directories..."
 # pgdata holds the Postgres data directory bind-mount. postgres:16's
 # entrypoint chowns it to UID 999 on first init if it's empty, so we
 # just need it to exist — no chown here.
-ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
-  "mkdir -p $REMOTE_APP_DIR/downloads $REMOTE_WORK_DIR/data $REMOTE_WORK_DIR/pgdata $REMOTE_WORK_DIR/backups"
+if ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
+     "mkdir -p $REMOTE_APP_DIR/downloads $REMOTE_WORK_DIR/data $REMOTE_WORK_DIR/pgdata $REMOTE_WORK_DIR/backups"; then
+  record_step PASS "Deploy" "prepare remote directories"
+else
+  record_step FAIL "Deploy" "prepare remote directories"
+  exit 1
+fi
 
 # Clean up any *.new files left behind by a previous deploy that
 # crashed mid-upload. Safe to remove: they're never live until the
 # atomic mv at the end of the downtime window.
-ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
-  "rm -f $REMOTE_WORK_DIR/docker-compose.yml.new $REMOTE_APP_DIR/noctalum-server.new"
+if ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
+     "rm -f $REMOTE_WORK_DIR/docker-compose.yml.new $REMOTE_APP_DIR/noctalum-server.new"; then
+  record_step PASS "Deploy" "purge stale .new files"
+else
+  record_step FAIL "Deploy" "purge stale .new files"
+fi
 
 # First-run bootstrap: if .env does not exist on the server, mint a
 # strong random POSTGRES_PASSWORD and write it. We *never* overwrite
@@ -215,7 +310,7 @@ ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
 # initialised would lock the app out. openssl ships with the target
 # host so no extra install step is needed.
 echo "Bootstrapping .env if missing..."
-ssh "${SSH_OPTS[@]}" "$SSH_HOST" bash -s "$REMOTE_WORK_DIR" <<'REMOTE_ENV'
+if ssh "${SSH_OPTS[@]}" "$SSH_HOST" bash -s "$REMOTE_WORK_DIR" <<'REMOTE_ENV'
 set -euo pipefail
 cd "$1"
 ENV_FILE=".env"
@@ -228,6 +323,12 @@ else
   echo "  wrote fresh .env with a random POSTGRES_PASSWORD"
 fi
 REMOTE_ENV
+then
+  record_step PASS "Deploy" "bootstrap .env"
+else
+  record_step FAIL "Deploy" "bootstrap .env"
+  exit 1
+fi
 
 # ------------------------------------------------------------------
 # Phase 2 — uploads: compose, binary, helpers, systemd. Old app
@@ -235,15 +336,26 @@ REMOTE_ENV
 # ------------------------------------------------------------------
 
 echo "Uploading compose file ($COMPOSE_FILE, staged as .new)..."
-scp "${SSH_OPTS[@]}" "$ROOT/$COMPOSE_FILE" \
-  "$SSH_HOST:$REMOTE_WORK_DIR/docker-compose.yml.new"
+if scp "${SSH_OPTS[@]}" "$ROOT/$COMPOSE_FILE" \
+      "$SSH_HOST:$REMOTE_WORK_DIR/docker-compose.yml.new"; then
+  record_step PASS "Deploy" "upload compose ($COMPOSE_FILE)"
+else
+  record_step FAIL "Deploy" "upload compose ($COMPOSE_FILE)"
+  exit 1
+fi
 
 echo "Uploading server binary (staged as .new)..."
-scp "${SSH_OPTS[@]}" "$ROOT/dist/noctalum-linux-amd64" \
-  "$SSH_HOST:$REMOTE_APP_DIR/noctalum-server.new"
+if scp "${SSH_OPTS[@]}" "$ROOT/dist/noctalum-linux-amd64" \
+      "$SSH_HOST:$REMOTE_APP_DIR/noctalum-server.new"; then
+  record_step PASS "Deploy" "upload server binary"
+else
+  record_step FAIL "Deploy" "upload server binary"
+  exit 1
+fi
 
 if [ "$no_helpers" = true ]; then
   echo "Skipping helper/wsjtx/GUI upload (-nohelpers)."
+  record_step SKIP "Downloads" "helper/wsjtx/GUI upload (-nohelpers)"
 else
   echo "Uploading helper, WSJT-X, and GUI binaries to downloads..."
   # In-place upload is acceptable here: these are read-only static
@@ -259,6 +371,7 @@ else
   shopt -u nullglob
   if [ ${#downloads[@]} -eq 0 ]; then
     echo "warning: no helper/wsjtx binaries found in dist/ — was build skipped?" >&2
+    record_step FAIL "Downloads" "no helper/wsjtx binaries found in dist/"
   else
     # Purge the remote /downloads/ directory first so retired artefacts
     # (e.g. an old .zip that a Fyne rewrite replaced with a .exe, or an
@@ -267,10 +380,19 @@ else
     # purge the noctalum-{helper,wsjtx}-* namespace — anything else in
     # /downloads/ (dist-provided icons, README, ad-hoc uploads) is left
     # alone.  Ordering matters: purge THEN scp, never the reverse.
-    ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
-      "rm -f $REMOTE_APP_DIR/downloads/noctalum-helper-* $REMOTE_APP_DIR/downloads/noctalum-wsjtx-*"
-    scp "${SSH_OPTS[@]}" "${downloads[@]}" \
-      "$SSH_HOST:$REMOTE_APP_DIR/downloads/"
+    if ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
+         "rm -f $REMOTE_APP_DIR/downloads/noctalum-helper-* $REMOTE_APP_DIR/downloads/noctalum-wsjtx-*"; then
+      record_step PASS "Downloads" "purge remote /downloads/"
+    else
+      record_step FAIL "Downloads" "purge remote /downloads/"
+    fi
+    if scp "${SSH_OPTS[@]}" "${downloads[@]}" \
+          "$SSH_HOST:$REMOTE_APP_DIR/downloads/"; then
+      record_step PASS "Downloads" "upload ${#downloads[@]} binaries"
+    else
+      record_step FAIL "Downloads" "upload ${#downloads[@]} binaries"
+      exit 1
+    fi
   fi
 fi
 
@@ -288,13 +410,19 @@ if [ "$env_flag" = "prod" ]; then
   # psql, and starts the container back up. Copying the units and
   # daemon-reload is safe with the old app still serving — the units
   # only fire when the trigger file appears.
-  scp "${SSH_OPTS[@]}" \
-    "$ROOT/deploy/systemd/noctalum-restore.path" \
-    "$ROOT/deploy/systemd/noctalum-restore.service" \
-    "$ROOT/deploy/systemd/noctalum-restore.sh" \
-    "$SSH_HOST:/etc/systemd/system/"
-  ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
-    "chmod +x /etc/systemd/system/noctalum-restore.sh && systemctl daemon-reload && systemctl enable --now noctalum-restore.path"
+  if scp "${SSH_OPTS[@]}" \
+       "$ROOT/deploy/systemd/noctalum-restore.path" \
+       "$ROOT/deploy/systemd/noctalum-restore.service" \
+       "$ROOT/deploy/systemd/noctalum-restore.sh" \
+       "$SSH_HOST:/etc/systemd/system/" \
+     && ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
+       "chmod +x /etc/systemd/system/noctalum-restore.sh && systemctl daemon-reload && systemctl enable --now noctalum-restore.path"; then
+    record_step PASS "Deploy" "install systemd restore hook"
+  else
+    record_step FAIL "Deploy" "install systemd restore hook"
+  fi
+else
+  record_step SKIP "Deploy" "systemd restore hook (staging)"
 fi
 
 # ------------------------------------------------------------------
@@ -317,7 +445,9 @@ recover() {
     "cd $REMOTE_WORK_DIR && docker compose up -d" || \
     echo "!!! recovery `docker compose up -d` also failed — hand-fix needed" >&2
 }
-trap recover EXIT
+# Chain recovery with the summary trap so an abort mid-downtime still
+# both attempts to bring the stack up AND prints the PASS/FAIL table.
+trap 'recover; print_summary' EXIT
 
 # Trigger a graceful shutdown: write the countdown (in seconds) to the trigger
 # file that the server polls every 2 s.  The server broadcasts a deploy_warning
@@ -359,9 +489,10 @@ while true; do
 done
 REMOTE_TRIGGER
 then
-  :
+  record_step PASS "Cutover" "graceful shutdown trigger"
 else
   echo "note: shutdown-trigger SSH failed — proceeding with docker compose down" >&2
+  record_step FAIL "Cutover" "graceful shutdown trigger"
 fi
 
 echo "Stopping stack + swapping in new artifacts..."
@@ -369,7 +500,7 @@ echo "Stopping stack + swapping in new artifacts..."
 # tight as possible: compose down, atomic renames, compose up. If
 # any command fails the whole heredoc aborts (set -e) and the trap
 # above kicks in.
-ssh "${SSH_OPTS[@]}" "$SSH_HOST" bash -s "$REMOTE_WORK_DIR" "$REMOTE_APP_DIR" <<'REMOTE_SWAP'
+if ssh "${SSH_OPTS[@]}" "$SSH_HOST" bash -s "$REMOTE_WORK_DIR" "$REMOTE_APP_DIR" <<'REMOTE_SWAP'
 set -euo pipefail
 workdir="$1"
 appdir="$2"
@@ -390,9 +521,17 @@ fi
 
 docker compose up -d
 REMOTE_SWAP
+then
+  record_step PASS "Cutover" "compose down / swap / compose up"
+else
+  record_step FAIL "Cutover" "compose down / swap / compose up"
+  exit 1
+fi
 
 deploy_succeeded=true
-trap - EXIT
+# Drop the recover half of the trap now that the new stack is
+# healthy — keep print_summary so the operator still sees the table.
+trap print_summary EXIT
 echo "Deployment complete."
 
 # ------------------------------------------------------------------
@@ -413,10 +552,19 @@ if [ "$NOTIFY_TELEGRAM" = true ]; then
   esac
   notifier="$ROOT/dist/noctalum-notify-telegram-${notifier_os}-${notifier_arch}"
   if [ -x "$notifier" ]; then
-    "$notifier" --changelog "$ROOT/internal/server/web/app.js" || true
+    if "$notifier" --changelog "$ROOT/internal/server/web/app.js"; then
+      record_step PASS "Notify" "Telegram announcement"
+    else
+      # Notifier exits 0 on soft errors (no config, no new entries).  A
+      # non-zero here means something structurally broke (bad token,
+      # network), which is worth flagging in the summary.
+      record_step FAIL "Notify" "Telegram announcement"
+    fi
   else
     echo "note: $notifier missing — rebuild with ./build.sh to enable Telegram announcements" >&2
+    record_step SKIP "Notify" "Telegram notifier binary missing"
   fi
 else
   echo "Skipping Telegram announcement (staging deploy)."
+  record_step SKIP "Notify" "Telegram announcement (staging)"
 fi
