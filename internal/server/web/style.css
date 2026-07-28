@@ -2121,6 +2121,90 @@ body.mobile-mode .settings-card { padding: 12px; }
 body.mobile-mode #settings-form label > input,
 body.mobile-mode #settings-form label > select { min-height: 40px; font-size: 16px; }
 
+/* ===== Main menu (contest selection screen) on mobile =====
+   Mirrors the contest view: stack the three-column layout (nav pill / main card /
+   online panel) vertically, full-bleed each panel, and grow interactive controls
+   to comfortable tap-target sizes. */
+body.mobile-mode .contest-topbar {
+  padding: 6px 10px;
+  min-height: 48px;
+  gap: 6px;
+}
+body.mobile-mode .contest-topbar .topbar-logo { width: 22px; height: 22px; }
+body.mobile-mode .contest-screen-body { padding: 8px 8px 12px; gap: 10px; }
+body.mobile-mode .contest-screen-layout { flex-direction: column; gap: 10px; }
+/* Main content card sits second in the stack; drop the desktop 400px min-width
+   so it fits narrow phones. */
+body.mobile-mode #contest-screen .login-card {
+  order: 2;
+  min-width: 0;
+  width: 100%;
+  padding: 14px 12px;
+}
+body.mobile-mode #contest-screen .contest-header-row { flex-wrap: wrap; gap: 8px; }
+body.mobile-mode #contest-screen .contest-header-row h1 { font-size: 20px; }
+/* Nav pill: convert from vertical list to 2-column grid with 44px tap targets. */
+body.mobile-mode .contest-nav-pill {
+  order: 1;
+  width: 100%;
+  min-width: 0;
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 6px;
+}
+body.mobile-mode .contest-nav-pill .nav-pill-btn {
+  min-height: 44px;
+  font-size: 13px;
+  padding: 8px 10px;
+  width: auto;
+}
+body.mobile-mode .contest-nav-pill .nav-pill-icon { font-size: 15px; width: 18px; }
+body.mobile-mode .contest-nav-pill .nav-divider { grid-column: 1 / -1; margin: 3px 0; }
+/* Full-width prominent action for Download Helper. */
+body.mobile-mode .contest-nav-pill .nav-pill-btn-download {
+  grid-column: 1 / -1;
+  margin-top: 0;
+  min-height: 48px;
+}
+/* Online panel: full-width, tucked at the bottom under everything else. */
+body.mobile-mode .contest-screen-side { order: 3; width: 100%; }
+body.mobile-mode .online-panel { padding: 12px 14px; }
+/* Public / private contest columns: stack vertically. */
+body.mobile-mode .contest-columns { flex-direction: column; gap: 12px; }
+body.mobile-mode .contest-col-private {
+  border-left: none;
+  border-top: 1px solid var(--border);
+  padding-left: 0;
+  padding-top: 12px;
+}
+/* Toolbar (filter pills + card/list toggle): stack, larger targets. */
+body.mobile-mode .contest-toolbar { align-items: stretch; gap: 8px; }
+body.mobile-mode .contest-filter-bar { justify-content: flex-start; }
+body.mobile-mode .contest-toolbar button,
+body.mobile-mode .cpill,
+body.mobile-mode .cvbtn { padding: 7px 12px; font-size: 12px; min-height: 34px; }
+body.mobile-mode .contest-view-toggle { align-self: flex-end; }
+/* Contest list view: collapse to name + call + status; drop date / activity /
+   actions columns that would push the grid off-screen on narrow phones. Users
+   tap the row to enter a contest, so the actions column is not needed here. */
+body.mobile-mode .clt-head,
+body.mobile-mode .cl-row { grid-template-columns: 1fr 80px 64px; padding: 8px 10px; }
+body.mobile-mode .clt-head .cl-date,
+body.mobile-mode .clt-head .cl-activity,
+body.mobile-mode .clt-head .cl-actions,
+body.mobile-mode .cl-row .cl-date,
+body.mobile-mode .cl-row .cl-activity,
+body.mobile-mode .cl-row .cl-actions { display: none; }
+body.mobile-mode .cl-name { font-size: 13px; white-space: normal; }
+body.mobile-mode .cl-call { font-size: 12px; }
+body.mobile-mode .contest-list-actions { flex-direction: column; }
+body.mobile-mode .contest-list-actions button { width: 100%; }
+/* Contest create/import row: stack the two buttons on narrow screens. */
+body.mobile-mode #contest-create-section { flex-direction: column; gap: 8px; }
+body.mobile-mode #contest-create-section button { width: 100%; }
+
 /* ===== Bottom-sheet nav and overlay sheet ===== */
 .mobile-bottom-nav {
   display: none;
