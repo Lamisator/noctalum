@@ -206,6 +206,19 @@ pkg_tags() {
   fi
 }
 
+# Cached Docker images that embed the Go toolchain (helper-gui and
+# wsjtx-gui builders) used to be tagged `:latest`.  When go.mod's
+# required Go version was bumped, the `:latest` cache still pointed at
+# the old toolchain and `docker image inspect` short-circuited the
+# rebuild, so builds failed with "requires go >= 1.25.0 (running go
+# 1.22.12)" for weeks without any warning.
+#
+# Derive a tag suffix from $GO_IMAGE (e.g. `golang:1.25-bookworm` →
+# `go1.25-bookworm`) and stamp it onto every derived image.  A Go bump
+# changes the tag, misses the cache, and forces a fresh image build;
+# old stale tags become orphans that `docker image prune` can reap.
+IMG_TAG="go${GO_IMAGE#golang:}"
+
 if $native_build; then
   echo "Build mode    : native  ($(go env GOOS)/$(go env GOARCH))"
 else
@@ -213,6 +226,7 @@ else
   echo "Runtime       : $RUNTIME"
 fi
 echo "Version       : $VERSION"
+echo "Image tag     : $IMG_TAG"
 echo "Output dir    : $OUT_DIR"
 echo
 
@@ -422,16 +436,16 @@ build_gui_linux_amd64() {
   fi
   local out="noctalum-helper-gui-linux-amd64.AppImage"
   echo "==> $out  (CGO=1, webkit2gtk-4.1, AppImage)"
-  local gui_image="noctalum-gui-linux-amd64:appimage"
+  local gui_image="noctalum-gui-linux-amd64:appimage-$IMG_TAG"
   if ! "$RUNTIME" image inspect "$gui_image" >/dev/null 2>&1; then
     echo "    building $gui_image (one-time, ~3-4 min)"
-    if ! "$RUNTIME" build -t "$gui_image" - <<'DOCKERFILE'
-FROM golang:1.25-bookworm
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config build-essential \
-    libgtk-3-dev libwebkit2gtk-4.1-dev \
+    if ! "$RUNTIME" build -t "$gui_image" - <<DOCKERFILE
+FROM $GO_IMAGE
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \\
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \\
+    apt-get update && apt-get install -y --no-install-recommends \\
+    pkg-config build-essential \\
+    libgtk-3-dev libwebkit2gtk-4.1-dev \\
     wget file squashfs-tools
 RUN wget -q -O /usr/local/bin/appimagetool \
     https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
@@ -509,7 +523,7 @@ build_gui_linux_arm64() {
     fi
     return
   fi
-  local image="noctalum-gui-linux-arm64:latest"
+  local image="noctalum-gui-linux-arm64:$IMG_TAG"
 
   # If the image exists but is the wrong architecture (e.g. built without QEMU)
   # remove it so we try again rather than running the wrong binary silently.
@@ -525,12 +539,12 @@ build_gui_linux_arm64() {
     echo "    building $image (one-time, ~5-10 min, needs QEMU arm64)"
     echo "    If this fails, enable QEMU first:"
     echo "      docker run --rm --privileged multiarch/qemu-user-static --reset -p yes"
-    if ! "$RUNTIME" build --platform linux/arm64 -t "$image" - <<'DOCKERFILE'
-FROM golang:1.25-bookworm
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config build-essential \
+    if ! "$RUNTIME" build --platform linux/arm64 -t "$image" - <<DOCKERFILE
+FROM $GO_IMAGE
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \\
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \\
+    apt-get update && apt-get install -y --no-install-recommends \\
+    pkg-config build-essential \\
     libgtk-3-dev libwebkit2gtk-4.1-dev
 DOCKERFILE
     then
@@ -560,14 +574,14 @@ build_gui_windows_amd64() {
     fi
     return
   fi
-  local image="noctalum-gui-windows-amd64:latest"
+  local image="noctalum-gui-windows-amd64:$IMG_TAG"
   if ! "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then
     echo "    building $image (one-time, ~3-5 min)"
-    if ! "$RUNTIME" build -t "$image" - <<'DOCKERFILE'
-FROM golang:1.25-bookworm
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+    if ! "$RUNTIME" build -t "$image" - <<DOCKERFILE
+FROM $GO_IMAGE
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \\
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \\
+    apt-get update && apt-get install -y --no-install-recommends \\
     gcc-mingw-w64-x86-64
 DOCKERFILE
     then
@@ -598,7 +612,7 @@ DOCKERFILE
 # WebKitGTK image so the two GUI stacks don't cross-contaminate.
 ensure_wsjtx_gui_linux_image() {
   local arch="$1"
-  local image="noctalum-gui-fyne-linux-${arch}:latest"
+  local image="noctalum-gui-fyne-linux-${arch}:$IMG_TAG"
   local platform_flag=""
   [ "$arch" = "arm64" ] && platform_flag="--platform linux/arm64"
 
@@ -615,13 +629,13 @@ ensure_wsjtx_gui_linux_image() {
   # a build-from-source: libgl (OpenGL), libx*-dev (X11), libxkbcommon
   # (input), libwayland (native Wayland backend), libxxf86vm (fullscreen
   # switching).  bookworm has all of them.
-  "$RUNTIME" build ${platform_flag:-} -t "$image" - <<'DOCKERFILE'
-FROM golang:1.25-bookworm
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config build-essential \
-    libgl1-mesa-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+  "$RUNTIME" build ${platform_flag:-} -t "$image" - <<DOCKERFILE
+FROM $GO_IMAGE
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \\
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \\
+    apt-get update && apt-get install -y --no-install-recommends \\
+    pkg-config build-essential \\
+    libgl1-mesa-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \\
     libxinerama-dev libxxf86vm-dev libxkbcommon-dev libwayland-dev
 DOCKERFILE
 }
@@ -641,7 +655,7 @@ build_wsjtx_gui_linux_amd64() {
     gui_skipped+=("wsjtx-gui/linux/amd64")
     return
   fi
-  if run_gui_build "noctalum-wsjtx-gui-linux-amd64" "noctalum-gui-fyne-linux-amd64:latest" \
+  if run_gui_build "noctalum-wsjtx-gui-linux-amd64" "noctalum-gui-fyne-linux-amd64:$IMG_TAG" \
        linux amd64 "" "" "" "cmd/wsjtx-gui"; then
     gui_built+=("wsjtx-gui/linux/amd64")
   else
@@ -662,7 +676,7 @@ build_wsjtx_gui_linux_arm64() {
     gui_skipped+=("wsjtx-gui/linux/arm64")
     return
   fi
-  if run_gui_build "noctalum-wsjtx-gui-linux-arm64" "noctalum-gui-fyne-linux-arm64:latest" \
+  if run_gui_build "noctalum-wsjtx-gui-linux-arm64" "noctalum-gui-fyne-linux-arm64:$IMG_TAG" \
        linux arm64 "" "" "linux/arm64" "cmd/wsjtx-gui"; then
     gui_built+=("wsjtx-gui/linux/arm64")
   else
@@ -685,14 +699,14 @@ build_wsjtx_gui_windows_amd64() {
     fi
     return
   fi
-  local image="noctalum-gui-windows-amd64:latest"
+  local image="noctalum-gui-windows-amd64:$IMG_TAG"
   if ! "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then
     echo "    building $image (one-time, ~3-5 min)"
-    if ! "$RUNTIME" build -t "$image" - <<'DOCKERFILE'
-FROM golang:1.25-bookworm
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+    if ! "$RUNTIME" build -t "$image" - <<DOCKERFILE
+FROM $GO_IMAGE
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \\
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \\
+    apt-get update && apt-get install -y --no-install-recommends \\
     gcc-mingw-w64-x86-64
 DOCKERFILE
     then
