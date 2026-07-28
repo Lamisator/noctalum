@@ -8794,6 +8794,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.78',
+      date: '2026-07-28',
+      en: 'v0.78: The contest selection screen is now smartphone-friendly.\n- On phones, the main menu now stacks vertically and uses the full screen width — no more horizontal overflow or cramped tap targets\n- The left navigation (My Requests, Users, Groups, Audit Log, …) becomes a 2-column grid of larger, thumb-friendly buttons\n- Download Helper stays prominent as a full-width action button at the top of the navigation\n- The contest list drops date and activity columns on mobile so name, call, and status all fit — tap a row to enter the contest\n- Filter pills (All / Active / Closed) and the Cards / List toggle get bigger tap targets\n- The "Online Now" panel moves to the bottom of the screen where it stays out of the way',
+      de: 'v0.78: Die Contest-Auswahl ist jetzt auch auf dem Smartphone komfortabel bedienbar.\n- Auf dem Handy stapelt sich das Hauptmenü jetzt vertikal und nutzt die volle Bildschirmbreite — kein horizontaler Überlauf oder gequetschte Tap-Ziele mehr\n- Die linke Navigation (Meine Requests, Benutzer, Gruppen, Audit-Log, …) wird zu einem 2-Spalten-Raster größerer, daumenfreundlicher Buttons\n- „Download Helper" bleibt als voll­breiter Aktions-Button oben in der Navigation prominent sichtbar\n- Die Contest-Liste blendet auf dem Handy Datum und Aktivität aus, damit Name, Rufzeichen und Status vollständig passen — tippe eine Zeile an, um in den Contest zu wechseln\n- Filter-Pills (Alle / Aktiv / Geschlossen) und der Karten-/Listen-Umschalter haben jetzt größere Tap-Ziele\n- Das „Online jetzt"-Panel rutscht ans untere Ende des Bildschirms und stört so den Blick auf die Contests nicht mehr',
+    },
+    {
       version: '0.77',
       date: '2026-07-28',
       en: 'v0.77: The QSO history stays reachable even on short screens.\n- On short viewports, the middle column now scrolls as a whole — scroll down to reach the past-QSO list below the New QSO mask\n- Every field of the New QSO mask stays fully visible at all times — no more inputs hidden behind an internal scrollbar\n- The mid-panel drag handle is gone; the layout adapts to your window size automatically',
