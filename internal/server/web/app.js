@@ -9369,28 +9369,11 @@
   function initPanelResizers() {
     const outer = document.getElementById('layout-outer');
     if (!outer) return;
-    const centerCol = outer.querySelector('.center-col');
 
     const savedLeft  = localStorage.getItem('panel-left-w');
     const savedRight = localStorage.getItem('panel-right-w');
     if (savedLeft)  outer.style.setProperty('--left-w',  savedLeft  + 'px');
     if (savedRight) outer.style.setProperty('--right-w', savedRight + 'px');
-    // Clamp the persisted entry-panel height on load and on window resize so a value
-    // saved on a large screen doesn't squeeze the QSO history to nothing on a smaller
-    // one. We always read the latest value from localStorage so the user's preference
-    // is restored when the window grows back. 140px is the CSS min-height floor; we
-    // reserve at least 160px for the history list.
-    if (centerCol) {
-      const applyEntryH = () => {
-        const raw = parseInt(localStorage.getItem('panel-entry-h') || '', 10);
-        if (!Number.isFinite(raw)) return;
-        const totalH = centerCol.offsetHeight || raw;
-        const clamped = Math.max(140, Math.min(raw, Math.max(140, totalH - 160)));
-        centerCol.style.setProperty('--entry-h', clamped + 'px');
-      };
-      applyEntryH();
-      window.addEventListener('resize', applyEntryH);
-    }
 
     function makeVResizer(id, getPanel, sign, storageKey) {
       const el = document.getElementById(id);
@@ -9453,38 +9436,6 @@
 
     initPanelCollapse('collapse-left-btn',  '.left-panel', '--left-w',  'panel-left-w',  '‹', '›');
     initPanelCollapse('collapse-right-btn', '.ops-panel',  '--right-w', 'panel-right-w', '›', '‹');
-
-    const resizerMid = document.getElementById('resizer-mid');
-    if (resizerMid && centerCol) {
-      resizerMid.addEventListener('pointerdown', e => {
-        e.preventDefault();
-        resizerMid.setPointerCapture(e.pointerId);
-        resizerMid.classList.add('dragging');
-        const startY = e.clientY;
-        const entryPanel = centerCol.querySelector('.entry-panel');
-        const startH = entryPanel ? entryPanel.offsetHeight : 200;
-        // The mask can shrink below its natural content height — .entry-panel has
-        // overflow-y: auto so the form becomes scrollable when squeezed. This is
-        // essential on tight viewports where the full form would otherwise crowd
-        // out the QSO history. 140px matches the CSS min-height floor.
-        const minH = 140;
-        function onMove(ev) {
-          const totalH = centerCol.offsetHeight;
-          // Reserve at least 160px for the history list so it stays useful.
-          const maxH = Math.max(minH, totalH - 160);
-          const newH = Math.max(minH, Math.min(maxH, startH + (ev.clientY - startY)));
-          centerCol.style.setProperty('--entry-h', newH + 'px');
-          localStorage.setItem('panel-entry-h', String(Math.round(newH)));
-        }
-        function onUp() {
-          resizerMid.classList.remove('dragging');
-          resizerMid.removeEventListener('pointermove', onMove);
-          resizerMid.removeEventListener('pointerup', onUp);
-        }
-        resizerMid.addEventListener('pointermove', onMove);
-        resizerMid.addEventListener('pointerup', onUp);
-      });
-    }
   }
   initPanelResizers();
 
