@@ -1358,3 +1358,93 @@ if $build_cpp; then
   [ ${#cpp_built[@]} -gt 0 ]   && echo "C++ built  : ${cpp_built[*]}"
   [ ${#cpp_skipped[@]} -gt 0 ] && echo "C++ skipped: ${cpp_skipped[*]}  (see messages above)"
 fi
+
+# ------------------------------------------------------------------
+# Structured build report for deploy.sh's summary table.
+# Format: STATUS<TAB>CATEGORY<TAB>DETAIL   (one entry per line)
+#
+# STATUS is PASS / FAIL / SKIP.  Standard Go builds either succeed
+# (script survives) or `set -e` aborts the whole run before we get
+# here, so a missing dist/ file for an expected target signals that
+# someone changed run_build's naming contract — record as FAIL rather
+# than silently omitting.  GUI/C++ variants are optional: they report
+# themselves through gui_built / cpp_built / *_skipped, so we can
+# faithfully forward each entry with its real status.
+# ------------------------------------------------------------------
+report="$OUT_DIR/.build-report.tsv"
+: > "$report"
+
+record_report() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$report"; }
+
+check_std() {
+  local basename="$1" target="$2" category="$3"
+  local os="${target%/*}" arch="${target#*/}"
+  local f="${basename}-${os}-${arch}"
+  [ "$os" = "windows" ] && f="${f}.exe"
+  if [ -f "$OUT_DIR/$f" ]; then
+    record_report PASS "$category" "$target"
+  else
+    record_report FAIL "$category" "$target"
+  fi
+}
+
+if $build_server; then
+  for t in "${server_targets[@]}";   do check_std noctalum          "$t" server;   done
+fi
+if $build_helper; then
+  for t in "${helper_targets[@]}";   do check_std noctalum-helper   "$t" helper;   done
+  # Helper AppImages piggy-back on the linux helper build.
+  for arch in amd64 arm64; do
+    f="$OUT_DIR/noctalum-helper-linux-${arch}.AppImage"
+    if [ -f "$f" ]; then record_report PASS helper-appimage "linux/${arch}"
+    else                 record_report SKIP helper-appimage "linux/${arch}"; fi
+  done
+fi
+if $build_wsjtx; then
+  # cmd/wsjtx currently ships to the same target list as cmd/helper.
+  for t in "${helper_targets[@]}";   do check_std noctalum-wsjtx    "$t" wsjtx;    done
+fi
+if $build_notifier; then
+  # notifier_targets is only defined inside the build_notifier branch;
+  # fall back to defaults here so the report is complete even when
+  # --no-notifier ran (in which case build_notifier is false and this
+  # whole block is skipped anyway).
+  for t in "${notifier_targets[@]:-${DEFAULT_NOTIFIER_TARGETS[@]}}"; do
+    check_std noctalum-notify-telegram "$t" notifier
+  done
+fi
+if $build_gui; then
+  # gui_built / gui_skipped mix helper-gui (Wails) and wsjtx-gui (Fyne):
+  # wsjtx-gui entries are prefixed with "wsjtx-gui/", the rest are
+  # helper-gui.  Split so the summary table shows the right category.
+  for x in "${gui_built[@]}"; do
+    case "$x" in
+      wsjtx-gui/*) record_report PASS wsjtx-gui  "${x#wsjtx-gui/}" ;;
+      *)           record_report PASS helper-gui "$x" ;;
+    esac
+  done
+  for x in "${gui_skipped[@]}"; do
+    case "$x" in
+      wsjtx-gui/*) record_report FAIL wsjtx-gui  "${x#wsjtx-gui/}" ;;
+      *)           record_report FAIL helper-gui "$x" ;;
+    esac
+  done
+fi
+if $build_cpp; then
+  for x in "${cpp_built[@]}"; do
+    case "$x" in
+      wsjtx-cpp/*)      record_report PASS wsjtx-cpp       "${x#wsjtx-cpp/}" ;;
+      helper-gui-cpp/*) record_report PASS helper-gui-cpp  "${x#helper-gui-cpp/}" ;;
+      helper-cpp/*)     record_report PASS helper-cpp      "${x#helper-cpp/}" ;;
+      *)                record_report PASS cpp             "$x" ;;
+    esac
+  done
+  for x in "${cpp_skipped[@]}"; do
+    case "$x" in
+      wsjtx-cpp/*)      record_report FAIL wsjtx-cpp       "${x#wsjtx-cpp/}" ;;
+      helper-gui-cpp/*) record_report FAIL helper-gui-cpp  "${x#helper-gui-cpp/}" ;;
+      helper-cpp/*)     record_report FAIL helper-cpp      "${x#helper-cpp/}" ;;
+      *)                record_report SKIP cpp             "$x" ;;
+    esac
+  done
+fi
