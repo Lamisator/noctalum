@@ -8794,6 +8794,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.77',
+      date: '2026-07-28',
+      en: 'v0.77: The QSO history stays reachable even on short screens.\n- On short viewports, the middle column now scrolls as a whole — scroll down to reach the past-QSO list below the New QSO mask\n- Every field of the New QSO mask stays fully visible at all times — no more inputs hidden behind an internal scrollbar\n- The mid-panel drag handle is gone; the layout adapts to your window size automatically',
+      de: 'v0.77: Die QSO-Historie bleibt auch auf kurzen Bildschirmen erreichbar.\n- Auf kurzen Bildschirmen scrollt jetzt die ganze mittlere Spalte — einfach nach unten scrollen, um die alten QSOs unter der Eingabemaske zu erreichen\n- Jedes Feld der QSO-Eingabemaske bleibt immer vollständig sichtbar — keine Eingabefelder mehr hinter einer internen Scrollleiste versteckt\n- Der Schieber zwischen Eingabe und Historie entfällt; das Layout passt sich automatisch an deine Fenstergröße an',
+    },
+    {
       version: '0.76',
       date: '2026-07-28',
       en: 'v0.76: Per-contest roles + groups, one-scan device login, and a single-file WSJT-X bridge.\n- New per-contest roles (owner / editor / logger): loggers can only edit or delete QSOs they logged themselves, editors can touch anything in the contest, owners run the show\n- Contest visibility now has three modes — open, groups, private — and a new Groups tab lets you assemble teams once and grant them access per contest\n- Sign in on a new device by scanning a QR code with any already-signed-in phone or laptop — no more typing a password in someone else\'s browser\n- WSJT-X Bridge redesigned as a single-file binary for Linux, macOS and Windows; the graphical version is on the downloads page for every OS\n- Bridge now caches QSOs on disk and retries in the background, so a server restart or WiFi hiccup no longer costs QSOs WSJT-X already reported\n- Every contest has a "📡" pill next to Share that opens a copy-pasteable token — one paste into the bridge, no username or password needed\n- Bridge rejects QSOs logged under the wrong station callsign so a leftover WSJT-X configuration can\'t quietly pollute the log',

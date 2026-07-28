@@ -1,5 +1,12 @@
 # Noctalum Changelog
 
+## v0.77 — 2026-07-28 — Scrollable center column so the QSO history stays reachable on short viewports
+
+- **Center column now scrolls as a whole when the entry mask + history don't fit.** On short viewports (laptops with narrow browser windows, split screens, docked panels), the New QSO mask used to dominate the middle column and squeeze the QSO history down to a couple of visible rows. First attempt at `526c763` let the mask itself shrink internally via `overflow-y: auto`, but that hid input fields behind an internal scrollbar — unacceptable, the operator needs every field of the New QSO mask visible at all times. Follow-up at `b1696b1` moves the scroll to the outer `.center-col` and drops the mid-panel resizer entirely: the entry mask always renders at its natural content height (all fields visible), and if that plus a comfortable history area exceeds the viewport the whole column scrolls so operators can reach the past-QSO list below.
+- **Layout is now pure CSS.** `internal/server/web/style.css`: `.center-col` becomes `overflow-x: hidden; overflow-y: auto`; `.entry-panel` collapses to just `flex-shrink: 0` (drops the drag-managed `height: var(--entry-h)`, the 140 px min-height floor, and the internal `overflow-y`); `.history-panel` picks up `min-height: 240px` so scrolling always reveals a useful chunk of past QSOs. When both fit, the history panel still grows via `flex: 1` to fill the remaining vertical space. The now-redundant `.entry-panel { height: auto !important }` and `#resizer-mid { display: none }` overrides in the `@media (max-width: 880px)` and `body.mobile-mode` blocks are gone.
+- **Mid-panel drag handle removed.** `internal/server/web/index.html` drops `<div id="resizer-mid">` and `internal/server/web/app.js` drops the `initPanelResizers()` mid-resizer handler plus the `panel-entry-h` localStorage restore/clamp logic — with the panel split gone, the drag handle had no remaining purpose. Horizontal left/right panel resizers (`#resizer-left`, `#resizer-right`) are untouched. Any stale `panel-entry-h` localStorage keys in existing browsers are left as harmless orphans.
+- `programVersion` bumped from `0.76` to `0.77`.
+
 ## v0.76 — 2026-07-28 — Per-contest roles + groups, one-scan device login, Go/Fyne WSJT-X bridge, and a rebuilt deploy pipeline
 
 ### Security fixes
