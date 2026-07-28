@@ -13,6 +13,10 @@ cmd/helper-gui/rigctld-bins/
 # Deployment secrets — copy .deploy.env.example → .deploy.env and fill in values
 .deploy.env
 
+# Rolling transcript of every deploy run, timestamped per line by deploy.sh
+# itself.  Kept out of git so the file grows freely on the operator's box.
+/deploy.log
+
 # Docker-compose runtime secrets — POSTGRES_PASSWORD lives here on the server
 # and locally for dev. Never commit.
 .env

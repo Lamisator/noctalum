@@ -59,6 +59,97 @@
 
 set -euo pipefail
 
+# ------------------------------------------------------------------
+# Mirror everything the script prints to deploy.log with an ISO
+# timestamp on every line, so a post-mortem after a bad deploy has a
+# full transcript to grep instead of the operator's scrollback.  The
+# terminal still gets the live output (tee), so this is transparent
+# during a normal run.
+#
+# `awk … strftime` is used instead of `ts` because moreutils isn't
+# universally installed; `fflush()` on every line stops the pipe
+# from buffering output during long steps like a slow scp.  Process
+# substitution keeps the writer alive for the whole script and
+# doesn't need a manual close on exit.
+# ------------------------------------------------------------------
+DEPLOY_LOG="$(cd "$(dirname "$0")" && pwd)/deploy.log"
+{
+  echo
+  echo "============================================================"
+  echo " deploy.sh run  —  $(date -Iseconds)  —  args: $*"
+  echo "============================================================"
+} >> "$DEPLOY_LOG"
+exec > >(awk '{ print strftime("%Y-%m-%dT%H:%M:%S"), $0; fflush() }' | tee -a "$DEPLOY_LOG") 2>&1
+
+# ------------------------------------------------------------------
+# Progress bar pinned to the bottom row of the terminal.
+#
+# Uses a scrolling region trick: DECSTBM (`ESC[<top>;<bottom>r`)
+# restricts scroll to rows 1..(LINES-1), leaving the bottom row
+# untouched by the log stream above.  The bar itself is redrawn on
+# /dev/tty (not stdout) so it bypasses the awk/tee log pipeline —
+# progress updates neither get timestamped nor persist to deploy.log,
+# which would otherwise fill the log with visual noise.
+#
+# On a non-TTY (CI, redirected stdout) the bar transparently no-ops.
+# ------------------------------------------------------------------
+PROGRESS_ENABLED=false
+PROGRESS_ROWS=0
+PROGRESS_TOTAL=8   # build, preflight, upload-core, downloads, systemd,
+                   # shutdown-trigger, cutover, notify — every phase
+                   # advances the bar even when its work is SKIPed.
+PROGRESS_DONE=0
+PROGRESS_CURRENT="starting"
+
+setup_progress() {
+  [ -t 1 ] || return 0
+  PROGRESS_ROWS="$(tput lines 2>/dev/null || echo 0)"
+  # Guard against tiny terminals where reserving a row would leave
+  # almost nothing for actual output.
+  [ "$PROGRESS_ROWS" -lt 8 ] && return 0
+  PROGRESS_ENABLED=true
+  # Shrink scrolling region to everything above the bottom row.
+  printf '\033[1;%dr' $((PROGRESS_ROWS-1)) > /dev/tty
+  # Move cursor to the bottom of the scrolling region so the next
+  # printed line doesn't land on top of the progress bar area.
+  printf '\033[%d;1H' $((PROGRESS_ROWS-1)) > /dev/tty
+  draw_progress
+}
+
+teardown_progress() {
+  [ "$PROGRESS_ENABLED" = true ] || return 0
+  # Wipe the bar, restore full-screen scrolling, park cursor below.
+  printf '\033[%d;1H\033[2K\033[r\033[%d;1H\n' \
+    "$PROGRESS_ROWS" "$PROGRESS_ROWS" > /dev/tty
+  PROGRESS_ENABLED=false
+}
+
+draw_progress() {
+  [ "$PROGRESS_ENABLED" = true ] || return 0
+  local bar_width=30 filled empty pct label
+  pct=$((100*PROGRESS_DONE/PROGRESS_TOTAL))
+  filled=$((PROGRESS_DONE*bar_width/PROGRESS_TOTAL))
+  empty=$((bar_width-filled))
+  # 42 = green background (filled), 100 = bright-black (unfilled).
+  # \033[K clears from cursor to end of line so a shorter label
+  # doesn't leave stale characters from the previous draw.
+  local fill_seg="" empty_seg=""
+  [ "$filled" -gt 0 ] && fill_seg=$(printf '%*s' "$filled" '' | tr ' ' ' ')
+  [ "$empty"  -gt 0 ] && empty_seg=$(printf '%*s' "$empty"  '' | tr ' ' ' ')
+  label=$(printf ' [\033[42m%s\033[100m%s\033[0m] %3d%% (%d/%d) %s' \
+    "$fill_seg" "$empty_seg" "$pct" "$PROGRESS_DONE" "$PROGRESS_TOTAL" "$PROGRESS_CURRENT")
+  printf '\033[s\033[%d;1H\033[2K%s\033[u' "$PROGRESS_ROWS" "$label" > /dev/tty
+}
+
+advance_progress() {
+  PROGRESS_CURRENT="$1"
+  PROGRESS_DONE=$((PROGRESS_DONE+1))
+  # Never overshoot: keeps the maths safe if we ever add a phase
+  # without bumping PROGRESS_TOTAL.
+  [ "$PROGRESS_DONE" -gt "$PROGRESS_TOTAL" ] && PROGRESS_DONE="$PROGRESS_TOTAL"
+  draw_progress
+}
+
 # Load deployment secrets (SSH key path, server hostname, remote directories).
 # Copy .deploy.env.example → .deploy.env and fill in your values.
 DEPLOY_ENV="$(dirname "$0")/.deploy.env"
@@ -140,7 +231,7 @@ print_summary() {
   printf ' Totals: %d PASS · %d FAIL · %d SKIP\n' "$pass" "$fail" "$skip"
   echo "$bar"
 }
-trap print_summary EXIT
+trap 'teardown_progress; print_summary' EXIT
 
 # ------------------------------------------------------------------
 # Argument parsing.
@@ -204,7 +295,12 @@ if [ -z "$env_flag" ]; then
     exit 1
   fi
   while [ -z "$env_flag" ]; do
-    printf 'Select environment (staging/prod): '
+    # Write the prompt straight to the tty: our stdout runs through
+    # an awk timestamping filter that only flushes on newline, so a
+    # trailing-space `printf` would sit invisibly in awk's buffer
+    # forever and the operator would see a dead terminal instead of
+    # a prompt.
+    printf 'Select environment (staging/prod): ' > /dev/tty
     read -r reply
     case "${reply,,}" in
       prod|production)  env_flag=prod ;;
@@ -241,7 +337,10 @@ echo "==> deploying to $env_flag ($SSH_HOST:$REMOTE_WORK_DIR)"
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
+setup_progress
+
 if [ "$skip_build" = false ]; then
+  advance_progress "building binaries"
   build_args=()
   if [ "$no_helpers" = true ]; then
     echo "Building server + notifier only (--no-helpers)..."
@@ -275,6 +374,7 @@ if [ "$skip_build" = false ]; then
   fi
 else
   record_step SKIP "Build" "--skip-build"
+  advance_progress "build skipped"
 fi
 
 # ------------------------------------------------------------------
@@ -282,6 +382,7 @@ fi
 # Old app keeps serving throughout this phase.
 # ------------------------------------------------------------------
 
+advance_progress "preflight (dirs, .env)"
 echo "Preparing remote directories..."
 # pgdata holds the Postgres data directory bind-mount. postgres:16's
 # entrypoint chowns it to UID 999 on first init if it's empty, so we
@@ -335,6 +436,7 @@ fi
 # still serving traffic — nothing here can knock it over.
 # ------------------------------------------------------------------
 
+advance_progress "uploading compose + server binary"
 echo "Uploading compose file ($COMPOSE_FILE, staged as .new)..."
 if scp "${SSH_OPTS[@]}" "$ROOT/$COMPOSE_FILE" \
       "$SSH_HOST:$REMOTE_WORK_DIR/docker-compose.yml.new"; then
@@ -354,9 +456,11 @@ else
 fi
 
 if [ "$no_helpers" = true ]; then
+  advance_progress "downloads skipped (-nohelpers)"
   echo "Skipping helper/wsjtx/GUI upload (-nohelpers)."
   record_step SKIP "Downloads" "helper/wsjtx/GUI upload (-nohelpers)"
 else
+  advance_progress "uploading helper/WSJT-X/GUI binaries"
   echo "Uploading helper, WSJT-X, and GUI binaries to downloads..."
   # In-place upload is acceptable here: these are read-only static
   # artifacts served under /downloads/. A user mid-download during
@@ -401,6 +505,7 @@ fi
 # only (re)install it during prod deploys so that staging doesn't
 # quietly overwrite prod's units with staging-flavoured copies.
 if [ "$env_flag" = "prod" ]; then
+  advance_progress "installing systemd restore hook"
   echo "Installing systemd restore hook..."
   # UI-triggered database restore is done by a host-side systemd unit
   # (see deploy/systemd/noctalum-restore.*): the app writes a JSON
@@ -422,6 +527,7 @@ if [ "$env_flag" = "prod" ]; then
     record_step FAIL "Deploy" "install systemd restore hook"
   fi
 else
+  advance_progress "systemd hook skipped (staging)"
   record_step SKIP "Deploy" "systemd restore hook (staging)"
 fi
 
@@ -447,7 +553,9 @@ recover() {
 }
 # Chain recovery with the summary trap so an abort mid-downtime still
 # both attempts to bring the stack up AND prints the PASS/FAIL table.
-trap 'recover; print_summary' EXIT
+# teardown_progress runs first so the recovery/summary output isn't
+# masked by the pinned bottom row.
+trap 'teardown_progress; recover; print_summary' EXIT
 
 # Trigger a graceful shutdown: write the countdown (in seconds) to the trigger
 # file that the server polls every 2 s.  The server broadcasts a deploy_warning
@@ -461,6 +569,7 @@ trap 'recover; print_summary' EXIT
 #
 # All polling runs inside a single SSH session so we don't pay ~200 ms
 # of connection overhead per iteration.
+advance_progress "graceful shutdown (${countdown}s warning)"
 echo "Triggering graceful shutdown (${countdown}s warning)..."
 if ssh "${SSH_OPTS[@]}" "$SSH_HOST" bash -s "$countdown" "$REMOTE_WORK_DIR" "$CONTAINER_NAME" <<'REMOTE_TRIGGER'
 set -u
@@ -495,6 +604,7 @@ else
   record_step FAIL "Cutover" "graceful shutdown trigger"
 fi
 
+advance_progress "cutover (compose swap)"
 echo "Stopping stack + swapping in new artifacts..."
 # Everything on one SSH round-trip so the "app down" window is as
 # tight as possible: compose down, atomic renames, compose up. If
@@ -530,8 +640,9 @@ fi
 
 deploy_succeeded=true
 # Drop the recover half of the trap now that the new stack is
-# healthy — keep print_summary so the operator still sees the table.
-trap print_summary EXIT
+# healthy — keep teardown+summary so the operator still sees the
+# progress bar retire cleanly and the table print underneath.
+trap 'teardown_progress; print_summary' EXIT
 echo "Deployment complete."
 
 # ------------------------------------------------------------------
@@ -544,6 +655,7 @@ echo "Deployment complete."
 # ------------------------------------------------------------------
 
 if [ "$NOTIFY_TELEGRAM" = true ]; then
+  advance_progress "notifying Telegram"
   notifier_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
   notifier_arch="$(uname -m)"
   case "$notifier_arch" in
@@ -565,6 +677,7 @@ if [ "$NOTIFY_TELEGRAM" = true ]; then
     record_step SKIP "Notify" "Telegram notifier binary missing"
   fi
 else
+  advance_progress "Telegram skipped (staging)"
   echo "Skipping Telegram announcement (staging deploy)."
   record_step SKIP "Notify" "Telegram announcement (staging)"
 fi
