@@ -8851,6 +8851,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.79',
+      date: '2026-07-30',
+      en: 'v0.79: Feature-request attachments now include screenshots — with names and in-app preview.\n- Upload JPG or PNG images to a feature request in addition to PDF and TXT\n- Attachments are labelled with the file you actually uploaded, not just "Download"\n- Click an image attachment to preview it in a modal without leaving the page\n- The download button saves the file under its original name\n- PDF and TXT attachments keep opening inline in a new tab as before\n- 5 MB size limit unchanged; older uploads still show as "Download" since their filename wasn\'t captured back then',
+      de: 'v0.79: Feature-Wünsche können jetzt Screenshots enthalten — mit Namen und Vorschau in der App.\n- Lade JPG- oder PNG-Bilder an einen Feature-Wunsch an, zusätzlich zu PDF und TXT\n- Anhänge werden jetzt mit dem tatsächlichen Dateinamen angezeigt, nicht mehr nur „Download"\n- Klick einen Bild-Anhang an, um ihn direkt in einem Fenster zu betrachten, ohne die Seite zu verlassen\n- Der Download-Button speichert die Datei unter ihrem Originalnamen\n- PDF- und TXT-Anhänge werden wie bisher in einem neuen Tab geöffnet\n- 5-MB-Grenze bleibt; ältere Anhänge zeigen weiterhin „Download", weil damals kein Dateiname erfasst wurde',
+    },
+    {
       version: '0.78',
       date: '2026-07-28',
       en: 'v0.78: The contest selection screen is now smartphone-friendly.\n- On phones, the main menu now stacks vertically and uses the full screen width — no more horizontal overflow or cramped tap targets\n- The left navigation (My Requests, Users, Groups, Audit Log, …) becomes a 2-column grid of larger, thumb-friendly buttons\n- Download Helper stays prominent as a full-width action button at the top of the navigation\n- The contest list drops date and activity columns on mobile so name, call, and status all fit — tap a row to enter the contest\n- Filter pills (All / Active / Closed) and the Cards / List toggle get bigger tap targets\n- The "Online Now" panel moves to the bottom of the screen where it stays out of the way',
