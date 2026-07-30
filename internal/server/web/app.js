@@ -8886,6 +8886,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.80',
+      date: '2026-07-30',
+      en: 'v0.80: Feature requests can now carry multiple attachments — each with its real filename.\n- Attach several files to a single feature request in one go (up to 10 files, 5 MB each)\n- Each attachment shows up on its own line with filename, type (PNG/JPG/PDF/TXT), and size\n- Click any image attachment to preview it in a modal without leaving the page\n- Saved files keep their original name whether you use the ↓ button, right-click Save As, or open the raw URL\n- Older single-attachment requests keep working — their file appears in the new list without loss',
+      de: 'v0.80: Feature-Wünsche können jetzt mehrere Anhänge tragen — jeder mit seinem echten Dateinamen.\n- Häng mehrere Dateien in einem Rutsch an einen Feature-Wunsch (bis zu 10 Dateien, je 5 MB)\n- Jeder Anhang erscheint in einer eigenen Zeile mit Dateiname, Typ (PNG/JPG/PDF/TXT) und Größe\n- Klick einen Bild-Anhang an, um ihn direkt in einem Fenster zu betrachten, ohne die Seite zu verlassen\n- Gespeicherte Dateien behalten ihren Originalnamen — egal ob per ↓-Button, Rechtsklick „Speichern unter" oder direktem URL-Aufruf\n- Ältere Anfragen mit einzelnem Anhang funktionieren weiterhin — ihre Datei taucht ohne Verlust in der neuen Liste auf',
+    },
+    {
       version: '0.79',
       date: '2026-07-30',
       en: 'v0.79: Feature-request attachments now include screenshots — with names and in-app preview.\n- Upload JPG or PNG images to a feature request in addition to PDF and TXT\n- Attachments are labelled with the file you actually uploaded, not just "Download"\n- Click an image attachment to preview it in a modal without leaving the page\n- The download button saves the file under its original name\n- PDF and TXT attachments keep opening inline in a new tab as before\n- 5 MB size limit unchanged; older uploads still show as "Download" since their filename wasn\'t captured back then',
