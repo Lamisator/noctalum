@@ -8526,6 +8526,22 @@
     });
   }
 
+  // Map a MIME type to (a) a short type badge like "PNG" and (b) the file
+  // extension we'd expect for that type. Used to render a type label next
+  // to every attachment and to synthesize a reasonable filename for legacy
+  // rows uploaded before v0.79 (when we started capturing the original
+  // filename). Falls back to the subtype in uppercase for anything we
+  // don't recognize.
+  function featureRequestAttachmentType(mime) {
+    const m = String(mime || '').toLowerCase();
+    if (m === 'image/png') return { label: 'PNG', ext: '.png' };
+    if (m === 'image/jpeg') return { label: 'JPG', ext: '.jpg' };
+    if (m === 'application/pdf') return { label: 'PDF', ext: '.pdf' };
+    if (m.indexOf('text/plain') === 0) return { label: 'TXT', ext: '.txt' };
+    const sub = m.split('/').pop() || '';
+    return { label: sub.toUpperCase(), ext: sub ? '.' + sub : '' };
+  }
+
   function featureRequestAttachmentCell(fr) {
     if (!fr || !fr.attachment_mime) {
       return `<td class="muted small">${escHtml(t('featureRequests.attachmentNone'))}</td>`;
@@ -8538,42 +8554,49 @@
       return `<td class="muted small">${escHtml(t('featureRequests.attachmentNone'))}</td>`;
     }
     const kb = fr.attachment_size ? Math.max(1, Math.round(fr.attachment_size / 1024)) : 0;
-    // Fall back to the generic "Download" label for legacy rows that were
-    // stored before we captured the submitter's original filename.
-    const name = fr.attachment_original_name || t('featureRequests.attachmentDownload');
-    const sizeSuffix = kb ? ' (' + kb + ' kB)' : '';
+    const type = featureRequestAttachmentType(fr.attachment_mime);
+    // Legacy rows uploaded before v0.79 have no original name stored; fall
+    // back to a synthetic "attachment.<ext>" so the label still says what
+    // kind of file it is instead of an anonymous "Download".
+    const name = fr.attachment_original_name || ('attachment' + type.ext);
+    const infoBits = [];
+    if (type.label) infoBits.push(type.label);
+    if (kb) infoBits.push(kb + ' kB');
+    const infoSuffix = infoBits.length ? ' (' + infoBits.join(' · ') + ')' : '';
     const href = '/api/feature-requests/' + Number(fr.id) + '/attachment';
-    const downloadName = fr.attachment_original_name || '';
+    const dlAttr = ` download="${escHtml(name)}"`;
     const isImage = typeof fr.attachment_mime === 'string' && fr.attachment_mime.indexOf('image/') === 0;
     if (isImage) {
       // Clicking the filename opens an in-app preview modal; the ↓ link
       // triggers a browser download (the download attribute forces the
-      // original filename regardless of the endpoint's Content-Disposition).
+      // saved filename regardless of the endpoint's Content-Disposition).
       const previewTitle = escHtml(t('featureRequests.attachmentPreview'));
       const dlTitle = escHtml(t('featureRequests.attachmentDownload'));
-      const dlAttr = downloadName ? ` download="${escHtml(downloadName)}"` : ' download';
       return `<td>` +
         `<a href="${escHtml(href)}" class="fr-img-preview-btn" data-id="${Number(fr.id)}" title="${previewTitle}">${escHtml(name)}</a>` +
-        `<span class="muted small">${escHtml(sizeSuffix)}</span> ` +
+        `<span class="muted small">${escHtml(infoSuffix)}</span> ` +
         `<a class="fr-attach-download" href="${escHtml(href)}"${dlAttr} title="${dlTitle}" aria-label="${dlTitle}" style="margin-left:6px">↓</a>` +
         `</td>`;
     }
     // Non-image attachments (PDF/TXT) keep the "open inline in a new tab"
     // behaviour — most browsers can display them and users can Ctrl+S to
     // save. No download attribute here so we don't force a save-as dialog.
-    return `<td><a href="${escHtml(href)}" target="_blank" rel="noopener">${escHtml(name + sizeSuffix)}</a></td>`;
+    return `<td><a href="${escHtml(href)}" target="_blank" rel="noopener">${escHtml(name + infoSuffix)}</a></td>`;
   }
 
   function openFeatureRequestImagePreview(fr) {
     if (!fr) return;
     const href = '/api/feature-requests/' + Number(fr.id) + '/attachment';
-    const name = fr.attachment_original_name || t('featureRequests.attachmentDownload');
+    const type = featureRequestAttachmentType(fr.attachment_mime);
+    const name = fr.attachment_original_name || ('attachment' + type.ext);
     const kb = fr.attachment_size ? Math.max(1, Math.round(fr.attachment_size / 1024)) : 0;
-    const sizeSuffix = kb ? ' (' + kb + ' kB)' : '';
-    const downloadName = fr.attachment_original_name || '';
-    const dlAttr = downloadName ? ` download="${escHtml(downloadName)}"` : ' download';
+    const infoBits = [];
+    if (type.label) infoBits.push(type.label);
+    if (kb) infoBits.push(kb + ' kB');
+    const infoSuffix = infoBits.length ? ' (' + infoBits.join(' · ') + ')' : '';
+    const dlAttr = ` download="${escHtml(name)}"`;
     showModal(`
-      <h3>${escHtml(name)}<span class="muted small" style="font-weight:normal">${escHtml(sizeSuffix)}</span></h3>
+      <h3>${escHtml(name)}<span class="muted small" style="font-weight:normal">${escHtml(infoSuffix)}</span></h3>
       <div style="text-align:center;margin:12px 0">
         <img src="${escHtml(href)}" alt="${escHtml(name)}" style="max-width:100%;max-height:70vh;border:1px solid var(--border);border-radius:6px;background:var(--bg-elev-2)" />
       </div>
