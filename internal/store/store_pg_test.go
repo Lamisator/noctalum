@@ -209,7 +209,7 @@ func TestPostgresSchemaAndRoundTrips(t *testing.T) {
 	}
 
 	// Feature request insert + list.
-	fr, err := st.InsertFeatureRequest("alice", "test", "", "", 0, "")
+	fr, err := st.InsertFeatureRequest("alice", "test")
 	if err != nil {
 		t.Fatalf("fr insert: %v", err)
 	}
@@ -217,18 +217,32 @@ func TestPostgresSchemaAndRoundTrips(t *testing.T) {
 	if err != nil || len(frs) != 1 || frs[0].ID != fr.ID {
 		t.Fatalf("fr list mismatch: err=%v frs=%+v", err, frs)
 	}
-	// Insert a second request with an attachment and confirm the metadata
-	// round-trips through the list query.
-	fr2, err := st.InsertFeatureRequest("alice", "with attachment", "abc123.pdf", "application/pdf", 42, "spec.pdf")
+	// Insert a second request with two attachments and confirm both come
+	// back on the parent, in insert order, via GetFeatureRequest.
+	fr2, err := st.InsertFeatureRequest("alice", "with attachments")
 	if err != nil {
-		t.Fatalf("fr insert with attachment: %v", err)
+		t.Fatalf("fr insert with attachments: %v", err)
+	}
+	if _, err := st.InsertFeatureRequestAttachment(fr2.ID, "abc123.pdf", "spec.pdf", "application/pdf", 42); err != nil {
+		t.Fatalf("fr attachment #1: %v", err)
+	}
+	if _, err := st.InsertFeatureRequestAttachment(fr2.ID, "def456.png", "screenshot.png", "image/png", 4096); err != nil {
+		t.Fatalf("fr attachment #2: %v", err)
 	}
 	gotFR, err := st.GetFeatureRequest(fr2.ID)
 	if err != nil || gotFR == nil {
 		t.Fatalf("fr get: err=%v got=%+v", err, gotFR)
 	}
-	if gotFR.AttachmentFilename != "abc123.pdf" || gotFR.AttachmentMime != "application/pdf" || gotFR.AttachmentSize != 42 || gotFR.AttachmentOriginalName != "spec.pdf" {
-		t.Fatalf("fr attachment metadata mismatch: %+v", gotFR)
+	if len(gotFR.Attachments) != 2 {
+		t.Fatalf("expected 2 attachments, got %d: %+v", len(gotFR.Attachments), gotFR.Attachments)
+	}
+	if gotFR.Attachments[0].Filename != "abc123.pdf" || gotFR.Attachments[0].OriginalName != "spec.pdf" ||
+		gotFR.Attachments[0].Mime != "application/pdf" || gotFR.Attachments[0].Size != 42 {
+		t.Fatalf("attachment #1 mismatch: %+v", gotFR.Attachments[0])
+	}
+	if gotFR.Attachments[1].Filename != "def456.png" || gotFR.Attachments[1].OriginalName != "screenshot.png" ||
+		gotFR.Attachments[1].Mime != "image/png" || gotFR.Attachments[1].Size != 4096 {
+		t.Fatalf("attachment #2 mismatch: %+v", gotFR.Attachments[1])
 	}
 
 	// DeleteQSO cleanup.

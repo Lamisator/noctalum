@@ -15,6 +15,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -107,8 +108,9 @@ func (s *Server) SetCallsignProofsDir(dir string) {
 
 // SetFeatureRequestAttachmentsDir configures the directory where optional
 // attachments (PDF/TXT/JPG/PNG) submitted with feature requests are stored.
-// Same scheme as callsign proofs: one file per request, opaque token
-// filename recorded on the row.
+// One file per attachment, opaque token filename recorded on the row —
+// a single request can carry multiple attachments (see
+// feature_request_attachments table).
 func (s *Server) SetFeatureRequestAttachmentsDir(dir string) {
 	s.featureRequestAttachmentsDir = dir
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -3953,8 +3955,15 @@ func decodeBase64Image(raw string) ([]byte, error) {
 // ----- feature requests -----
 
 // Optional attachments accompanying a feature request. PDF/TXT plus common
-// screenshot formats (JPG/PNG). 5 MB matches the callsign-proof cap.
-const featureRequestAttachmentMaxSize = 5 << 20
+// screenshot formats (JPG/PNG). 5 MB per file matches the callsign-proof
+// cap. A feature request can carry many attachments; the multipart body
+// as a whole is capped separately (see featureRequestBodyMaxSize) so a
+// single POST can't drop an unbounded pile of files on us.
+const (
+	featureRequestAttachmentMaxSize = 5 << 20  // per-file limit
+	featureRequestBodyMaxSize       = 30 << 20 // per-submission limit (~6 max-size files + text)
+	featureRequestMaxAttachments    = 10       // hard cap so a submitter can't stack hundreds
+)
 
 var allowedFeatureRequestAttachmentExts = map[string]string{
 	".pdf":  "application/pdf",
@@ -3981,11 +3990,8 @@ func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
 		if list == nil {
 			list = []store.FeatureRequest{}
 		}
-		// Don't leak the on-disk filename — clients download via the
-		// /attachment sub-route which resolves it server-side.
-		for i := range list {
-			list[i].AttachmentFilename = ""
-		}
+		// The on-disk filename is stripped by the FeatureRequestAttachment
+		// json tag (json:"-") so nothing extra to do here.
 		writeJSON(w, http.StatusOK, list)
 	case http.MethodPost:
 		if !HasPermission(sess.Permissions, PermFeatureRequestsWrite) {
@@ -3999,11 +4005,11 @@ func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// submitFeatureRequest handles both multipart submissions (with an optional
-// PDF/TXT/JPG/PNG attachment) and legacy application/json submissions (text only).
-// The frontend always sends multipart so a form-file field can be present;
-// the JSON path is kept as a low-cost fallback for tools that just want
-// to POST a text body.
+// submitFeatureRequest handles both multipart submissions (with zero or
+// more file attachments) and legacy application/json submissions (text
+// only). The frontend always sends multipart so form-file fields can be
+// present; the JSON path is kept as a low-cost fallback for tools that
+// just want to POST a text body.
 func (s *Server) submitFeatureRequest(w http.ResponseWriter, r *http.Request, sess *Session) {
 	ct := r.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "multipart/form-data") {
@@ -4022,7 +4028,7 @@ func (s *Server) submitFeatureRequest(w http.ResponseWriter, r *http.Request, se
 		writeError(w, http.StatusBadRequest, "text required")
 		return
 	}
-	fr, err := s.store.InsertFeatureRequest(sess.Username, text, "", "", 0, "")
+	fr, err := s.store.InsertFeatureRequest(sess.Username, text)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -4031,13 +4037,62 @@ func (s *Server) submitFeatureRequest(w http.ResponseWriter, r *http.Request, se
 	writeJSON(w, http.StatusCreated, fr)
 }
 
+// saveOneAttachment writes one uploaded file to the attachments directory
+// under an opaque token filename and returns the metadata to persist
+// (or an HTTP error). Called once per file in the multipart handler so
+// input validation is uniform across the batch.
+func (s *Server) saveOneAttachment(hdr *multipart.FileHeader) (savedFilename, savedMime, originalName string, savedSize int64, status int, msg string) {
+	if hdr.Size <= 0 {
+		return "", "", "", 0, http.StatusBadRequest, "empty attachment"
+	}
+	if hdr.Size > featureRequestAttachmentMaxSize {
+		return "", "", "", 0, http.StatusBadRequest, "file too large (max 5 MB per file)"
+	}
+	if s.featureRequestAttachmentsDir == "" {
+		return "", "", "", 0, http.StatusInternalServerError, "feature request attachments directory not configured"
+	}
+	ext := strings.ToLower(filepath.Ext(hdr.Filename))
+	mime, ok := allowedFeatureRequestAttachmentExts[ext]
+	if !ok {
+		return "", "", "", 0, http.StatusBadRequest, "unsupported file type; allowed: pdf, txt, jpg, png"
+	}
+	f, err := hdr.Open()
+	if err != nil {
+		return "", "", "", 0, http.StatusBadRequest, "invalid attachment upload"
+	}
+	defer f.Close()
+	// Opaque token filename — the original name never touches disk so
+	// the attachments dir listing stays anonymous and the
+	// (attachmentID -> file) tie lives only in the database.
+	safe := newToken() + ext
+	dest := filepath.Join(s.featureRequestAttachmentsDir, safe)
+	out, oerr := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if oerr != nil {
+		return "", "", "", 0, http.StatusInternalServerError, "could not create attachment file"
+	}
+	written, copyErr := io.Copy(out, f)
+	closeErr := out.Close()
+	if copyErr != nil || closeErr != nil {
+		_ = os.Remove(dest)
+		return "", "", "", 0, http.StatusInternalServerError, "could not write attachment file"
+	}
+	originalName = sanitizeAttachmentOriginalName(hdr.Filename)
+	// Belt-and-suspenders: if the browser didn't send a filename (or
+	// sanitize stripped everything), fall back to a synthetic
+	// "attachment.<ext>" so the DB always has some meaningful label.
+	if originalName == "" {
+		originalName = "attachment" + ext
+	}
+	return safe, mime, originalName, written, 0, ""
+}
+
 func (s *Server) submitFeatureRequestMultipart(w http.ResponseWriter, r *http.Request, sess *Session) {
 	// Cap the whole body before ParseMultipartForm — the argument to
 	// ParseMultipartForm is only the in-memory threshold and would
 	// otherwise happily spill an unbounded payload to /tmp.
-	r.Body = http.MaxBytesReader(w, r.Body, featureRequestAttachmentMaxSize+64<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, featureRequestBodyMaxSize+64<<10)
 	if err := r.ParseMultipartForm(featureRequestAttachmentMaxSize); err != nil {
-		writeError(w, http.StatusBadRequest, "file too large (max 5 MB) or malformed upload")
+		writeError(w, http.StatusBadRequest, "upload too large or malformed")
 		return
 	}
 	text := strings.TrimSpace(r.FormValue("text"))
@@ -4046,79 +4101,58 @@ func (s *Server) submitFeatureRequestMultipart(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	var (
-		savedFilename string
-		savedMime     string
-		savedSize     int64
-		originalName  string
-	)
-	// Attachment is optional. r.FormFile returns http.ErrMissingFile when
-	// no field named "attachment" was sent; that's a plain text-only
-	// submission and we treat it as success.
-	f, hdr, err := r.FormFile("attachment")
-	if err == nil {
-		defer f.Close()
-		if hdr.Size <= 0 {
-			writeError(w, http.StatusBadRequest, "empty attachment")
-			return
-		}
-		if hdr.Size > featureRequestAttachmentMaxSize {
-			writeError(w, http.StatusBadRequest, "file too large (max 5 MB)")
-			return
-		}
-		if s.featureRequestAttachmentsDir == "" {
-			writeError(w, http.StatusInternalServerError, "feature request attachments directory not configured")
-			return
-		}
-		ext := strings.ToLower(filepath.Ext(hdr.Filename))
-		mime, ok := allowedFeatureRequestAttachmentExts[ext]
-		if !ok {
-			writeError(w, http.StatusBadRequest, "unsupported file type; allowed: pdf, txt, jpg, png")
-			return
-		}
-		// Opaque token filename — the original name never touches disk
-		// so the attachments dir listing stays anonymous and the
-		// (requestID -> file) tie lives only in the database.
-		safe := newToken() + ext
-		dest := filepath.Join(s.featureRequestAttachmentsDir, safe)
-		out, oerr := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if oerr != nil {
-			writeError(w, http.StatusInternalServerError, "could not create attachment file")
-			return
-		}
-		written, copyErr := io.Copy(out, f)
-		closeErr := out.Close()
-		if copyErr != nil || closeErr != nil {
-			_ = os.Remove(dest)
-			writeError(w, http.StatusInternalServerError, "could not write attachment file")
-			return
-		}
-		savedFilename = safe
-		savedMime = mime
-		savedSize = written
-		originalName = sanitizeAttachmentOriginalName(hdr.Filename)
-		// Belt-and-suspenders: if the browser didn't send a filename (or
-		// sanitize stripped everything), fall back to a synthetic
-		// "attachment.<ext>" so the DB always has *some* meaningful label
-		// for the upload. The client would otherwise show its own
-		// "attachment.<ext>" fallback for the empty-string case, but
-		// storing it server-side means the download link's Content-
-		// Disposition also gets a real filename.
-		if originalName == "" {
-			originalName = "attachment" + ext
-		}
-	} else if !errors.Is(err, http.ErrMissingFile) {
-		writeError(w, http.StatusBadRequest, "invalid attachment upload")
+	// Multiple files can be sent under the "attachment" field name;
+	// r.MultipartForm.File["attachment"] returns them in order.
+	var headers []*multipart.FileHeader
+	if r.MultipartForm != nil {
+		headers = r.MultipartForm.File["attachment"]
+	}
+	if len(headers) > featureRequestMaxAttachments {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("too many attachments (max %d per request)", featureRequestMaxAttachments))
 		return
 	}
 
-	fr, err := s.store.InsertFeatureRequest(sess.Username, text, savedFilename, savedMime, savedSize, originalName)
-	if err != nil {
-		if savedFilename != "" {
-			s.removeFeatureRequestAttachment(savedFilename)
+	// Save all files to disk *before* touching the DB so we can roll
+	// back cleanly if one of them fails validation partway through.
+	type staged struct {
+		filename, mime, originalName string
+		size                         int64
+	}
+	saved := make([]staged, 0, len(headers))
+	rollback := func() {
+		for _, sg := range saved {
+			s.removeFeatureRequestAttachment(sg.filename)
 		}
+	}
+	for _, hdr := range headers {
+		filename, mime, origName, size, status, msg := s.saveOneAttachment(hdr)
+		if status != 0 {
+			rollback()
+			writeError(w, status, msg)
+			return
+		}
+		saved = append(saved, staged{filename, mime, origName, size})
+	}
+
+	fr, err := s.store.InsertFeatureRequest(sess.Username, text)
+	if err != nil {
+		rollback()
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	for _, sg := range saved {
+		att, aerr := s.store.InsertFeatureRequestAttachment(fr.ID, sg.filename, sg.originalName, sg.mime, sg.size)
+		if aerr != nil {
+			// Roll back everything we've written on disk plus the
+			// parent row; the CASCADE takes care of any attachment
+			// metadata rows we managed to insert.
+			rollback()
+			_ = s.store.DeleteFeatureRequest(fr.ID)
+			writeError(w, http.StatusInternalServerError, aerr.Error())
+			return
+		}
+		fr.Attachments = append(fr.Attachments, *att)
 	}
 	s.audit(r, store.AuditInfo, AuditFeatureRequestCreate, sess.Username, "", text)
 	writeJSON(w, http.StatusCreated, fr)
@@ -4144,11 +4178,6 @@ func (s *Server) handleMyFeatureRequests(w http.ResponseWriter, r *http.Request)
 	if list == nil {
 		list = []store.FeatureRequest{}
 	}
-	// Same as the admin list: strip the on-disk filename before writing
-	// back to the client.
-	for i := range list {
-		list[i].AttachmentFilename = ""
-	}
 	writeJSON(w, http.StatusOK, list)
 }
 
@@ -4169,8 +4198,17 @@ func (s *Server) handleFeatureRequestByID(w http.ResponseWriter, r *http.Request
 	if len(parts) == 2 {
 		sub = parts[1]
 	}
-	if sub == "attachment" {
-		s.serveFeatureRequestAttachment(w, r, id)
+	// /api/feature-requests/{id}/attachments/{aid} — download one file.
+	// The plural sub-path replaces the legacy /attachment singular route
+	// now that a request can carry multiple files.
+	if strings.HasPrefix(sub, "attachments/") {
+		aidStr := strings.TrimPrefix(sub, "attachments/")
+		aid, err := strconv.ParseInt(aidStr, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid attachment id")
+			return
+		}
+		s.serveFeatureRequestAttachment(w, r, id, aid)
 		return
 	}
 	if sub != "" {
@@ -4214,19 +4252,23 @@ func (s *Server) handleFeatureRequestByID(w http.ResponseWriter, r *http.Request
 		}
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:
-		// Look up the row first so we can also clean up any on-disk
-		// attachment; ignore ErrNotFound because DELETE on a missing
-		// row is still idempotent from the caller's perspective.
-		var attachedFilename string
-		if fr, gerr := s.store.GetFeatureRequest(id); gerr == nil && fr != nil {
-			attachedFilename = fr.AttachmentFilename
+		// Look up the attachments first so we can clean up on-disk files
+		// after the DB row goes (CASCADE removes the attachment metadata
+		// rows but the filesystem doesn't get notified). Ignore ErrNotFound
+		// because DELETE on a missing row is still idempotent from the
+		// caller's perspective.
+		var attachedFilenames []string
+		if atts, aerr := s.store.ListFeatureRequestAttachments(id); aerr == nil {
+			for _, a := range atts {
+				attachedFilenames = append(attachedFilenames, a.Filename)
+			}
 		}
 		if err := s.store.DeleteFeatureRequest(id); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if attachedFilename != "" {
-			s.removeFeatureRequestAttachment(attachedFilename)
+		for _, name := range attachedFilenames {
+			s.removeFeatureRequestAttachment(name)
 		}
 		s.audit(r, store.AuditInfo, AuditFeatureRequestDelete, sess.Username, idStr, "")
 		w.WriteHeader(http.StatusNoContent)
@@ -4235,11 +4277,14 @@ func (s *Server) handleFeatureRequestByID(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// serveFeatureRequestAttachment streams the attachment (PDF/TXT/JPG/PNG) for a single request.
-// Any authenticated user with feature_requests.read (admin panel) can
-// download; the submitter themselves can also download their own file
-// so the "My Feature Requests" screen can show a working link.
-func (s *Server) serveFeatureRequestAttachment(w http.ResponseWriter, r *http.Request, id int64) {
+// serveFeatureRequestAttachment streams one attachment file for a single
+// feature request. The attachment must belong to the given request id
+// (defence-in-depth against attackers guessing sequential attachment IDs
+// after they've been granted read on some other feature request). Any
+// user with feature_requests.read (admin panel) can download; the
+// submitter themselves can also download their own files so the "My
+// Feature Requests" screen can show a working link.
+func (s *Server) serveFeatureRequestAttachment(w http.ResponseWriter, r *http.Request, id, attachmentID int64) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "GET only")
 		return
@@ -4258,8 +4303,13 @@ func (s *Server) serveFeatureRequestAttachment(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if fr.AttachmentFilename == "" {
-		writeError(w, http.StatusNotFound, "no attachment on file")
+	att, err := s.store.GetFeatureRequestAttachment(id, attachmentID)
+	if errors.Is(err, store.ErrNotFound) || att == nil {
+		writeError(w, http.StatusNotFound, "attachment not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// Access rule: admins with the read permission always; otherwise
@@ -4268,20 +4318,20 @@ func (s *Server) serveFeatureRequestAttachment(w http.ResponseWriter, r *http.Re
 	// visibility of the row and access to the file are separate concerns.
 	if !HasPermission(sess.Permissions, PermFeatureRequestsRead) && fr.From != sess.Username {
 		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermFeatureRequestsRead,
-			"download feature request attachment #"+strconv.FormatInt(id, 10))
+			"download feature request attachment #"+strconv.FormatInt(id, 10)+"/"+strconv.FormatInt(attachmentID, 10))
 		writeError(w, http.StatusForbidden, "not permitted")
 		return
 	}
-	name := filepath.Base(fr.AttachmentFilename)
+	name := filepath.Base(att.Filename)
 	fpath := filepath.Join(s.featureRequestAttachmentsDir, name)
-	if fr.AttachmentMime != "" {
-		w.Header().Set("Content-Type", fr.AttachmentMime)
+	if att.Mime != "" {
+		w.Header().Set("Content-Type", att.Mime)
 	}
 	// Prefer the submitter's original filename in Content-Disposition so
-	// browser save-as dialogs use it, not the opaque route ("attachment").
-	// Fall back to the on-disk token filename for legacy rows that were
-	// stored before we captured the original name.
-	dispName := fr.AttachmentOriginalName
+	// browser save-as dialogs use it, not the opaque route
+	// ("attachments"). Fall back to the on-disk token filename in the
+	// pathological case where the original name is somehow missing.
+	dispName := att.OriginalName
 	if dispName == "" {
 		dispName = name
 	}

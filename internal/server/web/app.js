@@ -8485,7 +8485,7 @@
         <label>${escHtml(t('featureRequests.colRequest'))}</label>
         <textarea name="text" rows="5" required style="width:100%;resize:vertical;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:inherit;font:inherit"></textarea>
         <label>${escHtml(t('featureRequests.attachmentLabel'))}</label>
-        <input type="file" name="attachment" accept=".pdf,.txt,.jpg,.jpeg,.png,application/pdf,text/plain,image/jpeg,image/png" />
+        <input type="file" name="attachment" multiple accept=".pdf,.txt,.jpg,.jpeg,.png,application/pdf,text/plain,image/jpeg,image/png" />
         <div class="muted small" style="margin-top:4px">${escHtml(t('featureRequests.attachmentHint'))}</div>
         <div class="modal-err error"></div>
         <div class="modal-actions">
@@ -8499,8 +8499,12 @@
       const fd = new FormData();
       fd.append('text', text);
       const fileInput = form.attachment;
-      const file = fileInput && fileInput.files && fileInput.files[0];
-      if (file) {
+      const files = (fileInput && fileInput.files) ? Array.from(fileInput.files) : [];
+      // Client-side gate mirrors the server: per-file size and extension
+      // whitelist, plus a max count so a slip of the Shift-click doesn't
+      // upload someone's entire folder.
+      if (files.length > 10) throw new Error(t('featureRequests.attachmentTooMany'));
+      for (const file of files) {
         if (file.size > 5 * 1024 * 1024) throw new Error(t('featureRequests.attachmentTooLarge'));
         const nameLc = (file.name || '').toLowerCase();
         if (!nameLc.endsWith('.pdf') && !nameLc.endsWith('.txt')
@@ -8542,54 +8546,59 @@
     return { label: sub.toUpperCase(), ext: sub ? '.' + sub : '' };
   }
 
+  // Renders one line per attachment. Returns the inner HTML for a single
+  // <td>. Empty attachments array (or no download permission) collapses
+  // to the em-dash placeholder.
   function featureRequestAttachmentCell(fr) {
-    if (!fr || !fr.attachment_mime) {
+    if (!fr || !Array.isArray(fr.attachments) || fr.attachments.length === 0) {
       return `<td class="muted small">${escHtml(t('featureRequests.attachmentNone'))}</td>`;
     }
-    // The server enforces "admin OR submitter"; the client mirrors that
-    // check so a non-admin looking at someone else's row in public mode
-    // doesn't get a link that 403s when clicked.
+    // Server enforces "admin OR submitter"; client mirrors the check so
+    // a non-admin looking at someone else's row in public mode doesn't
+    // get a link that 403s when clicked.
     const canDownload = (me && fr.from === me.username) || hasPerm('feature_requests.read');
     if (!canDownload) {
       return `<td class="muted small">${escHtml(t('featureRequests.attachmentNone'))}</td>`;
     }
-    const kb = fr.attachment_size ? Math.max(1, Math.round(fr.attachment_size / 1024)) : 0;
-    const type = featureRequestAttachmentType(fr.attachment_mime);
-    // Legacy rows uploaded before v0.79 have no original name stored; fall
-    // back to a synthetic "attachment.<ext>" so the label still says what
-    // kind of file it is instead of an anonymous "Download".
-    const name = fr.attachment_original_name || ('attachment' + type.ext);
+    const rows = fr.attachments.map(att => renderFeatureRequestAttachmentRow(fr, att)).join('');
+    return `<td><div style="display:flex;flex-direction:column;gap:3px">${rows}</div></td>`;
+  }
+
+  // Render one line inside the attachment cell. Image attachments get a
+  // click-to-preview link + a small ↓ download affordance; other types
+  // (PDF/TXT) render as a plain "open inline in a new tab" link.
+  function renderFeatureRequestAttachmentRow(fr, att) {
+    const type = featureRequestAttachmentType(att.mime);
+    const name = att.original_name || ('attachment' + type.ext);
+    const kb = att.size ? Math.max(1, Math.round(att.size / 1024)) : 0;
     const infoBits = [];
     if (type.label) infoBits.push(type.label);
     if (kb) infoBits.push(kb + ' kB');
     const infoSuffix = infoBits.length ? ' (' + infoBits.join(' · ') + ')' : '';
-    const href = '/api/feature-requests/' + Number(fr.id) + '/attachment';
+    const href = '/api/feature-requests/' + Number(fr.id) + '/attachments/' + Number(att.id);
     const dlAttr = ` download="${escHtml(name)}"`;
-    const isImage = typeof fr.attachment_mime === 'string' && fr.attachment_mime.indexOf('image/') === 0;
+    const isImage = typeof att.mime === 'string' && att.mime.indexOf('image/') === 0;
     if (isImage) {
-      // Clicking the filename opens an in-app preview modal; the ↓ link
-      // triggers a browser download (the download attribute forces the
-      // saved filename regardless of the endpoint's Content-Disposition).
       const previewTitle = escHtml(t('featureRequests.attachmentPreview'));
       const dlTitle = escHtml(t('featureRequests.attachmentDownload'));
-      return `<td>` +
-        `<a href="${escHtml(href)}" class="fr-img-preview-btn" data-id="${Number(fr.id)}" title="${previewTitle}">${escHtml(name)}</a>` +
+      return `<div>` +
+        `<a href="${escHtml(href)}" class="fr-img-preview-btn" data-fr-id="${Number(fr.id)}" data-att-id="${Number(att.id)}" title="${previewTitle}">${escHtml(name)}</a>` +
         `<span class="muted small">${escHtml(infoSuffix)}</span> ` +
         `<a class="fr-attach-download" href="${escHtml(href)}"${dlAttr} title="${dlTitle}" aria-label="${dlTitle}" style="margin-left:6px">↓</a>` +
-        `</td>`;
+        `</div>`;
     }
     // Non-image attachments (PDF/TXT) keep the "open inline in a new tab"
     // behaviour — most browsers can display them and users can Ctrl+S to
     // save. No download attribute here so we don't force a save-as dialog.
-    return `<td><a href="${escHtml(href)}" target="_blank" rel="noopener">${escHtml(name + infoSuffix)}</a></td>`;
+    return `<div><a href="${escHtml(href)}" target="_blank" rel="noopener">${escHtml(name + infoSuffix)}</a></div>`;
   }
 
-  function openFeatureRequestImagePreview(fr) {
-    if (!fr) return;
-    const href = '/api/feature-requests/' + Number(fr.id) + '/attachment';
-    const type = featureRequestAttachmentType(fr.attachment_mime);
-    const name = fr.attachment_original_name || ('attachment' + type.ext);
-    const kb = fr.attachment_size ? Math.max(1, Math.round(fr.attachment_size / 1024)) : 0;
+  function openFeatureRequestImagePreview(fr, att) {
+    if (!fr || !att) return;
+    const href = '/api/feature-requests/' + Number(fr.id) + '/attachments/' + Number(att.id);
+    const type = featureRequestAttachmentType(att.mime);
+    const name = att.original_name || ('attachment' + type.ext);
+    const kb = att.size ? Math.max(1, Math.round(att.size / 1024)) : 0;
     const infoBits = [];
     if (type.label) infoBits.push(type.label);
     if (kb) infoBits.push(kb + ' kB');
@@ -8615,10 +8624,13 @@
     // any other in-app link.
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
-    const id = Number(btn.dataset.id);
-    const fr = featureRequests.find(f => Number(f.id) === id)
-      || myFeatureRequests.find(f => Number(f.id) === id);
-    if (fr) openFeatureRequestImagePreview(fr);
+    const frId = Number(btn.dataset.frId);
+    const attId = Number(btn.dataset.attId);
+    const fr = featureRequests.find(f => Number(f.id) === frId)
+      || myFeatureRequests.find(f => Number(f.id) === frId);
+    if (!fr || !Array.isArray(fr.attachments)) return;
+    const att = fr.attachments.find(a => Number(a.id) === attId);
+    if (att) openFeatureRequestImagePreview(fr, att);
   });
 
   async function refreshFeatureRequests() {

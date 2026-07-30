@@ -378,22 +378,32 @@ func (s *Store) DeleteQSO(id int64) error {
 	return err
 }
 
-// FeatureRequest is a user-submitted change request. Optional PDF/TXT/JPG/PNG
-// attachments live on the filesystem (see server.featureRequestAttachmentsDir);
-// this row carries the safe on-disk filename plus MIME type, size, and the
-// submitter's original filename so the UI can render a labelled download
-// link and pick the right Content-Type when streaming the file back.
+// FeatureRequest is a user-submitted change request. Zero or more file
+// attachments live in the separate feature_request_attachments table and
+// are populated by the store's list/get helpers so the UI has everything
+// it needs in one JSON payload.
 type FeatureRequest struct {
-	ID                     int64     `json:"id"`
-	From                   string    `json:"from"`
-	Text                   string    `json:"text"`
-	Status                 string    `json:"status"` // pending, accepted, declined, implemented
-	AdminComment           string    `json:"admin_comment"`
-	CreatedAt              time.Time `json:"created_at"`
-	AttachmentFilename     string    `json:"attachment_filename,omitempty"`
-	AttachmentMime         string    `json:"attachment_mime,omitempty"`
-	AttachmentSize         int64     `json:"attachment_size,omitempty"`
-	AttachmentOriginalName string    `json:"attachment_original_name,omitempty"`
+	ID           int64                      `json:"id"`
+	From         string                     `json:"from"`
+	Text         string                     `json:"text"`
+	Status       string                     `json:"status"` // pending, accepted, declined, implemented
+	AdminComment string                     `json:"admin_comment"`
+	CreatedAt    time.Time                  `json:"created_at"`
+	Attachments  []FeatureRequestAttachment `json:"attachments,omitempty"`
+}
+
+// FeatureRequestAttachment is one uploaded file attached to a feature
+// request. The opaque on-disk token in Filename is never exposed via the
+// API (json:"-") — clients download by attachment ID via the
+// /api/feature-requests/{id}/attachments/{aid} route, which resolves the
+// filename server-side.
+type FeatureRequestAttachment struct {
+	ID           int64     `json:"id"`
+	Filename     string    `json:"-"`
+	OriginalName string    `json:"original_name"`
+	Mime         string    `json:"mime"`
+	Size         int64     `json:"size"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 func (s *Store) migrateFeatureRequests() error {
@@ -407,9 +417,11 @@ func (s *Store) migrateFeatureRequests() error {
 	)`); err != nil {
 		return err
 	}
-	// Attachment columns were added after the initial release; use
-	// idempotent ADD COLUMN so existing deployments pick them up without
-	// a separate migration step.
+	// Legacy single-attachment columns (superseded by the
+	// feature_request_attachments table below). We still create them
+	// on fresh installs so the backfill statements are portable across
+	// old and new deployments, and so a rollback to a previous binary
+	// doesn't crash on a missing column.
 	for _, stmt := range []string{
 		`ALTER TABLE feature_requests ADD COLUMN IF NOT EXISTS attachment_filename      TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE feature_requests ADD COLUMN IF NOT EXISTS attachment_mime          TEXT NOT NULL DEFAULT ''`,
@@ -420,47 +432,205 @@ func (s *Store) migrateFeatureRequests() error {
 			return err
 		}
 	}
+	// Attachments live in their own table so a feature request can carry
+	// zero, one, or many files. ON DELETE CASCADE removes the metadata
+	// rows automatically when the parent request is deleted; the on-disk
+	// files still need explicit cleanup at the server layer before the
+	// DELETE runs (via ListFeatureRequestAttachments).
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS feature_request_attachments (
+		id                 BIGSERIAL PRIMARY KEY,
+		feature_request_id BIGINT NOT NULL REFERENCES feature_requests(id) ON DELETE CASCADE,
+		filename           TEXT NOT NULL,
+		original_name      TEXT NOT NULL DEFAULT '',
+		mime               TEXT NOT NULL DEFAULT '',
+		size               BIGINT NOT NULL DEFAULT 0,
+		created_at         TIMESTAMPTZ NOT NULL
+	)`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_fr_attachments_fr ON feature_request_attachments(feature_request_id)`,
+	); err != nil {
+		return err
+	}
+	// Idempotent one-time backfill: copy the single-attachment metadata
+	// from feature_requests into the new attachments table for any row
+	// that hasn't been backfilled yet, then clear the legacy columns so
+	// subsequent boots and subsequent user-driven deletes don't
+	// resurrect the row. The WHERE EXISTS check on the UPDATE guards
+	// against clearing a row whose INSERT hadn't completed (would only
+	// happen on a partial migration; safe here since both statements
+	// run back-to-back).
+	if _, err := s.db.Exec(`
+		INSERT INTO feature_request_attachments
+			(feature_request_id, filename, original_name, mime, size, created_at)
+		SELECT id, attachment_filename, attachment_original_name, attachment_mime, attachment_size, created_at
+		FROM feature_requests
+		WHERE attachment_filename <> ''
+		  AND NOT EXISTS (
+			SELECT 1 FROM feature_request_attachments a
+			WHERE a.feature_request_id = feature_requests.id
+			  AND a.filename = feature_requests.attachment_filename
+		  )
+	`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`
+		UPDATE feature_requests
+		SET attachment_filename = '',
+		    attachment_mime = '',
+		    attachment_size = 0,
+		    attachment_original_name = ''
+		WHERE attachment_filename <> ''
+		  AND EXISTS (
+			SELECT 1 FROM feature_request_attachments a
+			WHERE a.feature_request_id = feature_requests.id
+			  AND a.filename = feature_requests.attachment_filename
+		  )
+	`); err != nil {
+		return err
+	}
 	return nil
 }
 
-// InsertFeatureRequest stores a new request. attachmentFilename/Mime may be
-// empty (attachmentSize 0) when the submitter did not upload a file.
-// attachmentOriginalName is the sanitized name the submitter's browser
-// reported and is stored purely so the UI can label the download link;
-// the on-disk file is always the opaque token in attachmentFilename.
-func (s *Store) InsertFeatureRequest(from, text, attachmentFilename, attachmentMime string, attachmentSize int64, attachmentOriginalName string) (*FeatureRequest, error) {
+// InsertFeatureRequest stores a new text-only request. Attachments are
+// recorded separately via InsertFeatureRequestAttachment against the
+// returned ID.
+func (s *Store) InsertFeatureRequest(from, text string) (*FeatureRequest, error) {
 	now := time.Now().UTC()
 	var id int64
 	err := s.db.QueryRow(
-		`INSERT INTO feature_requests (from_user, text, status, admin_comment, created_at,
-			attachment_filename, attachment_mime, attachment_size, attachment_original_name)
-		 VALUES ($1, $2, 'pending', '', $3, $4, $5, $6, $7) RETURNING id`,
-		from, text, now, attachmentFilename, attachmentMime, attachmentSize, attachmentOriginalName,
+		`INSERT INTO feature_requests (from_user, text, status, admin_comment, created_at)
+		 VALUES ($1, $2, 'pending', '', $3) RETURNING id`,
+		from, text, now,
 	).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
 	return &FeatureRequest{
 		ID: id, From: from, Text: text, Status: "pending", CreatedAt: now,
-		AttachmentFilename: attachmentFilename, AttachmentMime: attachmentMime, AttachmentSize: attachmentSize,
-		AttachmentOriginalName: attachmentOriginalName,
 	}, nil
+}
+
+// InsertFeatureRequestAttachment records one uploaded file against an
+// existing feature request. filename is the opaque on-disk token;
+// originalName is the sanitized label to show in the UI.
+func (s *Store) InsertFeatureRequestAttachment(frID int64, filename, originalName, mime string, size int64) (*FeatureRequestAttachment, error) {
+	now := time.Now().UTC()
+	var id int64
+	err := s.db.QueryRow(
+		`INSERT INTO feature_request_attachments
+			(feature_request_id, filename, original_name, mime, size, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		frID, filename, originalName, mime, size, now,
+	).Scan(&id)
+	if err != nil {
+		return nil, err
+	}
+	return &FeatureRequestAttachment{
+		ID: id, Filename: filename, OriginalName: originalName,
+		Mime: mime, Size: size, CreatedAt: now,
+	}, nil
+}
+
+// GetFeatureRequestAttachment fetches a single attachment (used by the
+// download endpoint). Returns ErrNotFound when either the attachment or
+// its parent request no longer exist.
+func (s *Store) GetFeatureRequestAttachment(frID, attachmentID int64) (*FeatureRequestAttachment, error) {
+	row := s.db.QueryRow(
+		`SELECT id, filename, original_name, mime, size, created_at
+		 FROM feature_request_attachments
+		 WHERE id=$1 AND feature_request_id=$2`,
+		attachmentID, frID)
+	var a FeatureRequestAttachment
+	err := row.Scan(&a.ID, &a.Filename, &a.OriginalName, &a.Mime, &a.Size, &a.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	a.CreatedAt = a.CreatedAt.UTC()
+	return &a, nil
+}
+
+// ListFeatureRequestAttachments returns all attachments for one feature
+// request in insert order. Used by the DELETE handler so on-disk files
+// can be cleaned up before the parent row goes away (CASCADE removes the
+// metadata rows, but the filesystem doesn't get notified).
+func (s *Store) ListFeatureRequestAttachments(frID int64) ([]FeatureRequestAttachment, error) {
+	rows, err := s.db.Query(
+		`SELECT id, filename, original_name, mime, size, created_at
+		 FROM feature_request_attachments
+		 WHERE feature_request_id=$1
+		 ORDER BY id`, frID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FeatureRequestAttachment
+	for rows.Next() {
+		var a FeatureRequestAttachment
+		if err := rows.Scan(&a.ID, &a.Filename, &a.OriginalName, &a.Mime, &a.Size, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		a.CreatedAt = a.CreatedAt.UTC()
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) scanFeatureRequest(rows interface {
 	Scan(...any) error
 }) (FeatureRequest, error) {
 	var fr FeatureRequest
-	if err := rows.Scan(&fr.ID, &fr.From, &fr.Text, &fr.Status, &fr.AdminComment, &fr.CreatedAt,
-		&fr.AttachmentFilename, &fr.AttachmentMime, &fr.AttachmentSize, &fr.AttachmentOriginalName); err != nil {
+	if err := rows.Scan(&fr.ID, &fr.From, &fr.Text, &fr.Status, &fr.AdminComment, &fr.CreatedAt); err != nil {
 		return fr, err
 	}
 	fr.CreatedAt = fr.CreatedAt.UTC()
 	return fr, nil
 }
 
-const featureRequestSelectCols = `id, from_user, text, status, admin_comment, created_at,
-	attachment_filename, attachment_mime, attachment_size, attachment_original_name`
+const featureRequestSelectCols = `id, from_user, text, status, admin_comment, created_at`
+
+// loadAttachmentsForRequests fetches every attachment belonging to any
+// of the given requests in a single query and grafts them onto the
+// matching FeatureRequest structs. Called by the list/get helpers so
+// callers get a fully-populated tree in one shot.
+func (s *Store) loadAttachmentsForRequests(list []FeatureRequest) error {
+	if len(list) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(list))
+	args := make([]any, len(list))
+	idx := make(map[int64]*FeatureRequest, len(list))
+	for i := range list {
+		placeholders[i] = "$" + strconv.Itoa(i+1)
+		args[i] = list[i].ID
+		idx[list[i].ID] = &list[i]
+	}
+	q := `SELECT id, feature_request_id, filename, original_name, mime, size, created_at
+	      FROM feature_request_attachments
+	      WHERE feature_request_id IN (` + strings.Join(placeholders, ",") + `)
+	      ORDER BY feature_request_id, id`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var a FeatureRequestAttachment
+		var frID int64
+		if err := rows.Scan(&a.ID, &frID, &a.Filename, &a.OriginalName, &a.Mime, &a.Size, &a.CreatedAt); err != nil {
+			return err
+		}
+		a.CreatedAt = a.CreatedAt.UTC()
+		if fr, ok := idx[frID]; ok {
+			fr.Attachments = append(fr.Attachments, a)
+		}
+	}
+	return rows.Err()
+}
 
 func (s *Store) ListFeatureRequests() ([]FeatureRequest, error) {
 	rows, err := s.db.Query(
@@ -477,7 +647,13 @@ func (s *Store) ListFeatureRequests() ([]FeatureRequest, error) {
 		}
 		out = append(out, fr)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.loadAttachmentsForRequests(out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Store) ListFeatureRequestsByUser(username string) ([]FeatureRequest, error) {
@@ -496,12 +672,17 @@ func (s *Store) ListFeatureRequestsByUser(username string) ([]FeatureRequest, er
 		}
 		out = append(out, fr)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.loadAttachmentsForRequests(out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
-// GetFeatureRequest fetches a single request. Used by the attachment
-// download endpoint to look up the on-disk filename + MIME type. Returns
-// ErrNotFound when no row with the given id exists.
+// GetFeatureRequest fetches a single request with its attachments loaded.
+// Returns ErrNotFound when no row with the given id exists.
 func (s *Store) GetFeatureRequest(id int64) (*FeatureRequest, error) {
 	row := s.db.QueryRow(
 		`SELECT `+featureRequestSelectCols+` FROM feature_requests WHERE id=$1`, id)
@@ -512,7 +693,11 @@ func (s *Store) GetFeatureRequest(id int64) (*FeatureRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &fr, nil
+	list := []FeatureRequest{fr}
+	if err := s.loadAttachmentsForRequests(list); err != nil {
+		return nil, err
+	}
+	return &list[0], nil
 }
 
 func (s *Store) UpdateFeatureRequestStatus(id int64, status string) error {
