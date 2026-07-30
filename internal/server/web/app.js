@@ -8477,6 +8477,13 @@
   wireSortableTable('my-fr-table', myFrSort, () => renderMyFeatureRequests());
 
   function featureRequestSubmitModal(afterSubmit) {
+    // Files chosen so far, kept in JS state instead of relying on the
+    // <input type="file">'s FileList. The native picker replaces its
+    // FileList on every open, so without our own state a user who picks
+    // a second batch loses the first batch. We use "Add files…" as the
+    // affordance and rebuild the visible list from staged[] on every
+    // change, with per-file remove buttons.
+    const staged = [];
     showModal(`
       <h3>${escHtml(t('topbar.featureRequest'))}</h3>
       <form>
@@ -8485,7 +8492,12 @@
         <label>${escHtml(t('featureRequests.colRequest'))}</label>
         <textarea name="text" rows="5" required style="width:100%;resize:vertical;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:inherit;font:inherit"></textarea>
         <label>${escHtml(t('featureRequests.attachmentLabel'))}</label>
-        <input type="file" name="attachment" multiple accept=".pdf,.txt,.jpg,.jpeg,.png,application/pdf,text/plain,image/jpeg,image/png" />
+        <input type="file" name="attachment" multiple accept=".pdf,.txt,.jpg,.jpeg,.png,application/pdf,text/plain,image/jpeg,image/png" style="display:none" />
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px">
+          <button type="button" class="ghost fr-add-files-btn">${escHtml(t('featureRequests.attachmentAddFiles'))}</button>
+          <span class="muted small fr-staged-count"></span>
+        </div>
+        <div class="fr-staged-list" style="display:flex;flex-direction:column;gap:3px;margin-top:6px"></div>
         <div class="muted small" style="margin-top:4px">${escHtml(t('featureRequests.attachmentHint'))}</div>
         <div class="modal-err error"></div>
         <div class="modal-actions">
@@ -8496,24 +8508,15 @@
     `, async (form) => {
       const text = form.text.value.trim();
       if (!text) throw new Error(t('featureRequests.pleaseEnter'));
-      const fd = new FormData();
-      fd.append('text', text);
-      const fileInput = form.attachment;
-      const files = (fileInput && fileInput.files) ? Array.from(fileInput.files) : [];
       // Client-side gate mirrors the server: per-file size and extension
       // whitelist, plus a max count so a slip of the Shift-click doesn't
-      // upload someone's entire folder.
-      if (files.length > 10) throw new Error(t('featureRequests.attachmentTooMany'));
-      for (const file of files) {
-        if (file.size > 5 * 1024 * 1024) throw new Error(t('featureRequests.attachmentTooLarge'));
-        const nameLc = (file.name || '').toLowerCase();
-        if (!nameLc.endsWith('.pdf') && !nameLc.endsWith('.txt')
-            && !nameLc.endsWith('.jpg') && !nameLc.endsWith('.jpeg')
-            && !nameLc.endsWith('.png')) {
-          throw new Error(t('featureRequests.attachmentBadType'));
-        }
-        fd.append('attachment', file);
-      }
+      // upload someone's entire folder. All duplicates and validation
+      // happen in acceptFiles() as files are added, so the submit path
+      // just needs to check we're not empty on either side.
+      if (staged.length > 10) throw new Error(t('featureRequests.attachmentTooMany'));
+      const fd = new FormData();
+      fd.append('text', text);
+      for (const file of staged) fd.append('attachment', file);
       // Skip the api() JSON helper so we don't force a JSON Content-Type on
       // this multipart body; forward the CSRF token by hand instead.
       const res = await fetch('/api/feature-requests', {
@@ -8527,6 +8530,72 @@
         throw new Error(j.error || t('featureRequests.submitFail'));
       }
       if (typeof afterSubmit === 'function') afterSubmit();
+    });
+
+    const card = $('modal-card');
+    const fileInput = card.querySelector('input[name="attachment"]');
+    const addBtn = card.querySelector('.fr-add-files-btn');
+    const listEl = card.querySelector('.fr-staged-list');
+    const countEl = card.querySelector('.fr-staged-count');
+    const errEl = card.querySelector('.modal-err');
+
+    function renderStaged() {
+      listEl.innerHTML = '';
+      staged.forEach((file, i) => {
+        const type = featureRequestAttachmentType(file.type);
+        const kb = file.size ? Math.max(1, Math.round(file.size / 1024)) : 0;
+        const bits = [];
+        if (type.label) bits.push(type.label);
+        if (kb) bits.push(kb + ' kB');
+        const suffix = bits.length ? ' (' + bits.join(' · ') + ')' : '';
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:6px';
+        row.innerHTML =
+          `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(file.name)}<span class="muted small">${escHtml(suffix)}</span></span>` +
+          `<button type="button" class="ghost fr-staged-remove" data-i="${i}" title="${escHtml(t('common.remove'))}" style="padding:0 8px;font-size:14px;line-height:1">×</button>`;
+        listEl.appendChild(row);
+      });
+      countEl.textContent = staged.length
+        ? t('featureRequests.attachmentSelectedCount', { n: staged.length })
+        : '';
+    }
+
+    function acceptFiles(fileList) {
+      errEl.textContent = '';
+      for (const file of fileList) {
+        const nameLc = (file.name || '').toLowerCase();
+        const okType = nameLc.endsWith('.pdf') || nameLc.endsWith('.txt')
+          || nameLc.endsWith('.jpg') || nameLc.endsWith('.jpeg') || nameLc.endsWith('.png');
+        if (!okType) { errEl.textContent = t('featureRequests.attachmentBadType'); continue; }
+        if (file.size > 5 * 1024 * 1024) { errEl.textContent = t('featureRequests.attachmentTooLarge'); continue; }
+        // Skip exact-duplicate re-picks (same name + size) so a user who
+        // reopens the picker and re-selects the same file doesn't end up
+        // uploading it twice.
+        const dup = staged.some(s => s.name === file.name && s.size === file.size);
+        if (dup) continue;
+        if (staged.length >= 10) { errEl.textContent = t('featureRequests.attachmentTooMany'); break; }
+        staged.push(file);
+      }
+      renderStaged();
+    }
+
+    addBtn.addEventListener('click', () => {
+      // Reset the input's FileList so re-picking the same file after a
+      // remove still triggers a fresh change event.
+      fileInput.value = '';
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files.length) acceptFiles(Array.from(fileInput.files));
+    });
+    listEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('.fr-staged-remove');
+      if (!btn) return;
+      const i = Number(btn.dataset.i);
+      if (Number.isFinite(i) && i >= 0 && i < staged.length) {
+        staged.splice(i, 1);
+        renderStaged();
+      }
     });
   }
 
