@@ -4011,7 +4011,7 @@ func (s *Server) submitFeatureRequest(w http.ResponseWriter, r *http.Request, se
 		writeError(w, http.StatusBadRequest, "text required")
 		return
 	}
-	fr, err := s.store.InsertFeatureRequest(sess.Username, text, "", "", 0)
+	fr, err := s.store.InsertFeatureRequest(sess.Username, text, "", "", 0, "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -4039,6 +4039,7 @@ func (s *Server) submitFeatureRequestMultipart(w http.ResponseWriter, r *http.Re
 		savedFilename string
 		savedMime     string
 		savedSize     int64
+		originalName  string
 	)
 	// Attachment is optional. r.FormFile returns http.ErrMissingFile when
 	// no field named "attachment" was sent; that's a plain text-only
@@ -4084,12 +4085,13 @@ func (s *Server) submitFeatureRequestMultipart(w http.ResponseWriter, r *http.Re
 		savedFilename = safe
 		savedMime = mime
 		savedSize = written
+		originalName = sanitizeAttachmentOriginalName(hdr.Filename)
 	} else if !errors.Is(err, http.ErrMissingFile) {
 		writeError(w, http.StatusBadRequest, "invalid attachment upload")
 		return
 	}
 
-	fr, err := s.store.InsertFeatureRequest(sess.Username, text, savedFilename, savedMime, savedSize)
+	fr, err := s.store.InsertFeatureRequest(sess.Username, text, savedFilename, savedMime, savedSize, originalName)
 	if err != nil {
 		if savedFilename != "" {
 			s.removeFeatureRequestAttachment(savedFilename)
@@ -4256,6 +4258,31 @@ func (s *Server) serveFeatureRequestAttachment(w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("Content-Disposition", "inline")
 	http.ServeFile(w, r, fpath)
+}
+
+// sanitizeAttachmentOriginalName trims the browser-supplied filename to
+// something safe to store and show back to other operators. The value is
+// only ever rendered as a label — the on-disk file lives under the opaque
+// token — so we don't need it to be a valid path, just readable and
+// bounded. Strips directory components, control characters, and caps the
+// length so a hostile client cannot bloat the row.
+func sanitizeAttachmentOriginalName(name string) string {
+	name = filepath.Base(name)
+	if name == "." || name == "/" || name == `\` {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range name {
+		if r == 0 || r < 0x20 || r == 0x7f {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	out := strings.TrimSpace(b.String())
+	if r := []rune(out); len(r) > 255 {
+		out = string(r[:255])
+	}
+	return out
 }
 
 func (s *Server) removeFeatureRequestAttachment(name string) {

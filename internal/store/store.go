@@ -378,21 +378,22 @@ func (s *Store) DeleteQSO(id int64) error {
 	return err
 }
 
-// FeatureRequest is a user-submitted change request. Optional PDF/TXT
+// FeatureRequest is a user-submitted change request. Optional PDF/TXT/JPG/PNG
 // attachments live on the filesystem (see server.featureRequestAttachmentsDir);
-// this row only carries the safe on-disk filename plus MIME type and size so
-// the UI can render a download link and pick the right Content-Type when
-// streaming the file back.
+// this row carries the safe on-disk filename plus MIME type, size, and the
+// submitter's original filename so the UI can render a labelled download
+// link and pick the right Content-Type when streaming the file back.
 type FeatureRequest struct {
-	ID                 int64     `json:"id"`
-	From               string    `json:"from"`
-	Text               string    `json:"text"`
-	Status             string    `json:"status"` // pending, accepted, declined, implemented
-	AdminComment       string    `json:"admin_comment"`
-	CreatedAt          time.Time `json:"created_at"`
-	AttachmentFilename string    `json:"attachment_filename,omitempty"`
-	AttachmentMime     string    `json:"attachment_mime,omitempty"`
-	AttachmentSize     int64     `json:"attachment_size,omitempty"`
+	ID                     int64     `json:"id"`
+	From                   string    `json:"from"`
+	Text                   string    `json:"text"`
+	Status                 string    `json:"status"` // pending, accepted, declined, implemented
+	AdminComment           string    `json:"admin_comment"`
+	CreatedAt              time.Time `json:"created_at"`
+	AttachmentFilename     string    `json:"attachment_filename,omitempty"`
+	AttachmentMime         string    `json:"attachment_mime,omitempty"`
+	AttachmentSize         int64     `json:"attachment_size,omitempty"`
+	AttachmentOriginalName string    `json:"attachment_original_name,omitempty"`
 }
 
 func (s *Store) migrateFeatureRequests() error {
@@ -410,9 +411,10 @@ func (s *Store) migrateFeatureRequests() error {
 	// idempotent ADD COLUMN so existing deployments pick them up without
 	// a separate migration step.
 	for _, stmt := range []string{
-		`ALTER TABLE feature_requests ADD COLUMN IF NOT EXISTS attachment_filename TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE feature_requests ADD COLUMN IF NOT EXISTS attachment_mime     TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE feature_requests ADD COLUMN IF NOT EXISTS attachment_size     BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE feature_requests ADD COLUMN IF NOT EXISTS attachment_filename      TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE feature_requests ADD COLUMN IF NOT EXISTS attachment_mime          TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE feature_requests ADD COLUMN IF NOT EXISTS attachment_size          BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE feature_requests ADD COLUMN IF NOT EXISTS attachment_original_name TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.Exec(stmt); err != nil {
 			return err
@@ -423,14 +425,17 @@ func (s *Store) migrateFeatureRequests() error {
 
 // InsertFeatureRequest stores a new request. attachmentFilename/Mime may be
 // empty (attachmentSize 0) when the submitter did not upload a file.
-func (s *Store) InsertFeatureRequest(from, text, attachmentFilename, attachmentMime string, attachmentSize int64) (*FeatureRequest, error) {
+// attachmentOriginalName is the sanitized name the submitter's browser
+// reported and is stored purely so the UI can label the download link;
+// the on-disk file is always the opaque token in attachmentFilename.
+func (s *Store) InsertFeatureRequest(from, text, attachmentFilename, attachmentMime string, attachmentSize int64, attachmentOriginalName string) (*FeatureRequest, error) {
 	now := time.Now().UTC()
 	var id int64
 	err := s.db.QueryRow(
 		`INSERT INTO feature_requests (from_user, text, status, admin_comment, created_at,
-			attachment_filename, attachment_mime, attachment_size)
-		 VALUES ($1, $2, 'pending', '', $3, $4, $5, $6) RETURNING id`,
-		from, text, now, attachmentFilename, attachmentMime, attachmentSize,
+			attachment_filename, attachment_mime, attachment_size, attachment_original_name)
+		 VALUES ($1, $2, 'pending', '', $3, $4, $5, $6, $7) RETURNING id`,
+		from, text, now, attachmentFilename, attachmentMime, attachmentSize, attachmentOriginalName,
 	).Scan(&id)
 	if err != nil {
 		return nil, err
@@ -438,6 +443,7 @@ func (s *Store) InsertFeatureRequest(from, text, attachmentFilename, attachmentM
 	return &FeatureRequest{
 		ID: id, From: from, Text: text, Status: "pending", CreatedAt: now,
 		AttachmentFilename: attachmentFilename, AttachmentMime: attachmentMime, AttachmentSize: attachmentSize,
+		AttachmentOriginalName: attachmentOriginalName,
 	}, nil
 }
 
@@ -446,7 +452,7 @@ func (s *Store) scanFeatureRequest(rows interface {
 }) (FeatureRequest, error) {
 	var fr FeatureRequest
 	if err := rows.Scan(&fr.ID, &fr.From, &fr.Text, &fr.Status, &fr.AdminComment, &fr.CreatedAt,
-		&fr.AttachmentFilename, &fr.AttachmentMime, &fr.AttachmentSize); err != nil {
+		&fr.AttachmentFilename, &fr.AttachmentMime, &fr.AttachmentSize, &fr.AttachmentOriginalName); err != nil {
 		return fr, err
 	}
 	fr.CreatedAt = fr.CreatedAt.UTC()
@@ -454,7 +460,7 @@ func (s *Store) scanFeatureRequest(rows interface {
 }
 
 const featureRequestSelectCols = `id, from_user, text, status, admin_comment, created_at,
-	attachment_filename, attachment_mime, attachment_size`
+	attachment_filename, attachment_mime, attachment_size, attachment_original_name`
 
 func (s *Store) ListFeatureRequests() ([]FeatureRequest, error) {
 	rows, err := s.db.Query(

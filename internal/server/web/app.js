@@ -8538,10 +8538,65 @@
       return `<td class="muted small">${escHtml(t('featureRequests.attachmentNone'))}</td>`;
     }
     const kb = fr.attachment_size ? Math.max(1, Math.round(fr.attachment_size / 1024)) : 0;
-    const label = t('featureRequests.attachmentDownload') + (kb ? ' (' + kb + ' kB)' : '');
+    // Fall back to the generic "Download" label for legacy rows that were
+    // stored before we captured the submitter's original filename.
+    const name = fr.attachment_original_name || t('featureRequests.attachmentDownload');
+    const sizeSuffix = kb ? ' (' + kb + ' kB)' : '';
     const href = '/api/feature-requests/' + Number(fr.id) + '/attachment';
-    return `<td><a href="${escHtml(href)}" target="_blank" rel="noopener">${escHtml(label)}</a></td>`;
+    const downloadName = fr.attachment_original_name || '';
+    const isImage = typeof fr.attachment_mime === 'string' && fr.attachment_mime.indexOf('image/') === 0;
+    if (isImage) {
+      // Clicking the filename opens an in-app preview modal; the ↓ link
+      // triggers a browser download (the download attribute forces the
+      // original filename regardless of the endpoint's Content-Disposition).
+      const previewTitle = escHtml(t('featureRequests.attachmentPreview'));
+      const dlTitle = escHtml(t('featureRequests.attachmentDownload'));
+      const dlAttr = downloadName ? ` download="${escHtml(downloadName)}"` : ' download';
+      return `<td>` +
+        `<a href="${escHtml(href)}" class="fr-img-preview-btn" data-id="${Number(fr.id)}" title="${previewTitle}">${escHtml(name)}</a>` +
+        `<span class="muted small">${escHtml(sizeSuffix)}</span> ` +
+        `<a class="fr-attach-download" href="${escHtml(href)}"${dlAttr} title="${dlTitle}" aria-label="${dlTitle}" style="margin-left:6px">↓</a>` +
+        `</td>`;
+    }
+    // Non-image attachments (PDF/TXT) keep the "open inline in a new tab"
+    // behaviour — most browsers can display them and users can Ctrl+S to
+    // save. No download attribute here so we don't force a save-as dialog.
+    return `<td><a href="${escHtml(href)}" target="_blank" rel="noopener">${escHtml(name + sizeSuffix)}</a></td>`;
   }
+
+  function openFeatureRequestImagePreview(fr) {
+    if (!fr) return;
+    const href = '/api/feature-requests/' + Number(fr.id) + '/attachment';
+    const name = fr.attachment_original_name || t('featureRequests.attachmentDownload');
+    const kb = fr.attachment_size ? Math.max(1, Math.round(fr.attachment_size / 1024)) : 0;
+    const sizeSuffix = kb ? ' (' + kb + ' kB)' : '';
+    const downloadName = fr.attachment_original_name || '';
+    const dlAttr = downloadName ? ` download="${escHtml(downloadName)}"` : ' download';
+    showModal(`
+      <h3>${escHtml(name)}<span class="muted small" style="font-weight:normal">${escHtml(sizeSuffix)}</span></h3>
+      <div style="text-align:center;margin:12px 0">
+        <img src="${escHtml(href)}" alt="${escHtml(name)}" style="max-width:100%;max-height:70vh;border:1px solid var(--border);border-radius:6px;background:var(--bg-elev-2)" />
+      </div>
+      <div class="modal-actions">
+        <a class="as-button" href="${escHtml(href)}"${dlAttr} style="text-decoration:none">${escHtml(t('featureRequests.attachmentDownload'))}</a>
+        <button type="button" class="ghost cancel-btn">${escHtml(t('common.close'))}</button>
+      </div>
+    `, null, { wide: true });
+  }
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.fr-img-preview-btn');
+    if (!btn) return;
+    // Let modifier-clicks (Ctrl/Cmd/Shift/middle) fall through so the
+    // browser can open the raw image in a new tab — same escape hatch as
+    // any other in-app link.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    const id = Number(btn.dataset.id);
+    const fr = featureRequests.find(f => Number(f.id) === id)
+      || myFeatureRequests.find(f => Number(f.id) === id);
+    if (fr) openFeatureRequestImagePreview(fr);
+  });
 
   async function refreshFeatureRequests() {
     if (!hasPerm('feature_requests.read')) return;

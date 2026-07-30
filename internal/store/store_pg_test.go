@@ -209,7 +209,7 @@ func TestPostgresSchemaAndRoundTrips(t *testing.T) {
 	}
 
 	// Feature request insert + list.
-	fr, err := st.InsertFeatureRequest("alice", "test", "", "", 0)
+	fr, err := st.InsertFeatureRequest("alice", "test", "", "", 0, "")
 	if err != nil {
 		t.Fatalf("fr insert: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestPostgresSchemaAndRoundTrips(t *testing.T) {
 	}
 	// Insert a second request with an attachment and confirm the metadata
 	// round-trips through the list query.
-	fr2, err := st.InsertFeatureRequest("alice", "with attachment", "abc123.pdf", "application/pdf", 42)
+	fr2, err := st.InsertFeatureRequest("alice", "with attachment", "abc123.pdf", "application/pdf", 42, "spec.pdf")
 	if err != nil {
 		t.Fatalf("fr insert with attachment: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestPostgresSchemaAndRoundTrips(t *testing.T) {
 	if err != nil || gotFR == nil {
 		t.Fatalf("fr get: err=%v got=%+v", err, gotFR)
 	}
-	if gotFR.AttachmentFilename != "abc123.pdf" || gotFR.AttachmentMime != "application/pdf" || gotFR.AttachmentSize != 42 {
+	if gotFR.AttachmentFilename != "abc123.pdf" || gotFR.AttachmentMime != "application/pdf" || gotFR.AttachmentSize != 42 || gotFR.AttachmentOriginalName != "spec.pdf" {
 		t.Fatalf("fr attachment metadata mismatch: %+v", gotFR)
 	}
 
