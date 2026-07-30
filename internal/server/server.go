@@ -3731,6 +3731,17 @@ func exportFilename(contestName, contestCall, ext string) string {
 // when they do, "Notfunkuebung.pdf" is far more readable than
 // "Notfunk_bung.pdf". Any remaining non-ASCII character still maps to '_'.
 func attachmentDisposition(name string) string {
+	return contentDispositionWith("attachment", name)
+}
+
+// contentDispositionWith builds a Content-Disposition header value with the
+// given disposition kind ("attachment" or "inline") and the RFC 6266
+// dual-form filename encoding described on attachmentDisposition. Splitting
+// this out lets the feature-request attachment endpoint emit
+// `inline; filename="…"` — inline so images render in the preview modal's
+// <img> tag, but with a filename so browser save-as dialogs use the
+// submitter's real filename instead of the opaque route ("attachment").
+func contentDispositionWith(kind, name string) string {
 	var b strings.Builder
 	b.Grow(len(name))
 	for _, r := range name {
@@ -3757,8 +3768,8 @@ func attachmentDisposition(name string) string {
 			}
 		}
 	}
-	return fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`,
-		b.String(), url.PathEscape(name))
+	return fmt.Sprintf(`%s; filename="%s"; filename*=UTF-8''%s`,
+		kind, b.String(), url.PathEscape(name))
 }
 
 func (s *Server) handleExportADIF(w http.ResponseWriter, r *http.Request) {
@@ -4086,6 +4097,16 @@ func (s *Server) submitFeatureRequestMultipart(w http.ResponseWriter, r *http.Re
 		savedMime = mime
 		savedSize = written
 		originalName = sanitizeAttachmentOriginalName(hdr.Filename)
+		// Belt-and-suspenders: if the browser didn't send a filename (or
+		// sanitize stripped everything), fall back to a synthetic
+		// "attachment.<ext>" so the DB always has *some* meaningful label
+		// for the upload. The client would otherwise show its own
+		// "attachment.<ext>" fallback for the empty-string case, but
+		// storing it server-side means the download link's Content-
+		// Disposition also gets a real filename.
+		if originalName == "" {
+			originalName = "attachment" + ext
+		}
 	} else if !errors.Is(err, http.ErrMissingFile) {
 		writeError(w, http.StatusBadRequest, "invalid attachment upload")
 		return
@@ -4256,7 +4277,15 @@ func (s *Server) serveFeatureRequestAttachment(w http.ResponseWriter, r *http.Re
 	if fr.AttachmentMime != "" {
 		w.Header().Set("Content-Type", fr.AttachmentMime)
 	}
-	w.Header().Set("Content-Disposition", "inline")
+	// Prefer the submitter's original filename in Content-Disposition so
+	// browser save-as dialogs use it, not the opaque route ("attachment").
+	// Fall back to the on-disk token filename for legacy rows that were
+	// stored before we captured the original name.
+	dispName := fr.AttachmentOriginalName
+	if dispName == "" {
+		dispName = name
+	}
+	w.Header().Set("Content-Disposition", contentDispositionWith("inline", dispName))
 	http.ServeFile(w, r, fpath)
 }
 
