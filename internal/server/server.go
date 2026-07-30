@@ -106,9 +106,9 @@ func (s *Server) SetCallsignProofsDir(dir string) {
 }
 
 // SetFeatureRequestAttachmentsDir configures the directory where optional
-// PDF/TXT attachments submitted with feature requests are stored. Same
-// scheme as callsign proofs: one file per request, opaque token filename
-// recorded on the row.
+// attachments (PDF/TXT/JPG/PNG) submitted with feature requests are stored.
+// Same scheme as callsign proofs: one file per request, opaque token
+// filename recorded on the row.
 func (s *Server) SetFeatureRequestAttachmentsDir(dir string) {
 	s.featureRequestAttachmentsDir = dir
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -3941,14 +3941,16 @@ func decodeBase64Image(raw string) ([]byte, error) {
 
 // ----- feature requests -----
 
-// Optional attachments accompanying a feature request. PDF and TXT only —
-// screenshots go into the chat/comment fields, not here. 5 MB matches the
-// callsign-proof cap.
+// Optional attachments accompanying a feature request. PDF/TXT plus common
+// screenshot formats (JPG/PNG). 5 MB matches the callsign-proof cap.
 const featureRequestAttachmentMaxSize = 5 << 20
 
 var allowedFeatureRequestAttachmentExts = map[string]string{
-	".pdf": "application/pdf",
-	".txt": "text/plain; charset=utf-8",
+	".pdf":  "application/pdf",
+	".txt":  "text/plain; charset=utf-8",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".png":  "image/png",
 }
 
 func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
@@ -3987,7 +3989,7 @@ func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
 }
 
 // submitFeatureRequest handles both multipart submissions (with an optional
-// PDF/TXT attachment) and legacy application/json submissions (text only).
+// PDF/TXT/JPG/PNG attachment) and legacy application/json submissions (text only).
 // The frontend always sends multipart so a form-file field can be present;
 // the JSON path is kept as a low-cost fallback for tools that just want
 // to POST a text body.
@@ -4059,7 +4061,7 @@ func (s *Server) submitFeatureRequestMultipart(w http.ResponseWriter, r *http.Re
 		ext := strings.ToLower(filepath.Ext(hdr.Filename))
 		mime, ok := allowedFeatureRequestAttachmentExts[ext]
 		if !ok {
-			writeError(w, http.StatusBadRequest, "unsupported file type; allowed: pdf, txt")
+			writeError(w, http.StatusBadRequest, "unsupported file type; allowed: pdf, txt, jpg, png")
 			return
 		}
 		// Opaque token filename — the original name never touches disk
@@ -4210,7 +4212,7 @@ func (s *Server) handleFeatureRequestByID(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// serveFeatureRequestAttachment streams the PDF/TXT for a single request.
+// serveFeatureRequestAttachment streams the attachment (PDF/TXT/JPG/PNG) for a single request.
 // Any authenticated user with feature_requests.read (admin panel) can
 // download; the submitter themselves can also download their own file
 // so the "My Feature Requests" screen can show a working link.

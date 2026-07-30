@@ -8485,7 +8485,7 @@
         <label>${escHtml(t('featureRequests.colRequest'))}</label>
         <textarea name="text" rows="5" required style="width:100%;resize:vertical;background:var(--bg-elev-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:inherit;font:inherit"></textarea>
         <label>${escHtml(t('featureRequests.attachmentLabel'))}</label>
-        <input type="file" name="attachment" accept=".pdf,.txt,application/pdf,text/plain" />
+        <input type="file" name="attachment" accept=".pdf,.txt,.jpg,.jpeg,.png,application/pdf,text/plain,image/jpeg,image/png" />
         <div class="muted small" style="margin-top:4px">${escHtml(t('featureRequests.attachmentHint'))}</div>
         <div class="modal-err error"></div>
         <div class="modal-actions">
@@ -8503,7 +8503,9 @@
       if (file) {
         if (file.size > 5 * 1024 * 1024) throw new Error(t('featureRequests.attachmentTooLarge'));
         const nameLc = (file.name || '').toLowerCase();
-        if (!nameLc.endsWith('.pdf') && !nameLc.endsWith('.txt')) {
+        if (!nameLc.endsWith('.pdf') && !nameLc.endsWith('.txt')
+            && !nameLc.endsWith('.jpg') && !nameLc.endsWith('.jpeg')
+            && !nameLc.endsWith('.png')) {
           throw new Error(t('featureRequests.attachmentBadType'));
         }
         fd.append('attachment', file);
