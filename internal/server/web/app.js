@@ -9753,27 +9753,18 @@
         : t(el.dataset.i18nText);
     });
   }
-  function undockPanel(key, mode) {
-    if (_undockedPanels.has(key)) return;
+  // Adopt the panel identified by `key` into an already-open browser window
+  // `win`. Shared by both `undockPanel` (which opens the window itself)
+  // and the Rearrange dialog (which pre-opens empty tabs at click time so
+  // the operator sees them immediately, then hands them over here on save).
+  function _adoptPanelIntoWindow(key, win, mode) {
+    if (_undockedPanels.has(key)) return false;
     const info = _undockConfig(key);
-    if (!info) return;
+    if (!info) return false;
     const node = document.querySelector(info.selector);
-    if (!node) return;
-    mode = mode === 'tab' ? 'tab' : 'window';
-    // Window features:
-    //   'tab'    → empty features → browser routes it to a new tab (in
-    //              tab-happy browsers) with full chrome shared from this window.
-    //   'window' → width/height only, deliberately NOT `popup=yes`, so the
-    //              browser opens a fully-fledged window with address bar,
-    //              tab strip, and reload — the operator can drag it to a
-    //              second monitor and treat it like any other Noctalum tab.
-    const features = mode === 'tab' ? '' : `width=${info.width},height=${info.height}`;
-    const win = window.open('', 'noctalum-' + key + '-' + Date.now(), features);
-    if (!win) {
-      alert(t('topbar.undockPopupBlocked'));
-      return;
-    }
+    if (!node || !win || win.closed) return false;
     const doc = win.document;
+    // Overwrite whatever was in the (possibly-placeholder) doc.
     doc.open();
     doc.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
     doc.close();
@@ -9799,21 +9790,37 @@
       if (sibling) sibling.classList.add('slot-fill-remaining');
     }
     // Poll for the popup being closed via the OS window controls, since
-    // `pagehide` isn't reliably delivered before the popup vanishes. In
-    // full-window / tab mode the user may also navigate away (back button,
-    // address bar); the `beforeunload` listener below handles that.
+    // `pagehide` isn't reliably delivered before the popup vanishes.
     const pollTimer = setInterval(() => {
       if (win.closed) redockPanel(key);
     }, 500);
-    // A full browser window / tab lets the user navigate away — catch that
-    // before the DOM gets torn down so we can pull the node back.
     try {
       win.addEventListener('beforeunload', () => { redockPanel(key); });
     } catch {}
     _undockedPanels.set(key, { win, node, placeholder, pollTimer, mode, containingSlot });
     _refreshUndockBtn(key);
-    // Apply i18n inside the popup so data-i18n-title etc. get localized text.
     try { window.I18N && window.I18N.apply(doc); } catch {}
+    return true;
+  }
+  function undockPanel(key, mode) {
+    if (_undockedPanels.has(key)) return;
+    const info = _undockConfig(key);
+    if (!info) return;
+    mode = mode === 'tab' ? 'tab' : 'window';
+    // Window features:
+    //   'tab'    → empty features → browser routes it to a new tab (in
+    //              tab-happy browsers) with full chrome shared from this window.
+    //   'window' → width/height only, deliberately NOT `popup=yes`, so the
+    //              browser opens a fully-fledged window with address bar,
+    //              tab strip, and reload — the operator can drag it to a
+    //              second monitor and treat it like any other Noctalum tab.
+    const features = mode === 'tab' ? '' : `width=${info.width},height=${info.height}`;
+    const win = window.open('', 'noctalum-' + key + '-' + Date.now(), features);
+    if (!win) {
+      alert(t('topbar.undockPopupBlocked'));
+      return;
+    }
+    _adoptPanelIntoWindow(key, win, mode);
   }
   function redockPanel(key) {
     const info = _undockedPanels.get(key);
@@ -9955,19 +9962,29 @@
     const layoutDraft = { ..._currentLayout };
     const tabsDraft = [];
     // Any panel that's already undocked into a popup/tab shows up as an
-    // existing tab slot in the dialog so the user can drag it back. Also
-    // strip it out of the main-slot draft — a panel can't be in two places.
-    Array.from(_undockedPanels.keys()).forEach(panelId => {
+    // existing tab slot in the dialog so the user can drag it back. The
+    // pre-existing popup window is reused (win is captured here), and
+    // stripped from the main-slot draft — a panel can't be in two places.
+    Array.from(_undockedPanels.entries()).forEach(([panelId, info]) => {
       MAIN_SLOTS.forEach(s => { if (layoutDraft[s] === panelId) layoutDraft[s] = null; });
-      tabsDraft.push({ id: 'tab-existing-' + panelId, panelId });
+      tabsDraft.push({ id: 'tab-existing-' + panelId, panelId, win: info.win, existing: true });
     });
     _rearrangeDraft = { layout: layoutDraft, tabs: tabsDraft };
     _renderRearrangeDialog();
     root.classList.remove('hidden');
   }
-  function closeRearrangeDialog() {
+  function closeRearrangeDialog(commit) {
     const root = document.getElementById('rearrange-modal');
     if (root) root.classList.add('hidden');
+    // On cancel/backdrop-close, close any speculatively-opened empty tabs
+    // that never got a panel assigned. Existing (already-undocked) tabs
+    // stay open — the operator didn't ask to close them.
+    if (!commit && _rearrangeDraft) {
+      _rearrangeDraft.tabs.forEach(tab => {
+        if (tab.existing) return;
+        try { if (tab.win && !tab.win.closed) tab.win.close(); } catch {}
+      });
+    }
     _rearrangeDraft = null;
     _rearrangeDragSrc = null;
   }
@@ -10030,6 +10047,11 @@
     const idx = _rearrangeDraft.tabs.findIndex(t => t.id === tabId);
     if (idx < 0) return;
     const removed = _rearrangeDraft.tabs.splice(idx, 1)[0];
+    // Close the browser tab that was speculatively opened for this slot
+    // (unless it belonged to a panel that's currently undocked — in that
+    // case the tab has real content and the operator's "×" click means
+    // "redock, don't kill the tab"; the redock step below will close it).
+    try { if (removed.win && !removed.win.closed) removed.win.close(); } catch {}
     // If the removed tab held a panel, put it back into the main slot the
     // panel originally sat in (per the current applied layout). If that
     // slot is already occupied in the draft, the two panels swap.
@@ -10107,14 +10129,26 @@
       return;
     }
     // Redock everything so all panels are available to move. Then apply the
-    // new main-slot layout and open browser tabs for panels routed there.
+    // new main-slot layout and hand each tab-assigned panel to the tab's
+    // pre-opened window (opened at "+ Add tab" click time).
     Array.from(_undockedPanels.keys()).forEach(k => redockPanel(k));
     applyLayout(_rearrangeDraft.layout);
     _saveLayoutToStorage(_rearrangeDraft.layout);
     _rearrangeDraft.tabs.forEach(tab => {
-      if (tab.panelId) undockPanel(tab.panelId, 'tab');
+      if (!tab.panelId) {
+        // Empty tab slot — close its speculatively-opened window.
+        try { if (tab.win && !tab.win.closed) tab.win.close(); } catch {}
+        return;
+      }
+      // If the pre-opened window is still around, reuse it. Otherwise fall
+      // back to opening a fresh tab via undockPanel.
+      if (tab.win && !tab.win.closed) {
+        _adoptPanelIntoWindow(tab.panelId, tab.win, 'tab');
+      } else {
+        undockPanel(tab.panelId, 'tab');
+      }
     });
-    closeRearrangeDialog();
+    closeRearrangeDialog(true);
   }
   function _resetRearrangeDialog() {
     if (!confirm(t('rearrange.confirmReset'))) return;
@@ -10125,8 +10159,38 @@
   }
   function _addRearrangeTabSlot() {
     if (!_rearrangeDraft) return;
-    _rearrangeDraft.tabs.push({ id: 'tab-' + Date.now(), panelId: null });
+    // Open the browser tab immediately (this click is a user gesture, so
+    // the popup blocker won't get in the way). The tab starts empty with
+    // a small placeholder message; on Save the assigned panel is adopted
+    // into the same window via _adoptPanelIntoWindow, which overwrites
+    // the placeholder doc. If the operator removes the slot or cancels
+    // the dialog, the tab is closed programmatically.
+    const win = window.open('', 'noctalum-tab-' + Date.now(), '');
+    if (!win) {
+      alert(t('topbar.undockPopupBlocked'));
+      return;
+    }
+    _writeEmptyTabPlaceholder(win);
+    _rearrangeDraft.tabs.push({ id: 'tab-' + Date.now(), panelId: null, win, existing: false });
     _renderRearrangeDialog();
+  }
+  function _writeEmptyTabPlaceholder(win) {
+    try {
+      const doc = win.document;
+      doc.open();
+      doc.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
+      doc.close();
+      doc.title = t('rearrange.emptyTabTitle');
+      document.querySelectorAll('link[rel="stylesheet"], style').forEach(el => {
+        doc.head.appendChild(doc.importNode(el, true));
+      });
+      doc.body.className = document.body.className;
+      doc.body.classList.add('noctalum-undocked-window');
+      const hint = doc.createElement('div');
+      hint.className = 'noctalum-empty-tab-hint';
+      hint.textContent = t('rearrange.emptyTabHint');
+      doc.body.appendChild(hint);
+    } catch {}
   }
   function initRearrangeButton() {
     const btn = document.getElementById('rearrange-panels-btn');
