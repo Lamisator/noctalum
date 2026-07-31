@@ -361,18 +361,20 @@ a { color: var(--accent); text-decoration: none; }
 
 #logout-btn { padding: 6px 10px; }
 
-/* Topbar icon-only buttons (e.g. Rearrange panels). Compact square with
-   an SVG inside, matching the ghost button's hover treatment. */
-.topbar-icon-btn {
-  padding: 6px;
+/* Rearrange-panels button (topbar). Layout-mirroring tile icon on the
+   left, short label on the right. The icon on its own is the mobile
+   compact form (see body.mobile-mode override below). */
+.rearrange-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
+  gap: 6px;
+  padding: 6px 10px;
   line-height: 1;
 }
-.topbar-icon-btn svg { display: block; }
+.rearrange-btn svg { display: block; }
+.rearrange-btn-label { font-size: 12px; }
+body.mobile-mode .rearrange-btn { padding: 6px 8px; }
+body.mobile-mode .rearrange-btn-label { display: none; }
 
 .layout { flex: 1; overflow: hidden; }
 .tab-pane { display: none; height: 100%; padding: 16px; overflow: auto; }

@@ -388,13 +388,14 @@
         <span class="rig-label" data-i18n="topbar.rigLabel">RIG</span>
         <span class="rig-detail" data-i18n="topbar.rigNoneSelected">no rig selected</span>
       </div>
-      <button id="rearrange-panels-btn" class="ghost topbar-icon-btn" data-i18n-title="topbar.rearrangePanels" title="Rearrange panels" aria-label="Rearrange panels">
-        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="2" width="7" height="7" rx="1"/>
-          <rect x="11" y="2" width="7" height="7" rx="1"/>
-          <rect x="2" y="11" width="7" height="7" rx="1"/>
-          <rect x="11" y="11" width="7" height="7" rx="1"/>
+      <button id="rearrange-panels-btn" class="ghost rearrange-btn" data-i18n-title="topbar.rearrangePanels" title="Rearrange panels" aria-label="Rearrange panels">
+        <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2"  y="2" width="4" height="16" rx="1"/>
+          <rect x="7"  y="2" width="6" height="7"  rx="1"/>
+          <rect x="7" y="11" width="6" height="7"  rx="1"/>
+          <rect x="14" y="2" width="4" height="16" rx="1"/>
         </svg>
+        <span class="rearrange-btn-label" data-i18n="topbar.rearrangeShort">Re-Arrange</span>
       </button>
       <button id="logout-btn" class="ghost" data-i18n="common.logout">Logout</button>
     </div>

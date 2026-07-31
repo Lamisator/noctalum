@@ -321,6 +321,7 @@
         undockedRedockBtn: 'Move back here',
         undockPopupBlocked: 'The browser blocked the popup. Please allow popups for this site and try again.',
         rearrangePanels: 'Rearrange panels',
+        rearrangeShort: 'Re-Arrange',
       },
       rearrange: {
         title: 'Rearrange panels',
@@ -1225,6 +1226,7 @@
         undockedRedockBtn: 'Wieder hier anzeigen',
         undockPopupBlocked: 'Der Browser hat das Popup blockiert. Erlaube Popups für diese Seite und versuche es erneut.',
         rearrangePanels: 'Panels neu anordnen',
+        rearrangeShort: 'Neu anordnen',
       },
       rearrange: {
         title: 'Panels neu anordnen',
