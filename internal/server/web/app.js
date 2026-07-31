@@ -9718,6 +9718,8 @@
       if (win.closed) redockPanel(key);
     }, 500);
     _undockedPanels.set(key, { win, node, placeholder, pollTimer });
+    // Flag the layout so the *other* panel can grow into the freed space.
+    document.body.classList.add('has-undocked-' + key);
     _refreshUndockBtn(key);
     // Apply i18n inside the popup so data-i18n-title etc. get localized text.
     try { window.I18N && window.I18N.apply(doc); } catch {}
@@ -9735,6 +9737,7 @@
       placeholder.parentNode.removeChild(placeholder);
     }
     try { if (win && !win.closed) win.close(); } catch {}
+    document.body.classList.remove('has-undocked-' + key);
     _refreshUndockBtn(key);
   }
   function initUndockButtons() {
