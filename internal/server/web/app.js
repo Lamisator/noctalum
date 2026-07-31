@@ -9632,20 +9632,26 @@
 
   // ----- Undockable panels (New QSO, QSO history) -----
   // Users can pop the New QSO mask and/or the QSO history table into a
-  // separate browser window (e.g. to display them on a second monitor).
-  // The panel's DOM node is moved (adopted) into the popup's document; all
+  // separate browser window OR a new tab (e.g. to display them on a second
+  // monitor, or to switch back and forth via the browser's own tab bar).
+  // The panel's DOM node is moved (adopted) into the target document; all
   // event listeners are preserved by the browser during cross-document
   // adoption and the shared JS realm in the opener keeps working with the
   // node via the `$`/`document.getElementById` shims below.
-  const _undockedPanels = new Map(); // key -> { win, node, placeholder, pollTimer }
+  const _undockedPanels = new Map(); // key -> { win, node, placeholder, pollTimer, mode }
 
   function _undockConfig(key) {
     if (key === 'entry')   return { selector: '.entry-panel',   titleKey: 'qso.newQSO',   width: 640, height: 720 };
     if (key === 'history') return { selector: '.history-panel', titleKey: 'qso.history',  width: 960, height: 720 };
     return null;
   }
-  function _undockIconHTML() {
+  function _undockWindowIconHTML() {
+    // Arrow escaping from a small window — signals "detach to its own OS window".
     return '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h4v4"/><path d="M13 3l-5.5 5.5"/><path d="M11 9v3.5H3.5V5H7"/></svg>';
+  }
+  function _undockTabIconHTML() {
+    // Browser-tab silhouette with a plus — signals "open in a new tab of this browser".
+    return '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h4l1.2-2h6.8v8.5H2z"/><path d="M9.5 8v3.5"/><path d="M7.75 9.75h3.5"/></svg>';
   }
   function _redockIconHTML() {
     return '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 13H3V9"/><path d="M3 13l5.5-5.5"/><path d="M5 7V3.5h7.5V11H9"/></svg>';
@@ -9657,13 +9663,30 @@
     // querySelector is shimmed further down to search both.
     const panel = document.querySelector(info.selector);
     if (!panel) return;
-    const btn = panel.querySelector('.panel-undock-btn');
-    if (!btn) return;
+    const btns = panel.querySelectorAll('.panel-undock-btn[data-undock-key="' + key + '"]');
     const undocked = _undockedPanels.has(key);
-    btn.dataset.undocked = undocked ? '1' : '0';
-    btn.title = t(undocked ? 'topbar.redockPanel' : 'topbar.undockPanel');
-    btn.setAttribute('aria-label', btn.title);
-    btn.innerHTML = undocked ? _redockIconHTML() : _undockIconHTML();
+    btns.forEach(btn => {
+      const mode = btn.dataset.undockMode || 'window';
+      if (undocked) {
+        // Only one of the two buttons stays visible while undocked and it
+        // acts as the redock affordance. The `window`-mode button is the
+        // one we keep, arbitrarily but consistently.
+        if (mode === 'window') {
+          btn.style.display = '';
+          btn.title = t('topbar.redockPanel');
+          btn.setAttribute('aria-label', btn.title);
+          btn.innerHTML = _redockIconHTML();
+        } else {
+          btn.style.display = 'none';
+        }
+      } else {
+        btn.style.display = '';
+        const titleKey = mode === 'tab' ? 'topbar.undockPanelTab' : 'topbar.undockPanelWindow';
+        btn.title = t(titleKey);
+        btn.setAttribute('aria-label', btn.title);
+        btn.innerHTML = mode === 'tab' ? _undockTabIconHTML() : _undockWindowIconHTML();
+      }
+    });
   }
   function _makePlaceholder(key) {
     const info = _undockConfig(key);
@@ -9692,15 +9715,21 @@
         : t(el.dataset.i18nText);
     });
   }
-  function undockPanel(key) {
+  function undockPanel(key, mode) {
     if (_undockedPanels.has(key)) return;
     const info = _undockConfig(key);
     if (!info) return;
     const node = document.querySelector(info.selector);
     if (!node) return;
-    // Popup features. `popup=yes` asks the browser to open a chrome-less
-    // window that can be dragged to another monitor.
-    const features = `popup=yes,width=${info.width},height=${info.height}`;
+    mode = mode === 'tab' ? 'tab' : 'window';
+    // Window features:
+    //   'tab'    → empty features → browser routes it to a new tab (in
+    //              tab-happy browsers) with full chrome shared from this window.
+    //   'window' → width/height only, deliberately NOT `popup=yes`, so the
+    //              browser opens a fully-fledged window with address bar,
+    //              tab strip, and reload — the operator can drag it to a
+    //              second monitor and treat it like any other Noctalum tab.
+    const features = mode === 'tab' ? '' : `width=${info.width},height=${info.height}`;
     const win = window.open('', 'noctalum-' + key + '-' + Date.now(), features);
     if (!win) {
       alert(t('topbar.undockPopupBlocked'));
@@ -9724,18 +9753,23 @@
     node.parentNode.insertBefore(placeholder, node);
     doc.body.appendChild(node);
     // Poll for the popup being closed via the OS window controls, since
-    // `pagehide` isn't reliably delivered before the popup vanishes.
+    // `pagehide` isn't reliably delivered before the popup vanishes. In
+    // full-window / tab mode the user may also navigate away (back button,
+    // address bar); the `beforeunload` listener below handles that.
     const pollTimer = setInterval(() => {
       if (win.closed) redockPanel(key);
     }, 500);
-    _undockedPanels.set(key, { win, node, placeholder, pollTimer });
+    // A full browser window / tab lets the user navigate away — catch that
+    // before the DOM gets torn down so we can pull the node back.
+    try {
+      win.addEventListener('beforeunload', () => { redockPanel(key); });
+    } catch {}
+    _undockedPanels.set(key, { win, node, placeholder, pollTimer, mode });
     // Flag the layout so the *other* panel can grow into the freed space.
     document.body.classList.add('has-undocked-' + key);
     _refreshUndockBtn(key);
     // Apply i18n inside the popup so data-i18n-title etc. get localized text.
     try { window.I18N && window.I18N.apply(doc); } catch {}
-    // Close the popup if the main window is closing.
-    // (Registered once below.)
   }
   function redockPanel(key) {
     const info = _undockedPanels.get(key);
@@ -9760,7 +9794,7 @@
         e.preventDefault();
         e.stopPropagation();
         if (_undockedPanels.has(key)) redockPanel(key);
-        else undockPanel(key);
+        else undockPanel(key, btn.dataset.undockMode || 'window');
       });
     });
   }

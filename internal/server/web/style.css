@@ -560,8 +560,9 @@ a { color: var(--accent); text-decoration: none; }
   gap: 8px;
 }
 .panel-header-row h2 { margin: 0 0 12px; }
-.panel-header-row .panel-undock-btn { margin-bottom: 12px; }
+.panel-header-row .panel-undock-group { margin-bottom: 12px; }
 .history-header-right { display: flex; align-items: center; gap: 8px; }
+.panel-undock-group { display: inline-flex; align-items: center; gap: 4px; }
 .panel-undock-btn {
   background: var(--bg-elev-2);
   border: 1px solid var(--border);
