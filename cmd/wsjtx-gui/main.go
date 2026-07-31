@@ -91,7 +91,11 @@ type logRow struct {
 }
 
 func main() {
-	a := app.New()
+	// A unique app ID keeps Fyne's Preferences API happy (it prints a
+	// hard warning under app.New() and refuses to persist per-app state)
+	// and prevents a collision with any other Fyne app on the same host
+	// that might otherwise share $XDG_CONFIG_HOME/fyne/<empty>/preferences.json.
+	a := app.NewWithID("com.dm2lap.noctalum.wsjtx-gui")
 	a.Settings().SetTheme(theme.DarkTheme())
 	w := a.NewWindow(appTitle)
 	w.Resize(fyne.NewSize(720, 720))
@@ -233,9 +237,16 @@ func (u *ui) setStage(s stage) {
 
 func (u *ui) build() {
 	// ── Auth mode radio ──
+	//
+	// The OnChanged callback (u.onAuthModeChanged) reads u.authStack,
+	// u.contestSelect, and every widget setStage() touches — none of
+	// which exist yet at this point in build().  Constructing the group
+	// with a nil callback keeps the initial SetSelected below from
+	// nil-derefing them, and we wire the real callback at the very end
+	// of build() once every referenced widget is in place.
 	u.authRadio = widget.NewRadioGroup(
 		[]string{"Bridge token (one click)", "Username & password"},
-		func(_ string) { u.onAuthModeChanged() },
+		nil,
 	)
 	u.authRadio.Horizontal = true
 	u.authRadio.SetSelected("Bridge token (one click)")
@@ -357,6 +368,11 @@ func (u *ui) build() {
 		activityCard,
 	)
 	u.win.SetContent(root)
+
+	// Every widget the mode-switch callback pokes at now exists, so
+	// it's safe to arm.  Any later SetSelected — including the one from
+	// loadFromCredentials — will swap the page and re-run setStage.
+	u.authRadio.OnChanged = func(_ string) { u.onAuthModeChanged() }
 }
 
 // labeledRow lays out a left-aligned label + widget on the same row —
