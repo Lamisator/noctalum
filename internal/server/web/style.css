@@ -361,6 +361,19 @@ a { color: var(--accent); text-decoration: none; }
 
 #logout-btn { padding: 6px 10px; }
 
+/* Topbar icon-only buttons (e.g. Rearrange panels). Compact square with
+   an SVG inside, matching the ghost button's hover treatment. */
+.topbar-icon-btn {
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  line-height: 1;
+}
+.topbar-icon-btn svg { display: block; }
+
 .layout { flex: 1; overflow: hidden; }
 .tab-pane { display: none; height: 100%; padding: 16px; overflow: auto; }
 .tab-pane.active { display: block; }
@@ -528,25 +541,45 @@ a { color: var(--accent); text-decoration: none; }
 .panel-collapse-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--bg-elev-2); }
 .panel-resizer.dragging .panel-collapse-btn { opacity: 0; pointer-events: none; }
 
-/* Collapsed panel state */
-.left-panel.panel-collapsed,
-.ops-panel.panel-collapsed {
+/* Collapsed slot state (toggled by the collapse buttons on the side resizers).
+   Applies to the slot rather than the panel, so it works no matter which
+   panel currently occupies the left/right position. */
+.layout-slot.panel-collapsed {
   width: 0 !important;
   min-width: 0 !important;
   overflow: hidden;
+}
+.layout-slot.panel-collapsed > .card {
   padding: 0;
   border-width: 0;
 }
 
-.left-panel  { width: var(--left-w, 210px); min-width: 80px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; overflow-y: auto; }
+/* Sizing lives on the .layout-slot containers, not on the panel classes,
+   so panels can be re-parented into any slot by the "Rearrange panels"
+   dialog without carrying width/height baggage. Each slot exposes exactly
+   one resizable edge — the resizer between it and its neighbour. */
+.layout-slot { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.layout-slot[data-slot="left"]  { width: var(--left-w, 210px);  min-width: 80px;  flex-shrink: 0; overflow-y: auto; }
+.layout-slot[data-slot="right"] { width: var(--right-w, 280px); min-width: 120px; flex-shrink: 0; overflow-y: auto; }
+/* Center-top defaults to its natural content height; --center-top-h is set
+   from JS when the operator drags the mid resizer. */
+.layout-slot[data-slot="centerTop"]    { flex-shrink: 0; height: var(--center-top-h, auto); }
+.layout-slot[data-slot="centerBottom"] { flex: 1; min-height: 240px; }
+/* Panel card inside a slot fills its slot. */
+.layout-slot > .card { flex: 1 1 auto; min-height: 0; margin: 0; }
+
+/* Content-side styling on panels — no width, no flex-basis, no min-height.
+   Those now belong to the slot. */
+.left-panel    { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.history-panel { display: flex; flex-direction: column; }
+.ops-panel     { display: flex; flex-direction: column; }
+/* .entry-panel intentionally has no positioning rules — pure content styling. */
+
 /* The center column scrolls as a whole. The entry mask always renders at its natural
    content height (never hides fields), and the history panel keeps a comfortable
    min-height so scrolling reveals a useful chunk of past QSOs. When both fit, the
    history panel grows via flex: 1 to fill the remaining vertical space. */
 .center-col  { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; }
-.entry-panel { flex-shrink: 0; }
-.history-panel { flex: 1; min-height: 240px; display: flex; flex-direction: column; }
-.ops-panel   { width: var(--right-w, 280px); min-width: 120px; flex-shrink: 0; overflow-y: auto; display: flex; flex-direction: column; }
 
 /* ==== Undockable panel controls ====
    The New QSO and QSO history cards can each be popped into a separate
@@ -595,13 +628,15 @@ body.mobile-mode .panel-undock-btn { display: none; }
   color: var(--text-muted);
   text-align: center;
 }
-/* Both placeholders stay at their natural (compact) height so the remaining
-   docked panel gets the freed vertical space. `.entry-panel` normally sits at
-   its natural height with the history table taking the rest — when the
-   history is undocked we flip that so the entry mask grows into the empty
-   space below its own content. */
+/* Both placeholders stay at their natural (compact) height. When a center
+   panel is undocked, the slot that holds its placeholder collapses to
+   natural height and its sibling center slot grows to eat the freed
+   space. The class swaps are managed by undockPanel / redockPanel — they
+   have to happen in JS because the sibling relationship isn't expressible
+   in CSS once panels can be rearranged into any slot. */
 .panel-undocked-placeholder { flex-shrink: 0; }
-body.has-undocked-history .center-col .entry-panel { flex: 1; min-height: 240px; }
+.layout-slot.slot-has-placeholder { flex: 0 0 auto; min-height: 0; height: auto !important; }
+.layout-slot.slot-fill-remaining { flex: 1; min-height: 240px; height: auto !important; }
 
 /* Styling applied inside the popped-out window. Fills the viewport and gives
    the panel some breathing room. */
@@ -614,7 +649,9 @@ body.noctalum-undocked-window {
   flex-direction: column;
 }
 body.noctalum-undocked-window .entry-panel,
-body.noctalum-undocked-window .history-panel {
+body.noctalum-undocked-window .history-panel,
+body.noctalum-undocked-window .left-panel,
+body.noctalum-undocked-window .ops-panel {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -1171,6 +1208,106 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
   border-radius: 6px;
   padding: 8px 10px;
 }
+/* ==== Rearrange panels modal ====
+   Visual mock of the four-slot layout (left / center-top / center-bottom /
+   right) plus a strip of dynamic "browser tab" targets. Each occupied slot
+   holds a draggable chip labelled with the panel it currently contains. */
+.rearrange-layout {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+.rearrange-column { display: flex; flex-direction: column; gap: 6px; }
+.rearrange-column-label { text-align: center; }
+.rearrange-slot {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  min-height: 74px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elev-2);
+  transition: border-color .15s, background .15s;
+}
+.rearrange-slot.drag-over { border-color: var(--accent); background: var(--bg-elev); border-style: solid; }
+.rearrange-column-center .rearrange-slot { min-height: 62px; }
+.rearrange-tabs-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rearrange-tabs-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 74px;
+  padding: 6px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg-elev-2);
+}
+.rearrange-tabs-strip:empty::before {
+  content: attr(data-empty-hint);
+  color: var(--text-muted);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 0;
+}
+.rearrange-tab-slot {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  min-width: 140px;
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elev);
+  position: relative;
+}
+.rearrange-tab-slot.drag-over { border-color: var(--accent); border-style: solid; }
+.rearrange-tab-slot-label { font-size: 11px; color: var(--text-muted); }
+.rearrange-tab-remove {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  line-height: 1;
+}
+.rearrange-tab-remove:hover { color: var(--accent); }
+.rearrange-chip {
+  padding: 8px 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: grab;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+}
+.rearrange-chip:hover { border-color: var(--accent); }
+.rearrange-chip.dragging { opacity: 0.4; cursor: grabbing; }
+.rearrange-chip .rearrange-chip-icon { opacity: 0.7; font-size: 15px; }
+
 /* Log column editor */
 .log-cols-editor { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .log-col-item { display: flex; align-items: center; gap: 10px; padding: 5px 8px; background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; }
@@ -2064,14 +2201,14 @@ button.contest-edit-pill:hover {
 button.small { padding: 4px 8px; font-size: 12px; }
 
 @media (max-width: 1180px) {
-  .left-panel, #resizer-left { display: none; }
+  .layout-slot[data-slot="left"], #resizer-left { display: none; }
 }
 
 @media (max-width: 880px) {
   .layout-outer { flex-direction: column; overflow-y: auto; }
-  .left-panel { display: none; }
-  #resizer-left, #resizer-right { display: none; }
-  .ops-panel { width: 100% !important; height: auto; }
+  .layout-slot[data-slot="left"] { display: none; }
+  #resizer-left, #resizer-right, #resizer-mid { display: none; }
+  .layout-slot[data-slot="right"] { width: 100% !important; height: auto; }
   .topbar { flex-wrap: wrap; }
   .topbar-left { flex-shrink: 1; min-width: 0; flex-wrap: wrap; gap: 6px; }
   .station-area { order: -1; width: 100%; justify-content: center; margin: 0; flex: 0 0 auto; }
@@ -2140,11 +2277,12 @@ body.mobile-mode #logout-btn { padding: 4px 8px; font-size: 12px; }
 
 /* Layout: vertical stack, no map, no resizers */
 body.mobile-mode .layout-outer { flex-direction: column; overflow-y: auto; }
-body.mobile-mode .left-panel,
+body.mobile-mode .layout-slot[data-slot="left"],
 body.mobile-mode #resizer-left,
-body.mobile-mode #resizer-right { display: none; }
+body.mobile-mode #resizer-right,
+body.mobile-mode #resizer-mid { display: none; }
 /* Hide desktop ops-panel — its panes are reparented into the mobile sheet by JS. */
-body.mobile-mode .ops-panel { display: none; }
+body.mobile-mode .layout-slot[data-slot="right"] { display: none; }
 body.mobile-mode .center-col { overflow: visible; }
 /* Reserve bottom space for the fixed nav bar so the last row isn't hidden. */
 body.mobile-mode main.layout { padding-bottom: 64px; }

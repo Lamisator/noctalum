@@ -9596,8 +9596,38 @@
       });
     }
 
-    makeVResizer('resizer-left',  () => outer.querySelector('.left-panel'),  1,  'panel-left-w');
-    makeVResizer('resizer-right', () => outer.querySelector('.ops-panel'),   -1, 'panel-right-w');
+    makeVResizer('resizer-left',  () => outer.querySelector('.layout-slot[data-slot="left"]'),  1,  'panel-left-w');
+    makeVResizer('resizer-right', () => outer.querySelector('.layout-slot[data-slot="right"]'), -1, 'panel-right-w');
+
+    // Horizontal resizer between the two center slots (re-added for the
+    // "Rearrange panels" feature — one slot has flex:1, the other has an
+    // explicit --center-top-h that this resizer nudges).
+    const midEl = document.getElementById('resizer-mid');
+    if (midEl) {
+      const savedMid = localStorage.getItem('panel-center-top-h');
+      if (savedMid) outer.style.setProperty('--center-top-h', savedMid + 'px');
+      midEl.addEventListener('pointerdown', e => {
+        const centerTop = outer.querySelector('.layout-slot[data-slot="centerTop"]');
+        if (!centerTop) return;
+        e.preventDefault();
+        midEl.setPointerCapture(e.pointerId);
+        midEl.classList.add('dragging');
+        const startY = e.clientY;
+        const startH = centerTop.offsetHeight;
+        function onMove(ev) {
+          const newH = Math.max(120, Math.min(2000, startH + (ev.clientY - startY)));
+          outer.style.setProperty('--center-top-h', newH + 'px');
+          localStorage.setItem('panel-center-top-h', String(Math.round(newH)));
+        }
+        function onUp() {
+          midEl.classList.remove('dragging');
+          midEl.removeEventListener('pointermove', onMove);
+          midEl.removeEventListener('pointerup', onUp);
+        }
+        midEl.addEventListener('pointermove', onMove);
+        midEl.addEventListener('pointerup', onUp);
+      });
+    }
 
     function initPanelCollapse(btnId, panelSel, cssVar, storageKey, iconCollapse, iconExpand) {
       const btn = document.getElementById(btnId);
@@ -9631,8 +9661,8 @@
       apply(false);
     }
 
-    initPanelCollapse('collapse-left-btn',  '.left-panel', '--left-w',  'panel-left-w',  '‹', '›');
-    initPanelCollapse('collapse-right-btn', '.ops-panel',  '--right-w', 'panel-right-w', '›', '‹');
+    initPanelCollapse('collapse-left-btn',  '.layout-slot[data-slot="left"]',  '--left-w',  'panel-left-w',  '‹', '›');
+    initPanelCollapse('collapse-right-btn', '.layout-slot[data-slot="right"]', '--right-w', 'panel-right-w', '›', '‹');
   }
   initPanelResizers();
 
@@ -9647,8 +9677,10 @@
   const _undockedPanels = new Map(); // key -> { win, node, placeholder, pollTimer, mode }
 
   function _undockConfig(key) {
-    if (key === 'entry')   return { selector: '.entry-panel',   titleKey: 'qso.newQSO',   width: 640, height: 720 };
-    if (key === 'history') return { selector: '.history-panel', titleKey: 'qso.history',  width: 960, height: 720 };
+    if (key === 'entry')   return { selector: '.entry-panel',   titleKey: 'qso.newQSO',           width: 640, height: 720 };
+    if (key === 'history') return { selector: '.history-panel', titleKey: 'qso.history',          width: 960, height: 720 };
+    if (key === 'left')    return { selector: '.left-panel',    titleKey: 'rearrange.panelLeft',  width: 320, height: 640 };
+    if (key === 'ops')     return { selector: '.ops-panel',     titleKey: 'rearrange.panelOps',   width: 400, height: 720 };
     return null;
   }
   function _undockWindowIconHTML() {
@@ -9756,8 +9788,16 @@
     // reverse) the change; adopting the panel node into the popup body
     // implicitly detaches it from the main doc.
     const placeholder = _makePlaceholder(key);
+    const containingSlot = node.closest('.layout-slot');
     node.parentNode.insertBefore(placeholder, node);
     doc.body.appendChild(node);
+    // Slot-level classes: the slot holding the placeholder collapses to
+    // natural height; the sibling center slot (if any) grows to fill.
+    if (containingSlot) {
+      containingSlot.classList.add('slot-has-placeholder');
+      const sibling = _siblingCenterSlot(containingSlot);
+      if (sibling) sibling.classList.add('slot-fill-remaining');
+    }
     // Poll for the popup being closed via the OS window controls, since
     // `pagehide` isn't reliably delivered before the popup vanishes. In
     // full-window / tab mode the user may also navigate away (back button,
@@ -9770,9 +9810,7 @@
     try {
       win.addEventListener('beforeunload', () => { redockPanel(key); });
     } catch {}
-    _undockedPanels.set(key, { win, node, placeholder, pollTimer, mode });
-    // Flag the layout so the *other* panel can grow into the freed space.
-    document.body.classList.add('has-undocked-' + key);
+    _undockedPanels.set(key, { win, node, placeholder, pollTimer, mode, containingSlot });
     _refreshUndockBtn(key);
     // Apply i18n inside the popup so data-i18n-title etc. get localized text.
     try { window.I18N && window.I18N.apply(doc); } catch {}
@@ -9782,14 +9820,25 @@
     if (!info) return;
     _undockedPanels.delete(key);
     clearInterval(info.pollTimer);
-    const { win, node, placeholder } = info;
+    const { win, node, placeholder, containingSlot } = info;
     if (placeholder && placeholder.parentNode) {
       placeholder.parentNode.insertBefore(node, placeholder);
       placeholder.parentNode.removeChild(placeholder);
     }
+    if (containingSlot) {
+      containingSlot.classList.remove('slot-has-placeholder');
+      const sibling = _siblingCenterSlot(containingSlot);
+      if (sibling) sibling.classList.remove('slot-fill-remaining');
+    }
     try { if (win && !win.closed) win.close(); } catch {}
-    document.body.classList.remove('has-undocked-' + key);
     _refreshUndockBtn(key);
+  }
+  function _siblingCenterSlot(slot) {
+    if (!slot) return null;
+    const which = slot.getAttribute('data-slot');
+    if (which === 'centerTop')    return document.querySelector('.layout-slot[data-slot="centerBottom"]');
+    if (which === 'centerBottom') return document.querySelector('.layout-slot[data-slot="centerTop"]');
+    return null;
   }
   function initUndockButtons() {
     document.querySelectorAll('.panel-undock-btn').forEach(btn => {
@@ -9813,6 +9862,291 @@
       try { if (info.win && !info.win.closed) info.win.close(); } catch {}
     }
   });
+
+  // ----- Rearrange panels dialog -----
+  // Operators can shuffle the four core panels (Pic & Map, New QSO, QSO
+  // history, Ops) between the four layout slots (left, center-top,
+  // center-bottom, right) and push individual panels into new browser tabs.
+  // The dialog is a drag-and-drop editor; hitting Save moves DOM nodes into
+  // their new slots, opens browser tabs for panels routed there, and
+  // persists the main-slot arrangement in localStorage.
+  const REARRANGE_PANELS = [
+    { id: 'left',    labelKey: 'rearrange.panelLeft' },
+    { id: 'entry',   labelKey: 'rearrange.panelEntry' },
+    { id: 'history', labelKey: 'rearrange.panelHistory' },
+    { id: 'ops',     labelKey: 'rearrange.panelOps' },
+  ];
+  const MAIN_SLOTS = ['left', 'centerTop', 'centerBottom', 'right'];
+  const DEFAULT_LAYOUT = { left: 'left', centerTop: 'entry', centerBottom: 'history', right: 'ops' };
+  const LAYOUT_STORAGE_KEY = 'noctalum.panelLayout';
+
+  // Current *applied* layout (what's actually in the DOM). Kept in sync with
+  // applyLayout() so the dialog can pre-populate itself with the truth.
+  let _currentLayout = { ...DEFAULT_LAYOUT };
+  let _rearrangeDraft = null;
+  let _rearrangeDragSrc = null;
+
+  function _panelNode(panelId) { return document.querySelector('[data-panel-id="' + panelId + '"]'); }
+  function _slotNode(slotId)   { return document.querySelector('.layout-slot[data-slot="' + slotId + '"]'); }
+
+  function _panelLabel(panelId) {
+    const p = REARRANGE_PANELS.find(x => x.id === panelId);
+    return p ? t(p.labelKey) : panelId;
+  }
+  function _getStoredLayout() {
+    try {
+      const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      // Validate: every main slot must map to a known panel, and every
+      // panel must appear exactly once.
+      const values = MAIN_SLOTS.map(s => parsed[s]);
+      if (values.some(v => !REARRANGE_PANELS.some(p => p.id === v))) return null;
+      if (new Set(values).size !== 4) return null;
+      return parsed;
+    } catch { return null; }
+  }
+  function _saveLayoutToStorage(layout) {
+    try { localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout)); } catch {}
+  }
+  function applyLayout(layout) {
+    // Two-pass move: first detach every panel, then re-attach into its
+    // target slot. Doing it in one pass would cause a panel to displace
+    // another mid-loop; detaching first sidesteps that.
+    const nodes = {};
+    REARRANGE_PANELS.forEach(p => { nodes[p.id] = _panelNode(p.id); });
+    // Only rearrange panels that are actually in the main DOM (undocked
+    // ones live in their popup; leave them alone).
+    MAIN_SLOTS.forEach(slotId => {
+      const panelId = layout[slotId];
+      const node = nodes[panelId];
+      if (!node) return;
+      // Skip if the panel is currently detached to a popup.
+      if (!node.closest('.layout-slot')) return;
+      node.parentNode.removeChild(node);
+    });
+    MAIN_SLOTS.forEach(slotId => {
+      const panelId = layout[slotId];
+      const node = nodes[panelId];
+      const slot = _slotNode(slotId);
+      if (!node || !slot) return;
+      // If the panel is currently in a popup, applyLayout can't put it
+      // in the slot (it isn't in this document). It'll re-enter the
+      // default slot when the user redocks.
+      if (node.ownerDocument !== document) return;
+      slot.appendChild(node);
+    });
+    _currentLayout = { ...layout };
+    // Leaflet caches viewport size — if the map moved to a differently-
+    // sized slot, it'd otherwise render at the old dimensions until the
+    // next window resize.
+    if (typeof leafletMap !== 'undefined' && leafletMap) {
+      requestAnimationFrame(() => { try { leafletMap.invalidateSize(); } catch {} });
+    }
+  }
+  function restoreLayoutOnLoad() {
+    const stored = _getStoredLayout();
+    if (stored) applyLayout(stored);
+  }
+
+  function openRearrangeDialog() {
+    const root = document.getElementById('rearrange-modal');
+    if (!root) return;
+    const layoutDraft = { ..._currentLayout };
+    const tabsDraft = [];
+    // Any panel that's already undocked into a popup/tab shows up as an
+    // existing tab slot in the dialog so the user can drag it back. Also
+    // strip it out of the main-slot draft — a panel can't be in two places.
+    Array.from(_undockedPanels.keys()).forEach(panelId => {
+      MAIN_SLOTS.forEach(s => { if (layoutDraft[s] === panelId) layoutDraft[s] = null; });
+      tabsDraft.push({ id: 'tab-existing-' + panelId, panelId });
+    });
+    _rearrangeDraft = { layout: layoutDraft, tabs: tabsDraft };
+    _renderRearrangeDialog();
+    root.classList.remove('hidden');
+  }
+  function closeRearrangeDialog() {
+    const root = document.getElementById('rearrange-modal');
+    if (root) root.classList.add('hidden');
+    _rearrangeDraft = null;
+    _rearrangeDragSrc = null;
+  }
+  function _makeRearrangeChip(panelId) {
+    const chip = document.createElement('div');
+    chip.className = 'rearrange-chip';
+    chip.setAttribute('draggable', 'true');
+    chip.dataset.panelId = panelId;
+    chip.innerHTML = '<span class="rearrange-chip-icon">⣿</span><span>' + escHtml(_panelLabel(panelId)) + '</span>';
+    chip.addEventListener('dragstart', e => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', panelId);
+      chip.classList.add('dragging');
+      _rearrangeDragSrc = { panelId };
+    });
+    chip.addEventListener('dragend', () => {
+      chip.classList.remove('dragging');
+      _rearrangeDragSrc = null;
+    });
+    return chip;
+  }
+  function _makeRearrangeTabSlot(tab) {
+    const el = document.createElement('div');
+    el.className = 'rearrange-tab-slot';
+    el.dataset.tabId = tab.id;
+    el.dataset.dropTarget = '1';
+    const label = document.createElement('div');
+    label.className = 'rearrange-tab-slot-label';
+    label.textContent = t('rearrange.tabSlotLabel');
+    el.appendChild(label);
+    if (tab.panelId) el.appendChild(_makeRearrangeChip(tab.panelId));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'rearrange-tab-remove';
+    remove.textContent = '×';
+    remove.title = t('common.remove');
+    remove.addEventListener('click', () => _removeRearrangeTabSlot(tab.id));
+    el.appendChild(remove);
+    return el;
+  }
+  function _renderRearrangeDialog() {
+    const root = document.getElementById('rearrange-modal');
+    if (!root || !_rearrangeDraft) return;
+    MAIN_SLOTS.forEach(slotId => {
+      const slotEl = root.querySelector('.rearrange-slot[data-slot="' + slotId + '"]');
+      if (!slotEl) return;
+      slotEl.innerHTML = '';
+      const panelId = _rearrangeDraft.layout[slotId];
+      if (panelId) slotEl.appendChild(_makeRearrangeChip(panelId));
+    });
+    const strip = document.getElementById('rearrange-tabs-strip');
+    if (strip) {
+      strip.innerHTML = '';
+      strip.setAttribute('data-empty-hint', t('rearrange.tabsEmptyHint'));
+      _rearrangeDraft.tabs.forEach(tab => strip.appendChild(_makeRearrangeTabSlot(tab)));
+    }
+  }
+  function _removeRearrangeTabSlot(tabId) {
+    if (!_rearrangeDraft) return;
+    const idx = _rearrangeDraft.tabs.findIndex(t => t.id === tabId);
+    if (idx < 0) return;
+    const removed = _rearrangeDraft.tabs.splice(idx, 1)[0];
+    // If the removed tab held a panel, put it back into the main slot the
+    // panel originally sat in (per the current applied layout). If that
+    // slot is already occupied in the draft, the two panels swap.
+    if (removed.panelId) {
+      const origSlot = Object.keys(_currentLayout).find(s => _currentLayout[s] === removed.panelId);
+      if (origSlot) {
+        const displaced = _rearrangeDraft.layout[origSlot];
+        _rearrangeDraft.layout[origSlot] = removed.panelId;
+        if (displaced && displaced !== removed.panelId) {
+          // Push displaced into any empty slot; otherwise back into a tab.
+          const empty = MAIN_SLOTS.find(s => !_rearrangeDraft.layout[s]);
+          if (empty) _rearrangeDraft.layout[empty] = displaced;
+          else _rearrangeDraft.tabs.push({ id: 'tab-' + Date.now(), panelId: displaced });
+        }
+      }
+    }
+    _renderRearrangeDialog();
+  }
+  function _handleRearrangeDrop(panelId, targetEl) {
+    if (!_rearrangeDraft) return;
+    const fromSlot = Object.keys(_rearrangeDraft.layout).find(s => _rearrangeDraft.layout[s] === panelId);
+    const fromTab  = _rearrangeDraft.tabs.find(t => t.panelId === panelId);
+    const toSlot   = targetEl.dataset.slot;
+    const toTabId  = targetEl.dataset.tabId;
+    if (toSlot) {
+      const occupant = _rearrangeDraft.layout[toSlot];
+      if (occupant === panelId) return;
+      _rearrangeDraft.layout[toSlot] = panelId;
+      if (fromSlot) _rearrangeDraft.layout[fromSlot] = occupant || null;
+      if (fromTab)  fromTab.panelId = occupant || null;
+    } else if (toTabId) {
+      const tab = _rearrangeDraft.tabs.find(t => t.id === toTabId);
+      if (!tab) return;
+      const occupant = tab.panelId;
+      if (occupant === panelId) return;
+      tab.panelId = panelId;
+      if (fromSlot) _rearrangeDraft.layout[fromSlot] = occupant || null;
+      if (fromTab && fromTab !== tab) fromTab.panelId = occupant || null;
+    }
+    _renderRearrangeDialog();
+  }
+  function _initRearrangeDropZones() {
+    const root = document.getElementById('rearrange-modal');
+    if (!root) return;
+    root.addEventListener('dragover', e => {
+      const target = e.target.closest('[data-drop-target="1"]');
+      if (!target) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      root.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+      target.classList.add('drag-over');
+    });
+    root.addEventListener('dragleave', e => {
+      const target = e.target && e.target.closest && e.target.closest('[data-drop-target="1"]');
+      if (target && !target.contains(e.relatedTarget)) target.classList.remove('drag-over');
+    });
+    root.addEventListener('drop', e => {
+      const target = e.target.closest('[data-drop-target="1"]');
+      if (!target || !_rearrangeDragSrc) return;
+      e.preventDefault();
+      root.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+      _handleRearrangeDrop(_rearrangeDragSrc.panelId, target);
+      _rearrangeDragSrc = null;
+    });
+  }
+  function _saveRearrangeDialog() {
+    if (!_rearrangeDraft) return;
+    // Every panel must be either in a main slot or in a browser-tab slot.
+    const inTabs = new Set(_rearrangeDraft.tabs.filter(x => x.panelId).map(x => x.panelId));
+    const inMain = new Set();
+    MAIN_SLOTS.forEach(s => { if (_rearrangeDraft.layout[s]) inMain.add(_rearrangeDraft.layout[s]); });
+    const missing = REARRANGE_PANELS.filter(p => !inMain.has(p.id) && !inTabs.has(p.id));
+    if (missing.length) {
+      alert(t('rearrange.missingPanels', { list: missing.map(p => t(p.labelKey)).join(', ') }));
+      return;
+    }
+    // Redock everything so all panels are available to move. Then apply the
+    // new main-slot layout and open browser tabs for panels routed there.
+    Array.from(_undockedPanels.keys()).forEach(k => redockPanel(k));
+    applyLayout(_rearrangeDraft.layout);
+    _saveLayoutToStorage(_rearrangeDraft.layout);
+    _rearrangeDraft.tabs.forEach(tab => {
+      if (tab.panelId) undockPanel(tab.panelId, 'tab');
+    });
+    closeRearrangeDialog();
+  }
+  function _resetRearrangeDialog() {
+    if (!confirm(t('rearrange.confirmReset'))) return;
+    Array.from(_undockedPanels.keys()).forEach(k => redockPanel(k));
+    applyLayout({ ...DEFAULT_LAYOUT });
+    try { localStorage.removeItem(LAYOUT_STORAGE_KEY); } catch {}
+    closeRearrangeDialog();
+  }
+  function _addRearrangeTabSlot() {
+    if (!_rearrangeDraft) return;
+    _rearrangeDraft.tabs.push({ id: 'tab-' + Date.now(), panelId: null });
+    _renderRearrangeDialog();
+  }
+  function initRearrangeButton() {
+    const btn = document.getElementById('rearrange-panels-btn');
+    if (btn) btn.addEventListener('click', openRearrangeDialog);
+    const cancel = document.getElementById('rearrange-cancel-btn');
+    if (cancel) cancel.addEventListener('click', closeRearrangeDialog);
+    const save = document.getElementById('rearrange-save-btn');
+    if (save) save.addEventListener('click', _saveRearrangeDialog);
+    const reset = document.getElementById('rearrange-reset-btn');
+    if (reset) reset.addEventListener('click', _resetRearrangeDialog);
+    const addTab = document.getElementById('rearrange-add-tab-btn');
+    if (addTab) addTab.addEventListener('click', _addRearrangeTabSlot);
+    _initRearrangeDropZones();
+    const modal = document.getElementById('rearrange-modal');
+    if (modal) modal.addEventListener('click', e => {
+      if (e.target === modal) closeRearrangeDialog();
+    });
+  }
+  initRearrangeButton();
+  restoreLayoutOnLoad();
 
   // Extend element lookups so code that expects the panel in the main doc
   // still finds it after it has been moved into a popup. The override only
@@ -9894,8 +10228,8 @@
         if (lo) {
           const lb = document.getElementById('collapse-left-btn');
           const rb = document.getElementById('collapse-right-btn');
-          if (lb) lb.title = t('topbar.' + (lo.querySelector('.left-panel')?.classList.contains('panel-collapsed') ? 'expandPanel' : 'collapsePanel'));
-          if (rb) rb.title = t('topbar.' + (lo.querySelector('.ops-panel')?.classList.contains('panel-collapsed') ? 'expandPanel' : 'collapsePanel'));
+          if (lb) lb.title = t('topbar.' + (lo.querySelector('.layout-slot[data-slot="left"]')?.classList.contains('panel-collapsed') ? 'expandPanel' : 'collapsePanel'));
+          if (rb) rb.title = t('topbar.' + (lo.querySelector('.layout-slot[data-slot="right"]')?.classList.contains('panel-collapsed') ? 'expandPanel' : 'collapsePanel'));
         }
       } catch {}
       // Refresh undock button tooltips and the placeholder card left behind
