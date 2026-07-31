@@ -8955,6 +8955,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.83',
+      date: '2026-07-31',
+      en: 'v0.83: Rearrange the log tab freely, plus a wsjtx-gui startup crash fix.\n- New "Re-Arrange" button in the topbar (tile icon) opens a drag-and-drop panel-layout editor\n- Swap any of the four panels (New QSO, QSO history, Pic & Map, Ops) between the four layout slots\n- Push individual panels into their own browser tabs — the tab opens immediately, even before you drop a panel into it\n- The Rearrange arrangement persists across page reloads; browser tabs don\'t (browsers need a fresh user gesture to reopen)\n- Closing a browser tab returns its panel to the main window automatically — no more "lost panel" forcing a reset\n- wsjtx-gui: the desktop bridge now actually starts instead of panicking on the auth-mode radio group before its window paints',
+      de: 'v0.83: Log-Tab frei umbauen, plus ein wsjtx-gui-Startup-Fix.\n- Neuer „Re-Arrange"-Button in der obersten Leiste (Kachel-Icon) öffnet einen Drag-and-Drop-Editor für das Panel-Layout\n- Beliebige der vier Panels (Neues QSO, QSO-Verlauf, Bild & Karte, Op-Panel) zwischen den vier Positionen tauschen\n- Einzelne Panels in eigene Browser-Tabs verschieben — der Tab öffnet sich sofort, sogar bevor du ein Panel hineinziehst\n- Die Anordnung bleibt beim Neuladen erhalten; Browser-Tabs nicht (Browser brauchen dafür eine neue Nutzergeste)\n- Schließt du einen Browser-Tab, kehrt das Panel automatisch ins Hauptfenster zurück — kein „verlorenes Panel" mehr, das einen Reset erzwingt\n- wsjtx-gui: die Desktop-Bridge startet jetzt wirklich, statt schon vor dem ersten Fensteraufbau am Auth-Modus-Radio zu panikieren',
+    },
+    {
       version: '0.82',
       date: '2026-07-31',
       en: 'v0.82: Undockable panels now offer a "new tab" option next to the "new window" option.\n- New QSO and QSO history each have two pop-out buttons in their header\n- One opens the panel in its own browser window (drag it to a second monitor)\n- The other opens the panel in a new tab of the current browser window\n- While the panel is detached, only the redock button stays visible\n- Hitting the back button, F5, or navigating away in the popped-out window automatically redocks the panel',
