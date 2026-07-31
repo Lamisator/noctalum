@@ -314,6 +314,11 @@
         reopenButton: 'Reopen',
         collapsePanel: 'Collapse panel',
         expandPanel: 'Expand panel',
+        undockPanel: 'Open in separate window',
+        redockPanel: 'Move back into main window',
+        undockedPlaceholder: 'This panel is open in a separate window.',
+        undockedRedockBtn: 'Move back here',
+        undockPopupBlocked: 'The browser blocked the popup. Please allow popups for this site and try again.',
       },
       qso: {
         antennaRotation: 'Antenna rotation',
@@ -1191,6 +1196,11 @@
         reopenButton: 'Wieder öffnen',
         collapsePanel: 'Panel einklappen',
         expandPanel: 'Panel ausklappen',
+        undockPanel: 'In separatem Fenster öffnen',
+        redockPanel: 'Zurück ins Hauptfenster',
+        undockedPlaceholder: 'Dieses Panel ist in einem separaten Fenster geöffnet.',
+        undockedRedockBtn: 'Wieder hier anzeigen',
+        undockPopupBlocked: 'Der Browser hat das Popup blockiert. Erlaube Popups für diese Seite und versuche es erneut.',
       },
       qso: {
         antennaRotation: 'Antennenrichtung',

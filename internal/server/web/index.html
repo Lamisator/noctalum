@@ -434,7 +434,10 @@
             </label>
             <span class="muted small" id="rig-bar-detail"></span>
           </div>
-          <h2><span id="entry-panel-title" data-i18n="qso.newQSO">New QSO</span> <span id="dup-badge" class="dup-badge hidden"></span> <span id="oob-badge" class="dup-badge hidden"></span></h2>
+          <div class="panel-header-row">
+            <h2><span id="entry-panel-title" data-i18n="qso.newQSO">New QSO</span> <span id="dup-badge" class="dup-badge hidden"></span> <span id="oob-badge" class="dup-badge hidden"></span></h2>
+            <button type="button" class="panel-undock-btn" data-undock-key="entry" data-i18n-title="topbar.undockPanel" title="Open in separate window" aria-label="Open in separate window"></button>
+          </div>
           <form id="qso-form" autocomplete="off">
             <div id="band-pills-bar" class="qrz-info-bar hidden"></div>
             <div id="qso-grid" class="qso-grid">
@@ -500,11 +503,14 @@
         <div class="history-panel card">
           <div class="history-header">
             <h2 data-i18n="qso.history">QSO history</h2>
-            <div class="history-filter-group">
-              <button type="button" id="history-filter-clear" class="filter-clear-pill hidden" data-i18n-title="qso.filterClear" title="Clear filter">
-                <span aria-hidden="true">×</span> <span data-i18n="qso.filterClearLabel">Filter</span>
-              </button>
-              <input id="history-filter" type="search" data-i18n-placeholder="qso.filterPlaceholder" placeholder="Filter by call, band, mode, op…" />
+            <div class="history-header-right">
+              <div class="history-filter-group">
+                <button type="button" id="history-filter-clear" class="filter-clear-pill hidden" data-i18n-title="qso.filterClear" title="Clear filter">
+                  <span aria-hidden="true">×</span> <span data-i18n="qso.filterClearLabel">Filter</span>
+                </button>
+                <input id="history-filter" type="search" data-i18n-placeholder="qso.filterPlaceholder" placeholder="Filter by call, band, mode, op…" />
+              </div>
+              <button type="button" class="panel-undock-btn" data-undock-key="history" data-i18n-title="topbar.undockPanel" title="Open in separate window" aria-label="Open in separate window"></button>
             </div>
           </div>
           <div class="table-scroll">

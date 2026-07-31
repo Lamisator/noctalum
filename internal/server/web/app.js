@@ -9624,6 +9624,192 @@
   }
   initPanelResizers();
 
+  // ----- Undockable panels (New QSO, QSO history) -----
+  // Users can pop the New QSO mask and/or the QSO history table into a
+  // separate browser window (e.g. to display them on a second monitor).
+  // The panel's DOM node is moved (adopted) into the popup's document; all
+  // event listeners are preserved by the browser during cross-document
+  // adoption and the shared JS realm in the opener keeps working with the
+  // node via the `$`/`document.getElementById` shims below.
+  const _undockedPanels = new Map(); // key -> { win, node, placeholder, pollTimer }
+
+  function _undockConfig(key) {
+    if (key === 'entry')   return { selector: '.entry-panel',   titleKey: 'qso.newQSO',   width: 640, height: 720 };
+    if (key === 'history') return { selector: '.history-panel', titleKey: 'qso.history',  width: 960, height: 720 };
+    return null;
+  }
+  function _undockIconHTML() {
+    return '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h4v4"/><path d="M13 3l-5.5 5.5"/><path d="M11 9v3.5H3.5V5H7"/></svg>';
+  }
+  function _redockIconHTML() {
+    return '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 13H3V9"/><path d="M3 13l5.5-5.5"/><path d="M5 7V3.5h7.5V11H9"/></svg>';
+  }
+  function _refreshUndockBtn(key) {
+    const info = _undockConfig(key);
+    if (!info) return;
+    // The panel may currently live in the main doc or in an undocked popup —
+    // querySelector is shimmed further down to search both.
+    const panel = document.querySelector(info.selector);
+    if (!panel) return;
+    const btn = panel.querySelector('.panel-undock-btn');
+    if (!btn) return;
+    const undocked = _undockedPanels.has(key);
+    btn.dataset.undocked = undocked ? '1' : '0';
+    btn.title = t(undocked ? 'topbar.redockPanel' : 'topbar.undockPanel');
+    btn.setAttribute('aria-label', btn.title);
+    btn.innerHTML = undocked ? _redockIconHTML() : _undockIconHTML();
+  }
+  function _makePlaceholder(key) {
+    const el = document.createElement('div');
+    el.className = 'panel-undocked-placeholder card';
+    el.dataset.undockKey = key;
+    const msg = document.createElement('div');
+    msg.textContent = t('topbar.undockedPlaceholder');
+    msg.dataset.i18nText = 'topbar.undockedPlaceholder';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ghost';
+    btn.textContent = t('topbar.undockedRedockBtn');
+    btn.dataset.i18nText = 'topbar.undockedRedockBtn';
+    btn.addEventListener('click', () => redockPanel(key));
+    el.appendChild(msg);
+    el.appendChild(btn);
+    return el;
+  }
+  function _refreshPlaceholderI18n() {
+    document.querySelectorAll('.panel-undocked-placeholder [data-i18n-text]').forEach(el => {
+      el.textContent = t(el.dataset.i18nText);
+    });
+  }
+  function undockPanel(key) {
+    if (_undockedPanels.has(key)) return;
+    const info = _undockConfig(key);
+    if (!info) return;
+    const node = document.querySelector(info.selector);
+    if (!node) return;
+    // Popup features. `popup=yes` asks the browser to open a chrome-less
+    // window that can be dragged to another monitor.
+    const features = `popup=yes,width=${info.width},height=${info.height}`;
+    const win = window.open('', 'noctalum-' + key + '-' + Date.now(), features);
+    if (!win) {
+      alert(t('topbar.undockPopupBlocked'));
+      return;
+    }
+    const doc = win.document;
+    doc.open();
+    doc.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
+    doc.close();
+    doc.title = t(info.titleKey);
+    // Copy stylesheets so the panel keeps its look inside the popup.
+    document.querySelectorAll('link[rel="stylesheet"], style').forEach(el => {
+      doc.head.appendChild(doc.importNode(el, true));
+    });
+    doc.body.className = document.body.className;
+    doc.body.classList.add('noctalum-undocked-window');
+    // Insert a placeholder in the main window so the user can see (and
+    // reverse) the change; adopting the panel node into the popup body
+    // implicitly detaches it from the main doc.
+    const placeholder = _makePlaceholder(key);
+    node.parentNode.insertBefore(placeholder, node);
+    doc.body.appendChild(node);
+    // Poll for the popup being closed via the OS window controls, since
+    // `pagehide` isn't reliably delivered before the popup vanishes.
+    const pollTimer = setInterval(() => {
+      if (win.closed) redockPanel(key);
+    }, 500);
+    _undockedPanels.set(key, { win, node, placeholder, pollTimer });
+    _refreshUndockBtn(key);
+    // Apply i18n inside the popup so data-i18n-title etc. get localized text.
+    try { window.I18N && window.I18N.apply(doc); } catch {}
+    // Close the popup if the main window is closing.
+    // (Registered once below.)
+  }
+  function redockPanel(key) {
+    const info = _undockedPanels.get(key);
+    if (!info) return;
+    _undockedPanels.delete(key);
+    clearInterval(info.pollTimer);
+    const { win, node, placeholder } = info;
+    if (placeholder && placeholder.parentNode) {
+      placeholder.parentNode.insertBefore(node, placeholder);
+      placeholder.parentNode.removeChild(placeholder);
+    }
+    try { if (win && !win.closed) win.close(); } catch {}
+    _refreshUndockBtn(key);
+  }
+  function initUndockButtons() {
+    document.querySelectorAll('.panel-undock-btn').forEach(btn => {
+      const key = btn.dataset.undockKey;
+      if (!key) return;
+      _refreshUndockBtn(key);
+      btn.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (_undockedPanels.has(key)) redockPanel(key);
+        else undockPanel(key);
+      });
+    });
+  }
+  initUndockButtons();
+
+  // When the main window closes, tear down the popups so the user isn't
+  // left with orphan windows whose scripts have died.
+  window.addEventListener('pagehide', () => {
+    for (const [, info] of _undockedPanels) {
+      try { if (info.win && !info.win.closed) info.win.close(); } catch {}
+    }
+  });
+
+  // Extend element lookups so code that expects the panel in the main doc
+  // still finds it after it has been moved into a popup. The override only
+  // adds a fallback — same-doc lookups are unchanged.
+  (function shimLookupsForUndockedPanels() {
+    const origGetById = Document.prototype.getElementById;
+    Document.prototype.getElementById = function(id) {
+      const el = origGetById.call(this, id);
+      if (el || this !== document) return el;
+      for (const info of _undockedPanels.values()) {
+        if (info.win && !info.win.closed) {
+          const found = origGetById.call(info.win.document, id);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const origQS = Document.prototype.querySelector;
+    Document.prototype.querySelector = function(sel) {
+      const el = origQS.call(this, sel);
+      if (el || this !== document) return el;
+      for (const info of _undockedPanels.values()) {
+        if (info.win && !info.win.closed) {
+          try {
+            const found = origQS.call(info.win.document, sel);
+            if (found) return found;
+          } catch {}
+        }
+      }
+      return null;
+    };
+    const origQSA = Document.prototype.querySelectorAll;
+    Document.prototype.querySelectorAll = function(sel) {
+      const main = origQSA.call(this, sel);
+      if (this !== document || _undockedPanels.size === 0) return main;
+      const extras = [];
+      for (const info of _undockedPanels.values()) {
+        if (info.win && !info.win.closed) {
+          try {
+            const found = origQSA.call(info.win.document, sel);
+            for (const n of found) extras.push(n);
+          } catch {}
+        }
+      }
+      if (!extras.length) return main;
+      // Return a plain array — every caller uses .forEach / iteration /
+      // .length / indexed access, all of which arrays support natively.
+      return Array.from(main).concat(extras);
+    };
+  })();
+
   // Mount language switchers and react to language changes.
   ['lang-switcher-login', 'lang-switcher-setup', 'lang-switcher-contest', 'lang-switcher-topbar']
     .forEach(id => { const el = $(id); if (el && window.I18N) window.I18N.mountSwitcher(el); });
@@ -9657,6 +9843,19 @@
           if (lb) lb.title = t('topbar.' + (lo.querySelector('.left-panel')?.classList.contains('panel-collapsed') ? 'expandPanel' : 'collapsePanel'));
           if (rb) rb.title = t('topbar.' + (lo.querySelector('.ops-panel')?.classList.contains('panel-collapsed') ? 'expandPanel' : 'collapsePanel'));
         }
+      } catch {}
+      // Refresh undock button tooltips and the placeholder card left behind
+      // in the main window when a panel is undocked. Also re-run I18N.apply
+      // inside each popup doc so its own [data-i18n*] nodes update.
+      try {
+        _undockedPanels.forEach((info, key) => {
+          _refreshUndockBtn(key);
+          if (info && info.win && !info.win.closed) {
+            info.win.document.title = t(_undockConfig(key).titleKey);
+            window.I18N && window.I18N.apply(info.win.document);
+          }
+        });
+        _refreshPlaceholderI18n();
       } catch {}
     });
   }

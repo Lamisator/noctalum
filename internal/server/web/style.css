@@ -548,6 +548,74 @@ a { color: var(--accent); text-decoration: none; }
 .history-panel { flex: 1; min-height: 240px; display: flex; flex-direction: column; }
 .ops-panel   { width: var(--right-w, 280px); min-width: 120px; flex-shrink: 0; overflow-y: auto; display: flex; flex-direction: column; }
 
+/* ==== Undockable panel controls ====
+   The New QSO and QSO history cards can each be popped into a separate
+   browser window (e.g. onto a second monitor). The undock/redock button
+   lives inside the panel header so it travels with the panel when the DOM
+   node moves between documents. */
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.panel-header-row h2 { margin: 0 0 12px; }
+.panel-header-row .panel-undock-btn { margin-bottom: 12px; }
+.history-header-right { display: flex; align-items: center; gap: 8px; }
+.panel-undock-btn {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color .15s, color .15s, background .15s;
+  flex-shrink: 0;
+}
+.panel-undock-btn:hover { border-color: var(--accent); color: var(--accent); }
+.panel-undock-btn svg { display: block; }
+body.mobile-mode .panel-undock-btn { display: none; }
+
+/* Placeholder card left behind in the main window when a panel is undocked.
+   Clicking it (or its button) redocks the panel. */
+.panel-undocked-placeholder {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.panel-undocked-placeholder[data-undock-key="history"] { flex: 1; min-height: 240px; justify-content: center; }
+.panel-undocked-placeholder[data-undock-key="entry"] { flex-shrink: 0; }
+
+/* Styling applied inside the popped-out window. Fills the viewport and gives
+   the panel some breathing room. */
+body.noctalum-undocked-window {
+  margin: 0;
+  padding: 12px;
+  min-height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+body.noctalum-undocked-window .entry-panel,
+body.noctalum-undocked-window .history-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+body.noctalum-undocked-window .history-panel .table-scroll { flex: 1; min-height: 0; }
+
 /* ==== Cards ==== */
 .card {
   background: var(--bg-elev);
