@@ -9887,14 +9887,29 @@
   const DEFAULT_LAYOUT = { left: 'left', centerTop: 'entry', centerBottom: 'history', right: 'ops' };
   const LAYOUT_STORAGE_KEY = 'noctalum.panelLayout';
 
-  // Current *applied* layout (what's actually in the DOM). Kept in sync with
-  // applyLayout() so the dialog can pre-populate itself with the truth.
-  let _currentLayout = { ...DEFAULT_LAYOUT };
   let _rearrangeDraft = null;
   let _rearrangeDragSrc = null;
 
   function _panelNode(panelId) { return document.querySelector('[data-panel-id="' + panelId + '"]'); }
   function _slotNode(slotId)   { return document.querySelector('.layout-slot[data-slot="' + slotId + '"]'); }
+
+  // Derive the layout from the current DOM instead of caching it in a
+  // variable — otherwise auto-redocks (poll timer, beforeunload) that
+  // move a panel back into a slot without going through applyLayout()
+  // leave the cache lying, and the next dialog open shows the panel
+  // as "missing" (no chip, no tab slot, save-validator refuses).
+  function _currentDOMLayout() {
+    const layout = { left: null, centerTop: null, centerBottom: null, right: null };
+    REARRANGE_PANELS.forEach(p => {
+      const node = _panelNode(p.id);
+      if (!node) return;
+      const slot = node.closest('.layout-slot');
+      if (!slot) return;
+      const s = slot.getAttribute('data-slot');
+      if (MAIN_SLOTS.includes(s)) layout[s] = p.id;
+    });
+    return layout;
+  }
 
   function _panelLabel(panelId) {
     const p = REARRANGE_PANELS.find(x => x.id === panelId);
@@ -9915,6 +9930,31 @@
   }
   function _saveLayoutToStorage(layout) {
     try { localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout)); } catch {}
+  }
+  // Fold tab-routed panels back into the main-slot layout for persistence.
+  // Browser tabs don't survive a reload, so a saved layout with `null`
+  // slots wouldn't validate on the way back in — leaving the operator
+  // with an unstable / partially-defaulted layout after they refresh.
+  // Each tabbed panel goes to its pre-undock slot if free, otherwise its
+  // default slot, otherwise the first empty slot.
+  function _persistableLayout(mainDraft, tabsDraft) {
+    const out = { ...mainDraft };
+    (tabsDraft || []).forEach(tab => {
+      if (!tab.panelId) return;
+      let target = null;
+      const info = _undockedPanels.get(tab.panelId);
+      if (info && info.containingSlot) {
+        const s = info.containingSlot.getAttribute('data-slot');
+        if (MAIN_SLOTS.includes(s) && !out[s]) target = s;
+      }
+      if (!target) {
+        const def = Object.keys(DEFAULT_LAYOUT).find(s => DEFAULT_LAYOUT[s] === tab.panelId);
+        if (def && !out[def]) target = def;
+      }
+      if (!target) target = MAIN_SLOTS.find(s => !out[s]);
+      if (target) out[target] = tab.panelId;
+    });
+    return out;
   }
   function applyLayout(layout) {
     // Two-pass move: first detach every panel, then re-attach into its
@@ -9943,7 +9983,6 @@
       if (node.ownerDocument !== document) return;
       slot.appendChild(node);
     });
-    _currentLayout = { ...layout };
     // Leaflet caches viewport size — if the map moved to a differently-
     // sized slot, it'd otherwise render at the old dimensions until the
     // next window resize.
@@ -9959,17 +9998,28 @@
   function openRearrangeDialog() {
     const root = document.getElementById('rearrange-modal');
     if (!root) return;
-    const layoutDraft = { ..._currentLayout };
+    // Layout draft starts from the physical DOM (so any auto-redock
+    // between the last save and now is reflected) and is augmented with
+    // the pre-undock slot of every currently-undocked panel, so the
+    // "starting layout" snapshot below can send a removed tab slot back
+    // to where the panel actually came from.
+    const layoutDraft = _currentDOMLayout();
+    const startingLayout = { ...layoutDraft };
+    Array.from(_undockedPanels.entries()).forEach(([panelId, info]) => {
+      if (!info.containingSlot) return;
+      const s = info.containingSlot.getAttribute('data-slot');
+      if (!MAIN_SLOTS.includes(s)) return;
+      if (!startingLayout[s]) startingLayout[s] = panelId;
+    });
+    // Undocked panels show up as existing tab slots (reusing the same
+    // window) and are stripped from the main-slot draft — a panel can't
+    // be in two places at once.
     const tabsDraft = [];
-    // Any panel that's already undocked into a popup/tab shows up as an
-    // existing tab slot in the dialog so the user can drag it back. The
-    // pre-existing popup window is reused (win is captured here), and
-    // stripped from the main-slot draft — a panel can't be in two places.
     Array.from(_undockedPanels.entries()).forEach(([panelId, info]) => {
       MAIN_SLOTS.forEach(s => { if (layoutDraft[s] === panelId) layoutDraft[s] = null; });
       tabsDraft.push({ id: 'tab-existing-' + panelId, panelId, win: info.win, existing: true });
     });
-    _rearrangeDraft = { layout: layoutDraft, tabs: tabsDraft };
+    _rearrangeDraft = { layout: layoutDraft, tabs: tabsDraft, startingLayout };
     _renderRearrangeDialog();
     root.classList.remove('hidden');
   }
@@ -10053,15 +10103,16 @@
     // "redock, don't kill the tab"; the redock step below will close it).
     try { if (removed.win && !removed.win.closed) removed.win.close(); } catch {}
     // If the removed tab held a panel, put it back into the main slot the
-    // panel originally sat in (per the current applied layout). If that
-    // slot is already occupied in the draft, the two panels swap.
+    // panel sat in at the moment the dialog opened. If that slot is
+    // already occupied in the draft, the two panels swap.
     if (removed.panelId) {
-      const origSlot = Object.keys(_currentLayout).find(s => _currentLayout[s] === removed.panelId);
+      const start = _rearrangeDraft.startingLayout || {};
+      const origSlot = Object.keys(start).find(s => start[s] === removed.panelId)
+        || Object.keys(DEFAULT_LAYOUT).find(s => DEFAULT_LAYOUT[s] === removed.panelId);
       if (origSlot) {
         const displaced = _rearrangeDraft.layout[origSlot];
         _rearrangeDraft.layout[origSlot] = removed.panelId;
         if (displaced && displaced !== removed.panelId) {
-          // Push displaced into any empty slot; otherwise back into a tab.
           const empty = MAIN_SLOTS.find(s => !_rearrangeDraft.layout[s]);
           if (empty) _rearrangeDraft.layout[empty] = displaced;
           else _rearrangeDraft.tabs.push({ id: 'tab-' + Date.now(), panelId: displaced });
@@ -10133,7 +10184,10 @@
     // pre-opened window (opened at "+ Add tab" click time).
     Array.from(_undockedPanels.keys()).forEach(k => redockPanel(k));
     applyLayout(_rearrangeDraft.layout);
-    _saveLayoutToStorage(_rearrangeDraft.layout);
+    // Persist a *complete* layout — panels routed to tabs get placed back
+    // into their pre-undock or default main slot, so a reload (which
+    // doesn't restore tabs) has a valid, full arrangement to apply.
+    _saveLayoutToStorage(_persistableLayout(_rearrangeDraft.layout, _rearrangeDraft.tabs));
     _rearrangeDraft.tabs.forEach(tab => {
       if (!tab.panelId) {
         // Empty tab slot — close its speculatively-opened window.
