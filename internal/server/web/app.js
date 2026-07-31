@@ -9660,12 +9660,14 @@
     btn.innerHTML = undocked ? _redockIconHTML() : _undockIconHTML();
   }
   function _makePlaceholder(key) {
+    const info = _undockConfig(key);
     const el = document.createElement('div');
     el.className = 'panel-undocked-placeholder card';
     el.dataset.undockKey = key;
     const msg = document.createElement('div');
-    msg.textContent = t('topbar.undockedPlaceholder');
+    msg.textContent = t('topbar.undockedPlaceholder', { name: t(info.titleKey) });
     msg.dataset.i18nText = 'topbar.undockedPlaceholder';
+    msg.dataset.i18nName = info.titleKey;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'ghost';
@@ -9678,7 +9680,10 @@
   }
   function _refreshPlaceholderI18n() {
     document.querySelectorAll('.panel-undocked-placeholder [data-i18n-text]').forEach(el => {
-      el.textContent = t(el.dataset.i18nText);
+      const nameKey = el.dataset.i18nName;
+      el.textContent = nameKey
+        ? t(el.dataset.i18nText, { name: t(nameKey) })
+        : t(el.dataset.i18nText);
     });
   }
   function undockPanel(key) {
