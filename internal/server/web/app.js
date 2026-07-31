@@ -8955,6 +8955,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.82',
+      date: '2026-07-31',
+      en: 'v0.82: Undockable panels now offer a "new tab" option next to the "new window" option.\n- New QSO and QSO history each have two pop-out buttons in their header\n- One opens the panel in its own browser window (drag it to a second monitor)\n- The other opens the panel in a new tab of the current browser window\n- While the panel is detached, only the redock button stays visible\n- Hitting the back button, F5, or navigating away in the popped-out window automatically redocks the panel',
+      de: 'v0.82: Abkoppelbare Panels haben jetzt zusätzlich zur „neues Fenster"-Option auch einen „neuer Tab"-Button.\n- Neues QSO und QSO-Verlauf haben je zwei Abkoppel-Buttons in ihrer Kopfzeile\n- Einer öffnet das Panel in einem eigenen Browserfenster (auf einen zweiten Monitor ziehen)\n- Der andere öffnet das Panel in einem neuen Tab des aktuellen Browserfensters\n- Solange das Panel abgekoppelt ist, bleibt nur der Andocken-Button sichtbar\n- Zurück-Taste, F5 oder Wegnavigieren im abgekoppelten Fenster dockt das Panel automatisch wieder an',
+    },
+    {
       version: '0.81',
       date: '2026-07-31',
       en: 'v0.81: Undockable New QSO and QSO history panels for multi-monitor logging, plus a smoother feature-request attachment picker.\n- New QSO mask and QSO history each have a small pop-out button in their header\n- Undocked panels open in a separate browser window you can drag onto a second monitor\n- Close the window or press "Move back here" on the placeholder card to redock\n- The remaining docked panel grows to fill the freed space in the middle column\n- The placeholder in the main window names the missing panel (e.g. "New QSO is open in a separate window.")\n- Feature-request attachments: pick files across multiple picker rounds without losing earlier selections\n- Remove individual staged files with an "×" button before sending\n- Duplicates in the picker are skipped silently; invalid files surface inline instead of at submit',
