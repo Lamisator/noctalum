@@ -3617,6 +3617,7 @@
     $('left-pic-placeholder').classList.remove('hidden');
     currentTargetLocator = null;
     $('bearing-value').textContent = '—';
+    $('distance-value').textContent = '—';
     if (leafletMap) {
       if (qthMarker) { qthMarker.remove(); qthMarker = null; }
       if (tgtMarker) { tgtMarker.remove(); tgtMarker = null; }
