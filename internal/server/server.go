@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -63,8 +62,6 @@ type Server struct {
 	settings       store.Settings
 	upgrader       websocket.Upgrader
 	helperUpgrader websocket.Upgrader
-	nrMu           sync.Mutex
-	nrNext         map[int64]int // per-contest next serial number to assign
 	qrz            *QRZClient
 	downloadsDir                 string
 	soundsDir                    string
@@ -1074,19 +1071,16 @@ func (s *Server) handleReserveNr(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Peek only — does not consume a number; actual assignment happens in handleCreateQSO.
+	// Peek only — does not consume a number. The real assignment happens
+	// atomically inside store.InsertQSO under a per-contest Postgres
+	// advisory lock, so the value shown here may still be superseded if
+	// another operator commits first. Callers must therefore treat the
+	// returned nr_sent in the POST response as authoritative.
 	maxNr, err := s.store.MaxNrSent(contestID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.nrMu.Lock()
-	if s.nrNext != nil {
-		if next, ok := s.nrNext[contestID]; ok && next > maxNr+1 {
-			maxNr = next - 1
-		}
-	}
-	s.nrMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]int{"nr": maxNr + 1})
 }
 
@@ -1218,24 +1212,9 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Assign NR atomically — guarantees no gaps and no cross-operator duplicates.
-	s.nrMu.Lock()
-	if s.nrNext == nil {
-		s.nrNext = make(map[int64]int)
-	}
-	if _, ok := s.nrNext[contestID]; !ok {
-		maxNr, err := s.store.MaxNrSent(contestID)
-		if err != nil {
-			s.nrMu.Unlock()
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		s.nrNext[contestID] = maxNr + 1
-	}
-	in.NrSent = s.nrNext[contestID]
-	s.nrNext[contestID]++
-	s.nrMu.Unlock()
-
+	// nr_sent is assigned inside InsertQSO under a Postgres advisory lock —
+	// safe against concurrent inserts across processes, and immune to a
+	// server restart because there's no in-memory counter to lose.
 	id, err := s.store.InsertQSO(&in)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -1439,26 +1418,9 @@ func (s *Server) handleWSJTXBridgeQSO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// NR allocation matches handleCreateQSO exactly — same mutex, same
-	// map, so a browser and a WSJT-X bridge writing into the same contest
-	// cannot collide on serial numbers.
-	s.nrMu.Lock()
-	if s.nrNext == nil {
-		s.nrNext = make(map[int64]int)
-	}
-	if _, ok := s.nrNext[c.ID]; !ok {
-		maxNr, err := s.store.MaxNrSent(c.ID)
-		if err != nil {
-			s.nrMu.Unlock()
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		s.nrNext[c.ID] = maxNr + 1
-	}
-	in.NrSent = s.nrNext[c.ID]
-	s.nrNext[c.ID]++
-	s.nrMu.Unlock()
-
+	// Same NR allocation semantics as handleCreateQSO — InsertQSO takes a
+	// per-contest advisory lock, so the browser and the WSJT-X bridge (and
+	// any second server instance during a rolling deploy) can't collide.
 	id, err := s.store.InsertQSO(&in)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -1628,19 +1590,9 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		// Recycle freed NR slots: after a delete, the next number to hand out is
-		// max(nr_sent) + 1 over the remaining QSOs.  An operator mid-entry keeps
-		// "dibs" naturally — their q-nr-sent field already holds a value, so the
-		// frontend preview won't overwrite it, and the atomic assignment at insert
-		// time gives them whatever the current low number is.
-		if maxNr, err := s.store.MaxNrSent(contestID); err == nil {
-			s.nrMu.Lock()
-			if s.nrNext == nil {
-				s.nrNext = make(map[int64]int)
-			}
-			s.nrNext[contestID] = maxNr + 1
-			s.nrMu.Unlock()
-		}
+		// No cache to update anymore — the next InsertQSO reads MAX(nr_sent)
+		// straight from the DB under the advisory lock, so a deleted top
+		// serial is naturally recycled by the next insert.
 		s.audit(r, store.AuditInfo, AuditQSODelete, sess.Username, existing.Callsign,
 			"id: "+strconv.FormatInt(id, 10)+", band: "+existing.Band+", mode: "+existing.Mode)
 		s.hub.BroadcastToContest(contestID, Event{Type: "qso_deleted", Payload: map[string]int64{"id": id}})

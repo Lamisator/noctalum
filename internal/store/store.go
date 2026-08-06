@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -183,6 +184,17 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migrate %q: %w", q, err)
 		}
 	}
+	// Bottom-line defence against double-assigned contest serial numbers:
+	// even if the code path that computes nr_sent has a bug or a rogue
+	// client crafts a request, Postgres itself rejects the collision. The
+	// index is partial so QSOs with nr_sent = 0 (non-contest logs, imports)
+	// and QSOs without a contest_id don't share the constraint. Deferred to
+	// after the main migration and downgraded to a warning: existing DBs
+	// that already carry duplicate nr_sent rows (from before this fix) must
+	// clean them up manually before the constraint can take effect.
+	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS qsos_contest_nr_sent_uniq ON qsos (contest_id, nr_sent) WHERE contest_id IS NOT NULL AND nr_sent > 0`); err != nil {
+		log.Printf("warning: could not create UNIQUE index qsos_contest_nr_sent_uniq: %v — this usually means the qsos table already contains duplicate (contest_id, nr_sent) pairs from before the concurrency fix; please de-duplicate them and restart", err)
+	}
 	if err := s.migrateUsers(); err != nil {
 		return err
 	}
@@ -225,15 +237,56 @@ func (s *Store) migrate() error {
 	return nil
 }
 
+// nrLockNamespace is the first parameter to pg_advisory_xact_lock in
+// InsertQSO. It's a random-ish constant so unrelated advisory-lock users
+// in the same database (present or future) can't accidentally block us.
+// The value itself doesn't matter — only that it stays stable across
+// releases.
+const nrLockNamespace = 0x4E52_5354 // "NRST"
+
 // InsertQSO appends a new QSO and returns the assigned ID.
+//
+// If q.ContestID > 0, the sent-serial number (q.NrSent) is allocated
+// server-side as MAX(nr_sent)+1 inside a transaction that holds a
+// per-contest Postgres advisory lock. This guarantees that even multiple
+// server processes writing into the same contest simultaneously — a
+// browser + a WSJT-X bridge, or two instances behind a load balancer —
+// cannot both compute the same next number and hand it to two different
+// QSOs. Whatever NrSent the caller passed in for a contest QSO is
+// overwritten; the authoritative value ends up in q.NrSent on return.
+//
+// Non-contest QSOs (ContestID == 0) skip the lock and keep whatever
+// NrSent the caller set — they don't participate in a serial-number
+// sequence and can't collide with contest rows because of the partial
+// UNIQUE index (see migrate()).
 func (s *Store) InsertQSO(q *QSO) (int64, error) {
 	if q.Time.IsZero() {
 		q.Time = time.Now().UTC()
 	} else {
 		q.Time = q.Time.UTC()
 	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	// Rollback is a no-op after a successful Commit, so this is safe.
+	defer tx.Rollback()
+
+	if q.ContestID > 0 {
+		// pg_advisory_xact_lock releases automatically at COMMIT/ROLLBACK,
+		// so we can't leak the lock even if the INSERT below errors out.
+		if _, err := tx.Exec(`SELECT pg_advisory_xact_lock($1, $2)`, int32(nrLockNamespace), int32(q.ContestID)); err != nil {
+			return 0, err
+		}
+		var next int
+		if err := tx.QueryRow(`SELECT COALESCE(MAX(nr_sent), 0) + 1 FROM qsos WHERE contest_id = $1`, q.ContestID).Scan(&next); err != nil {
+			return 0, err
+		}
+		q.NrSent = next
+	}
+
 	var id int64
-	err := s.db.QueryRow(
+	err = tx.QueryRow(
 		`INSERT INTO qsos (time_utc, callsign, name, band, freq_hz, mode, rst_sent, rst_received,
 			nr_sent, nr_received, dok,
 			locator, itu_zone, cq_zone, lighthouse, operator, station_call, notes, contest_name, contest_id, extras, operator_user_id)
@@ -249,6 +302,9 @@ func (s *Store) InsertQSO(q *QSO) (int64, error) {
 		q.ContestID, q.Extras, q.OperatorUserID,
 	).Scan(&id)
 	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	q.ID = id
@@ -335,6 +391,15 @@ func (s *Store) MaxNrSent(contestID int64) (int, error) {
 }
 
 // UpdateQSO writes an edited QSO row back to the database.
+//
+// nr_sent is deliberately omitted from the SET clause: the sent serial is
+// what THIS station sent to the DX during the contact and is authoritative
+// once assigned. Allowing edits would open the door to accidentally (or
+// maliciously) creating duplicates within a contest, which would then
+// collide with the partial UNIQUE index (contest_id, nr_sent). Callers may
+// still populate q.NrSent on the struct — it's just silently ignored here.
+// nr_received IS editable because the DX's number can be mis-heard and
+// needs correcting.
 func (s *Store) UpdateQSO(q *QSO) error {
 	if q.Time.IsZero() {
 		q.Time = time.Now().UTC()
@@ -343,13 +408,13 @@ func (s *Store) UpdateQSO(q *QSO) error {
 	}
 	_, err := s.db.Exec(
 		`UPDATE qsos SET time_utc=$1, callsign=$2, name=$3, band=$4, freq_hz=$5, mode=$6,
-			rst_sent=$7, rst_received=$8, nr_sent=$9, nr_received=$10, dok=$11,
-			locator=$12, itu_zone=$13, cq_zone=$14, lighthouse=$15, notes=$16, extras=$17
-		 WHERE id=$18`,
+			rst_sent=$7, rst_received=$8, nr_received=$9, dok=$10,
+			locator=$11, itu_zone=$12, cq_zone=$13, lighthouse=$14, notes=$15, extras=$16
+		 WHERE id=$17`,
 		q.Time,
 		strings.ToUpper(q.Callsign), q.Name,
 		q.Band, q.FreqHz, q.Mode, q.RSTSent, q.RSTReceived,
-		q.NrSent, q.NrReceived, strings.ToUpper(q.DOK),
+		q.NrReceived, strings.ToUpper(q.DOK),
 		strings.ToUpper(q.Locator), q.ITUZone, q.CQZone, q.Lighthouse, q.Notes, q.Extras,
 		q.ID,
 	)

@@ -4023,6 +4023,11 @@
     $('q-name').value = q.name || '';
     $('q-nr-rcvd').value = q.nr_received || '';
     $('q-nr-sent').value = q.nr_sent || '';
+    // Sent NR is server-assigned and immutable — a UI edit would be silently
+    // dropped by the backend, so we visibly disable the field during editing
+    // and re-enable it in cancelQsoEdit() when the form returns to New-QSO
+    // mode.
+    $('q-nr-sent').readOnly = true;
     $('q-mode').value = q.mode;
     $('q-band').value = q.band;
     $('q-freq').value = q.freq_hz ? hzToDisplay(q.freq_hz) : '';
@@ -4064,6 +4069,9 @@
 
   function cancelQsoEdit() {
     editingQsoId = null;
+    // Re-enable q-nr-sent — loadQsoIntoForm locks it during editing because
+    // the backend refuses nr_sent updates (it's server-assigned at insert).
+    $('q-nr-sent').readOnly = false;
     ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
     clearQRZInfo();
     currentTargetLocator = null;
