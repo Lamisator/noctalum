@@ -3419,10 +3419,24 @@
     $('q-call').focus();
   }
 
-  $('cluster-refresh-btn').addEventListener('click', loadClusterSpots);
-  $('cluster-band-filter').addEventListener('change', renderClusterSpots);
-  $('cluster-mode-filter').addEventListener('change', renderClusterSpots);
-  $('cluster-spotter-filter').addEventListener('change', renderClusterSpots);
+  // Wrapped in a re-callable function because the ops panel can be adopted
+  // into a popup window/tab, and some browsers drop `change` listeners on
+  // `<select>` elements during cross-document adoption even though the DOM
+  // spec says they should persist. `_adoptPanelIntoWindow` and `redockPanel`
+  // call this again after moving the panel; addEventListener is a no-op when
+  // the same (event, handler, capture) triple is already registered, so the
+  // repeat call is safe on browsers that preserve the listeners correctly.
+  function wireClusterListeners() {
+    const refresh = $('cluster-refresh-btn');
+    const band = $('cluster-band-filter');
+    const mode = $('cluster-mode-filter');
+    const spotter = $('cluster-spotter-filter');
+    if (refresh) refresh.addEventListener('click', loadClusterSpots);
+    if (band) band.addEventListener('change', renderClusterSpots);
+    if (mode) mode.addEventListener('change', renderClusterSpots);
+    if (spotter) spotter.addEventListener('change', renderClusterSpots);
+  }
+  wireClusterListeners();
 
   // ----- markdown renderer -----
   function inlineMd(s) {
@@ -9871,6 +9885,10 @@
     _undockedPanels.set(key, { win, node, placeholder, pollTimer, mode, containingSlot });
     _refreshUndockBtn(key);
     try { window.I18N && window.I18N.apply(doc); } catch {}
+    // Re-attach inner-panel listeners that some browsers drop during
+    // cross-document adoption. addEventListener dedupes identical
+    // registrations so this is a no-op on browsers that preserve them.
+    if (key === 'ops') { try { wireClusterListeners(); } catch {} }
     return true;
   }
   function undockPanel(key, mode) {
@@ -9910,6 +9928,10 @@
     }
     try { if (win && !win.closed) win.close(); } catch {}
     _refreshUndockBtn(key);
+    // Same re-wire as on undock — the redock also crosses a document boundary
+    // (popup → main), and any listeners dropped in that direction need to be
+    // put back before the operator interacts with the panel again.
+    if (key === 'ops') { try { wireClusterListeners(); } catch {} }
   }
   function _siblingCenterSlot(slot) {
     if (!slot) return null;
