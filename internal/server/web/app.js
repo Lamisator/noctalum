@@ -568,6 +568,10 @@
   let leafletMap = null;
   let qthMarker = null, tgtMarker = null;
   let pathLines = [];
+  let arrowAnim = null;  // requestAnimationFrame handle for the flowing chevrons
+  function stopArrowAnim() {
+    if (arrowAnim !== null) { cancelAnimationFrame(arrowAnim); arrowAnim = null; }
+  }
 
   // ----- Contest map (Map tab) -----
   let contestMap = null;
@@ -3618,6 +3622,7 @@
     currentTargetLocator = null;
     $('bearing-value').textContent = '—';
     $('distance-value').textContent = '—';
+    stopArrowAnim();
     if (leafletMap) {
       if (qthMarker) { qthMarker.remove(); qthMarker = null; }
       if (tgtMarker) { tgtMarker.remove(); tgtMarker = null; }
@@ -3649,6 +3654,7 @@
     try {
 
     // Remove previous overlays
+    stopArrowAnim();
     if (qthMarker)  { qthMarker.remove();  qthMarker  = null; }
     if (tgtMarker)  { tgtMarker.remove();  tgtMarker  = null; }
     pathLines.forEach(l => l.remove());
@@ -3680,29 +3686,52 @@
            .addTo(leafletMap)
         );
       }
-      // Direction chevrons at ~25/50/75% of the great-circle path, each rotated
-      // to the local heading so the arrows show the my-QTH → target propagation
-      // direction.  Pushed into pathLines so clearLeftPanel() cleans them up.
-      for (const frac of [0.25, 0.5, 0.75]) {
-        const i = Math.round(frac * (pts.length - 1));
-        const j = Math.min(i + 1, pts.length - 1);
-        if (j === i) continue;
-        const [lat, lon] = pts[i];
-        const heading = bearingTo(lat, lon, pts[j][0], pts[j][1]);
+      // Flowing direction chevrons: three arrows that slide along the great
+      // circle from my QTH toward the target on a continuous loop, so the map
+      // reads as active signal propagation rather than a static bearing line.
+      // Each chevron is phase-offset by 1/N of the cycle so they stay evenly
+      // spread out.  The animation runs off requestAnimationFrame and is
+      // torn down by stopArrowAnim() at the top of updateMap() and in
+      // clearLeftPanel(), so it never outlives the polyline it decorates.
+      const ARROW_COUNT = 3;
+      const ARROW_PERIOD_MS = 4000;  // full source→target traversal per chevron
+      const arrows = [];
+      const arrowGs = [];
+      for (let k = 0; k < ARROW_COUNT; k++) {
         const icon = L.divIcon({
           className: 'gc-arrow',
           html: `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block">`
-              + `<g transform="rotate(${heading.toFixed(1)} 12 12)">`
-              + `<path d="M12 3 L18 16 L12 12 L6 16 Z" fill="#4fc3f7" stroke="#0a1420" stroke-width="1" stroke-linejoin="round"/>`
-              + `</g></svg>`,
+              + `<g><path d="M12 3 L18 16 L12 12 L6 16 Z" fill="#4fc3f7" stroke="#0a1420" stroke-width="1" stroke-linejoin="round"/></g>`
+              + `</svg>`,
           iconSize: [16, 16],
           iconAnchor: [8, 8],
         });
-        pathLines.push(
-          L.marker([lat, lon], { icon, interactive: false, keyboard: false })
-           .addTo(leafletMap)
-        );
+        const m = L.marker(pts[0], { icon, interactive: false, keyboard: false })
+                   .addTo(leafletMap);
+        arrows.push(m);
+        arrowGs.push(null);  // resolved lazily on first frame
+        pathLines.push(m);
       }
+      const t0 = performance.now();
+      const step = (now) => {
+        const t = (now - t0) / ARROW_PERIOD_MS;
+        for (let k = 0; k < ARROW_COUNT; k++) {
+          // Keep chevrons off the endpoint markers by clamping to [0.03, 0.97].
+          const frac = 0.03 + 0.94 * (((t + k / ARROW_COUNT) % 1 + 1) % 1);
+          const i = Math.min(Math.floor(frac * (pts.length - 1)), pts.length - 2);
+          const [lat, lon] = pts[i];
+          const heading = bearingTo(lat, lon, pts[i+1][0], pts[i+1][1]);
+          arrows[k].setLatLng([lat, lon]);
+          let g = arrowGs[k];
+          if (!g) {
+            const el = arrows[k].getElement();
+            if (el) { g = el.querySelector('g'); arrowGs[k] = g; }
+          }
+          if (g) g.setAttribute('transform', `rotate(${heading.toFixed(1)} 12 12)`);
+        }
+        arrowAnim = requestAnimationFrame(step);
+      };
+      arrowAnim = requestAnimationFrame(step);
       // Fit the entire path in view
       const bounds = L.latLngBounds(pts.map(([a,b]) => [a, b]));
       leafletMap.fitBounds(bounds, { padding: [18, 18], maxZoom: 8 });
