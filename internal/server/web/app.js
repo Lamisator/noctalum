@@ -7203,9 +7203,21 @@
       const cancelBtn = $('confirm-cancel');
       if (cancelBtn) cancelBtn.textContent = t('common.cancel');
       root.classList.remove('hidden');
-      const finish = (result) => { root.classList.add('hidden'); resolve(result); };
+      // Escape cancels any confirm; Enter accepts only *safe* confirms so a stray
+      // Enter can never trigger a destructive action (delete, revoke, ...).
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+        else if (e.key === 'Enter' && opts.safe && !e.isComposing) { e.preventDefault(); finish(true); }
+      };
+      const finish = (result) => {
+        document.removeEventListener('keydown', onKey, true);
+        root.classList.add('hidden');
+        resolve(result);
+      };
+      document.addEventListener('keydown', onKey, true);
       $('confirm-cancel').onclick = () => finish(false);
       $('confirm-ok').onclick = () => finish(true);
+      if (opts.safe) { try { okBtn.focus(); } catch {} }
     });
   }
 
