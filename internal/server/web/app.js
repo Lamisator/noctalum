@@ -3680,6 +3680,29 @@
            .addTo(leafletMap)
         );
       }
+      // Direction chevrons at ~25/50/75% of the great-circle path, each rotated
+      // to the local heading so the arrows show the my-QTH → target propagation
+      // direction.  Pushed into pathLines so clearLeftPanel() cleans them up.
+      for (const frac of [0.25, 0.5, 0.75]) {
+        const i = Math.round(frac * (pts.length - 1));
+        const j = Math.min(i + 1, pts.length - 1);
+        if (j === i) continue;
+        const [lat, lon] = pts[i];
+        const heading = bearingTo(lat, lon, pts[j][0], pts[j][1]);
+        const icon = L.divIcon({
+          className: 'gc-arrow',
+          html: `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block">`
+              + `<g transform="rotate(${heading.toFixed(1)} 12 12)">`
+              + `<path d="M12 3 L18 16 L12 12 L6 16 Z" fill="#4fc3f7" stroke="#0a1420" stroke-width="1" stroke-linejoin="round"/>`
+              + `</g></svg>`,
+          iconSize: [16, 16],
+          iconAnchor: [8, 8],
+        });
+        pathLines.push(
+          L.marker([lat, lon], { icon, interactive: false, keyboard: false })
+           .addTo(leafletMap)
+        );
+      }
       // Fit the entire path in view
       const bounds = L.latLngBounds(pts.map(([a,b]) => [a, b]));
       leafletMap.fitBounds(bounds, { padding: [18, 18], maxZoom: 8 });
