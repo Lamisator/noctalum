@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Noctalum</title>
+  <link rel="icon" type="image/png" href="noctalum.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="prompt-shell" id="shell">
+    <img src="noctalum.png" alt="" class="logo" />
+    <h1 class="brand">Noctalum</h1>
+    <p class="tagline" id="tagline">Connect to your Noctalum server</p>
+
+    <form id="prompt-form" class="prompt-form" autocomplete="on">
+      <label class="field">
+        <span class="field-label" id="lbl-server">Server URL</span>
+        <input type="url"
+               id="server"
+               name="server"
+               placeholder="https://log.example.com"
+               autocomplete="url"
+               required />
+      </label>
+      <label class="field">
+        <span class="field-label" id="lbl-user">Username <span class="hint" id="hint-user">(will be cached)</span></span>
+        <input type="text"
+               id="username"
+               name="username"
+               autocomplete="username" />
+      </label>
+
+      <div class="error" id="error" hidden></div>
+
+      <button type="submit" class="btn primary" id="btn-connect">Connect</button>
+    </form>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

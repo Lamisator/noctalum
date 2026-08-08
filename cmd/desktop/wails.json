@@ -1,0 +1,17 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "noctalum-desktop",
+  "outputfilename": "noctalum-desktop",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "frontend:dev:serverUrl": "",
+  "author": {
+    "name": "Noctalum"
+  },
+  "info": {
+    "productName": "Noctalum",
+    "productVersion": "0.1.0",
+    "comments": "Native desktop wrapper for the Noctalum contest logger web UI."
+  }
+}
