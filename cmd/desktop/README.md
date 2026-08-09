@@ -96,8 +96,9 @@ wails dev
   user-data folder to a single process, so the browser fallback
   applies there until we can either upgrade to Wails v3 or teach the
   wrapper to hand a session-cookie handoff between processes.  The
-  spawned window loads the full app at the pop-out URL, not just the
-  isolated panel, because the current DOM-adoption pop-out (doc.write
-  + adoptNode) doesn't survive a webview-process boundary — a solo
-  panel view (e.g. `/?panel=ops`) is a natural frontend follow-up.
+  spawned window navigates to `<server>/?solo-panel=<key>`; the
+  frontend recognises that param and hides everything except the
+  requested panel, which is the closest we can approximate the
+  browser's DOM-adoption pop-out now that the popped-out panel lives
+  in a separate webview process.
 - **No auto-update.**  Ship a new binary per release.

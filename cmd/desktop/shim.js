@@ -88,10 +88,21 @@
   // window loading the same server URL.  The panel-solo rendering piece
   // is a follow-up on the frontend — see README.md for the caveat.
   const origOpen = window.open.bind(window);
+  // Panel keys recognised by the frontend's undockPanel(); the name arg
+  // passed to window.open is "noctalum-<key>-<timestamp>".  When we see
+  // one of these we rewrite the target URL to ?solo-panel=<key> so the
+  // spawned window renders only that panel instead of the whole app —
+  // which is the closest we can get to the browser's DOM-adoption
+  // popup UX now that pop-out crosses a webview-process boundary.
+  const SOLO_PANEL_NAME_RE = /^noctalum-(entry|history|left|ops)-/;
   window.open = function (url, name, features) {
     try {
-      const target = (url && url.length) ? url : window.location.href;
-      const title  = (typeof name === 'string' && name) ? name : document.title;
+      let target = (url && url.length) ? url : window.location.href;
+      const title = (typeof name === 'string' && name) ? name : document.title;
+      const m = typeof name === 'string' ? name.match(SOLO_PANEL_NAME_RE) : null;
+      if (m) {
+        target = window.location.origin + '/?solo-panel=' + encodeURIComponent(m[1]);
+      }
       if (invokeGoMethod('main.App.OpenPanelWindow', [target, title])) {
         // Return a minimal Window-shaped stub so callers that immediately
         // do `if (!win) alert(...)` don't complain, and follow-up

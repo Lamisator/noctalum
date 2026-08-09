@@ -1707,6 +1707,38 @@
     if (ws) { ws.onclose = null; ws.onerror = null; try { ws.close(); } catch {} ws = null; }
     connectWS();
     $('q-call').focus();
+    // Activate solo-panel mode last so it can hide chrome and reparent
+    // the target panel without racing the tab/panel setup above.
+    _applySoloPanelMode();
+  }
+
+  // If the URL carries ?solo-panel=<key>, hide the app chrome and every
+  // other panel and let the requested panel fill the viewport.  Used by
+  // the noctalum-desktop wrapper: when the operator pops out a panel it
+  // spawns a fresh wrapper process pointed at this URL, which then
+  // renders only that panel — the closest we can get to the browser
+  // pop-out UX now that DOM adoption can't cross a webview-process
+  // boundary.  Also works in a regular browser tab (it's plain URL
+  // routing) if someone wants a bookmark-sized panel view.
+  function _applySoloPanelMode() {
+    const key = new URLSearchParams(window.location.search).get('solo-panel');
+    if (!key) return;
+    const info = _undockConfig(key);
+    if (!info) return;
+    const activate = () => {
+      const node = document.querySelector(info.selector);
+      if (!node) { setTimeout(activate, 50); return; }
+      document.title = t(info.titleKey);
+      document.body.classList.add('noctalum-undocked-window');
+      document.body.classList.add('noctalum-solo-panel');
+      if (node.parentNode !== document.body) {
+        document.body.insertBefore(node, document.body.firstChild);
+      }
+      Array.from(document.body.children).forEach(child => {
+        if (child !== node) child.style.display = 'none';
+      });
+    };
+    activate();
   }
 
   function getCurrentContestForEdit() {

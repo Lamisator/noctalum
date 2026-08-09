@@ -660,6 +660,12 @@ body.noctalum-undocked-window .ops-panel {
   flex-direction: column;
 }
 body.noctalum-undocked-window .history-panel .table-scroll { flex: 1; min-height: 0; }
+/* In solo-panel mode (the noctalum-desktop wrapper's native pop-out
+   window) the undock / redock button doesn't make sense — the panel is
+   already the sole occupant of its own OS window and closing it means
+   closing the window.  Hide the button rather than let a click open
+   yet another window recursively. */
+body.noctalum-solo-panel .panel-undock-btn { display: none !important; }
 /* Message shown in a browser tab opened by the Rearrange dialog that
    hasn't been assigned a panel yet — it stays there until the operator
    drags a panel into the tab slot and hits Save (or removes the slot). */
