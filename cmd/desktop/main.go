@@ -37,6 +37,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("noctalum-desktop: config: %v", err)
 	}
+
+	// Pin the WebKit cookie jar to disk BEFORE wails.Run creates the
+	// webview — see cookies_linux.go for the why.  No-op on macOS +
+	// Windows (their webviews persist cookies by default).
+	if path, err := setupPersistentCookies(); err != nil {
+		log.Printf("noctalum-desktop: cookie persistence disabled (%v); sessions will not survive restart", err)
+	} else if path != "" {
+		log.Printf("noctalum-desktop: cookies persisted at %s", path)
+	}
+
 	app := newApp(cfg, *overrideURL)
 
 	w, h, bg := app.desktopWindowOptions()

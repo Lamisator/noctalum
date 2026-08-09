@@ -22,9 +22,14 @@ sessions survive restarts.
 5. Subsequent launches jump straight to the server; if the session
    cookie is still valid the app loads without prompting for anything.
 
-Passwords are never stored on disk.  Session cookies live inside the
-OS-managed webview data folder (`%LocalAppData%\noctalum-desktop\` on
-Windows, `~/Library/WebKit/…` on macOS, `~/.local/share/…` on Linux).
+Passwords are never stored on disk.  Session cookies live in the
+platform-appropriate persistent store:
+
+| OS      | Cookie store                                                       |
+| ------- | ------------------------------------------------------------------ |
+| Linux   | `~/.config/noctalum-desktop/cookies.sqlite` (SQLite, pinned by the wrapper at startup — WebKitGTK is otherwise ephemeral) |
+| macOS   | `~/Library/WebKit/…` (WKWebView's default persistent WKWebsiteDataStore) |
+| Windows | `%AppData%\noctalum-desktop\…` (WebView2's default user-data folder) |
 
 ## Config file
 
