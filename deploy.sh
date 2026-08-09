@@ -476,21 +476,22 @@ else
   downloads=(
     "$ROOT"/dist/noctalum-helper-*
     "$ROOT"/dist/noctalum-wsjtx-*
+    "$ROOT"/dist/noctalum-desktop-*
   )
   shopt -u nullglob
   if [ ${#downloads[@]} -eq 0 ]; then
-    echo "warning: no helper/wsjtx binaries found in dist/ — was build skipped?" >&2
-    record_step FAIL "Downloads" "no helper/wsjtx binaries found in dist/"
+    echo "warning: no helper/wsjtx/desktop binaries found in dist/ — was build skipped?" >&2
+    record_step FAIL "Downloads" "no helper/wsjtx/desktop binaries found in dist/"
   else
     # Purge the remote /downloads/ directory first so retired artefacts
     # (e.g. an old .zip that a Fyne rewrite replaced with a .exe, or an
     # old-arch AppImage the current build no longer produces) can't
     # linger and shadow the fresh files in the download UI.  We only
-    # purge the noctalum-{helper,wsjtx}-* namespace — anything else in
-    # /downloads/ (dist-provided icons, README, ad-hoc uploads) is left
-    # alone.  Ordering matters: purge THEN scp, never the reverse.
+    # purge the noctalum-{helper,wsjtx,desktop}-* namespace — anything
+    # else in /downloads/ (dist-provided icons, README, ad-hoc uploads)
+    # is left alone.  Ordering matters: purge THEN scp, never the reverse.
     if ssh "${SSH_OPTS[@]}" "$SSH_HOST" \
-         "rm -f $REMOTE_APP_DIR/downloads/noctalum-helper-* $REMOTE_APP_DIR/downloads/noctalum-wsjtx-*"; then
+         "rm -f $REMOTE_APP_DIR/downloads/noctalum-helper-* $REMOTE_APP_DIR/downloads/noctalum-wsjtx-* $REMOTE_APP_DIR/downloads/noctalum-desktop-*"; then
       record_step PASS "Downloads" "purge remote /downloads/"
     else
       record_step FAIL "Downloads" "purge remote /downloads/"

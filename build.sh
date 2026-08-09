@@ -11,9 +11,11 @@
 #   ./build.sh --helper-only            # only the noctalum-helper
 #   ./build.sh --wsjtx-only             # only the noctalum-wsjtx bridge
 #   ./build.sh --gui-only               # only the noctalum-helper-gui (linux, windows)
+#   ./build.sh --desktop-only           # only the noctalum-desktop wrapper (linux, windows)
 #   ./build.sh --notifier-only          # only the Telegram-deploy notifier
 #   ./build.sh --no-gui                 # skip the GUI helper
-#   ./build.sh --no-helpers             # skip helper, WSJT-X bridge, and GUI (server + notifier only)
+#   ./build.sh --no-desktop             # skip the noctalum-desktop wrapper
+#   ./build.sh --no-helpers             # skip helper, WSJT-X bridge, GUI helper and desktop (server + notifier only)
 #   ./build.sh --cpp-only               # only the C++ helper packages (Linux+Windows+macOS)
 #   ./build.sh --no-cpp                 # skip the C++ builds (default is to build)
 #   ./build.sh --cpp-no-windows         # skip the C++ Windows cross-compile
@@ -81,6 +83,7 @@ build_server=true
 build_helper=true
 build_wsjtx=true
 build_gui=true
+build_desktop=true
 build_notifier=true
 build_cpp=true
 # Legacy toggle from the days when the C++ wsjtx-gui was the sole thing
@@ -98,20 +101,22 @@ native_build=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --server-only)   build_helper=false; build_wsjtx=false; build_gui=false; build_notifier=false; build_cpp=false; shift ;;
-    --helper-only)   build_server=false; build_wsjtx=false; build_gui=false; build_notifier=false; build_cpp=false; shift ;;
-    --wsjtx-only)    build_server=false; build_helper=false; build_gui=false; build_notifier=false; build_cpp=false; shift ;;
-    --gui-only)      build_server=false; build_helper=false; build_wsjtx=false; build_gui=true; build_notifier=false; build_cpp=false; shift ;;
-    --notifier-only) build_server=false; build_helper=false; build_wsjtx=false; build_gui=false; build_notifier=true; build_cpp=false; shift ;;
-    --cpp-only)      build_server=false; build_helper=false; build_wsjtx=false; build_gui=false; build_notifier=false; build_cpp=true; shift ;;
+    --server-only)   build_helper=false; build_wsjtx=false; build_gui=false; build_desktop=false; build_notifier=false; build_cpp=false; shift ;;
+    --helper-only)   build_server=false; build_wsjtx=false; build_gui=false; build_desktop=false; build_notifier=false; build_cpp=false; shift ;;
+    --wsjtx-only)    build_server=false; build_helper=false; build_gui=false; build_desktop=false; build_notifier=false; build_cpp=false; shift ;;
+    --gui-only)      build_server=false; build_helper=false; build_wsjtx=false; build_gui=true; build_desktop=false; build_notifier=false; build_cpp=false; shift ;;
+    --desktop-only)  build_server=false; build_helper=false; build_wsjtx=false; build_gui=false; build_desktop=true; build_notifier=false; build_cpp=false; shift ;;
+    --notifier-only) build_server=false; build_helper=false; build_wsjtx=false; build_gui=false; build_desktop=false; build_notifier=true; build_cpp=false; shift ;;
+    --cpp-only)      build_server=false; build_helper=false; build_wsjtx=false; build_gui=false; build_desktop=false; build_notifier=false; build_cpp=true; shift ;;
     --no-gui)        build_gui=false; shift ;;
+    --no-desktop)    build_desktop=false; shift ;;
     --no-cpp)        build_cpp=false; shift ;;
     --cpp-no-windows) build_cpp_windows=false; shift ;;
     # --cpp-no-macos is now a no-op (macOS is off by default) but kept
     # accepted so old muscle-memory / scripts don't break.
     --cpp-no-macos)  build_cpp_macos=false; shift ;;
     --cpp-macos)     build_cpp_macos=true;  shift ;;
-    --no-helpers)    build_helper=false; build_wsjtx=false; build_gui=false; build_cpp=false; shift ;;
+    --no-helpers)    build_helper=false; build_wsjtx=false; build_gui=false; build_desktop=false; build_cpp=false; shift ;;
     --target)      single_target="$2"; shift 2 ;;
     --image)       GO_IMAGE="$2"; shift 2 ;;
     --native)      native_build=true; shift ;;
@@ -127,6 +132,7 @@ $build_server   && need_runtime=true
 $build_helper   && need_runtime=true
 $build_wsjtx    && need_runtime=true
 $build_gui      && need_runtime=true
+$build_desktop  && need_runtime=true
 $build_notifier && need_runtime=true
 $build_cpp      && need_runtime=true
 RUNTIME=""
@@ -762,6 +768,149 @@ DOCKERFILE
   fi
 }
 
+# ── noctalum-desktop wrapper (Wails v2, WebKitGTK / WebView2) ────────
+#
+# The desktop wrapper shares the exact Wails / WebKitGTK / WebView2
+# stack as helper-gui, so it re-uses the same toolchain images and the
+# same run_gui_build helper — only the subdir (cmd/desktop) and output
+# name differ.  Linux/amd64 ships as an AppImage (parity with
+# helper-gui) so end users don't need libwebkit2gtk-4.1 installed on
+# the host; linux/arm64 and windows/amd64 ship as plain binaries.
+build_desktop_linux_amd64() {
+  if $native_build; then
+    if run_gui_build "noctalum-desktop-linux-amd64" "" linux amd64 "webkit2_41" "" "" "cmd/desktop"; then
+      gui_built+=("desktop/linux/amd64")
+    else
+      echo "    skipping desktop linux/amd64 — go build failed (libwebkit2gtk-4.1-dev installed?)"
+      gui_skipped+=("desktop/linux/amd64")
+    fi
+    return
+  fi
+  local out="noctalum-desktop-linux-amd64.AppImage"
+  echo "==> $out  (CGO=1, webkit2gtk-4.1, AppImage)"
+  # Piggy-back on the helper-gui appimage toolchain image — same headers
+  # (GTK3 + WebKitGTK 4.1) plus appimagetool are already baked in.  The
+  # image is built on demand by build_gui_linux_amd64; if that hasn't
+  # happened yet in this run, kick it off so --desktop-only works
+  # standalone (and a full build isn't order-dependent).
+  local gui_image="noctalum-gui-linux-amd64:appimage-$IMG_TAG"
+  if ! "$RUNTIME" image inspect "$gui_image" >/dev/null 2>&1; then
+    echo "    desktop linux/amd64: toolchain image missing — run ./build.sh --gui-only first, then re-run --desktop-only"
+    gui_skipped+=("desktop/linux/amd64")
+    return 0
+  fi
+
+  local tmpscript
+  tmpscript=$(mktemp /tmp/build-desktop-XXXXXX.sh)
+  cat > "$tmpscript" <<'INNERSCRIPT'
+#!/bin/bash
+set -euo pipefail
+cd /src/cmd/desktop
+
+go build -trimpath -tags "desktop,production,webkit2_41" \
+  -ldflags="${LDFLAGS}" \
+  -o /tmp/noctalum-desktop .
+
+APPDIR=/tmp/AppDir
+rm -rf "${APPDIR}"
+mkdir -p "${APPDIR}/usr/bin"
+cp /tmp/noctalum-desktop "${APPDIR}/usr/bin/noctalum-desktop"
+ln -sf usr/bin/noctalum-desktop "${APPDIR}/AppRun"
+
+cat > "${APPDIR}/noctalum-desktop.desktop" <<'DESKTOPEOF'
+[Desktop Entry]
+Name=Noctalum
+Exec=noctalum-desktop
+Icon=noctalum-desktop
+Type=Application
+Categories=HamRadio;Network;
+DESKTOPEOF
+
+cp /src/noctalum.png "${APPDIR}/noctalum-desktop.png"
+
+APPIMAGE_EXTRACT_AND_RUN=1 appimagetool "${APPDIR}" "/src/dist/${OUTPUT}"
+INNERSCRIPT
+  chmod +x "$tmpscript"
+
+  if "$RUNTIME" run --rm \
+    --user "$(id -u):$(id -g)" \
+    -v "$ROOT":/src \
+    -v "$tmpscript":/build-desktop.sh:ro \
+    -v "$CACHE_DIR/go-build":/.cache/go-build \
+    -v "$CACHE_DIR/go-mod":/go/pkg/mod \
+    -e HOME=/tmp \
+    -e GOCACHE=/.cache/go-build \
+    -e GOMODCACHE=/go/pkg/mod \
+    -e CGO_ENABLED=1 \
+    -e LDFLAGS="$LDFLAGS" \
+    -e OUTPUT="$out" \
+    "$gui_image" \
+    bash /build-desktop.sh; then
+    gui_built+=("desktop/linux/amd64")
+  else
+    echo "    skipping desktop linux/amd64 — build/package failed"
+    gui_skipped+=("desktop/linux/amd64")
+  fi
+  rm -f "$tmpscript"
+}
+
+build_desktop_linux_arm64() {
+  if $native_build; then
+    if run_gui_build "noctalum-desktop-linux-arm64" "" linux arm64 "webkit2_41" "" "" "cmd/desktop"; then
+      gui_built+=("desktop/linux/arm64")
+    else
+      echo "    skipping desktop linux/arm64 — go build failed (cross-CGO not supported natively; run on arm64 hardware)"
+      gui_skipped+=("desktop/linux/arm64")
+    fi
+    return
+  fi
+  if ! can_emulate_arm64; then
+    echo "    skipping desktop linux/arm64 — no arm64 emulation on this host"
+    echo "    Enable once with:"
+    echo "      docker run --rm --privileged multiarch/qemu-user-static --reset -p yes"
+    gui_soft_skipped+=("desktop/linux/arm64")
+    return 0
+  fi
+  # Reuse the helper-gui arm64 image; it already carries the WebKitGTK
+  # headers Wails needs.
+  local image="noctalum-gui-linux-arm64:$IMG_TAG"
+  if ! "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then
+    echo "    desktop linux/arm64: toolchain image missing — run ./build.sh --gui-only first, then re-run --desktop-only"
+    gui_skipped+=("desktop/linux/arm64")
+    return 0
+  fi
+  if ! run_gui_build "noctalum-desktop-linux-arm64" "$image" linux arm64 "webkit2_41" "" "linux/arm64" "cmd/desktop"; then
+    gui_skipped+=("desktop/linux/arm64")
+    return 0
+  fi
+  gui_built+=("desktop/linux/arm64")
+}
+
+build_desktop_windows_amd64() {
+  if $native_build; then
+    # -H windowsgui suppresses the console window on Windows.
+    if run_gui_build "noctalum-desktop-windows-amd64.exe" "" windows amd64 "" "-H windowsgui" "" "cmd/desktop"; then
+      gui_built+=("desktop/windows/amd64")
+    else
+      echo "    skipping desktop windows/amd64 — go build failed (mingw-w64 + WebView2 SDK required natively)"
+      gui_skipped+=("desktop/windows/amd64")
+    fi
+    return
+  fi
+  local image="noctalum-gui-windows-amd64:$IMG_TAG"
+  if ! "$RUNTIME" image inspect "$image" >/dev/null 2>&1; then
+    echo "    desktop windows/amd64: toolchain image missing — run ./build.sh --gui-only first, then re-run --desktop-only"
+    gui_skipped+=("desktop/windows/amd64")
+    return 0
+  fi
+  if run_gui_build "noctalum-desktop-windows-amd64.exe" "$image" windows amd64 "" "-H windowsgui" "" "cmd/desktop"; then
+    gui_built+=("desktop/windows/amd64")
+  else
+    echo "    skipping desktop windows/amd64 — go build failed"
+    gui_skipped+=("desktop/windows/amd64")
+  fi
+}
+
 # macOS GUI builds require Xcode / the macOS SDK and cannot be cross-compiled
 # from Linux.  Run `wails build` natively on a Mac and copy the resulting
 # binary into the downloads directory (see cmd/helper-gui/README.md).
@@ -814,6 +963,7 @@ if $build_gui; then
       darwin/*)
         echo "  macOS GUI: run 'wails build' natively on a Mac (see cmd/helper-gui/README.md)"
         echo "  macOS wsjtx-gui: run 'go build ./cmd/wsjtx-gui' natively on a Mac"
+        echo "  macOS desktop: run 'wails build' in cmd/desktop natively on a Mac"
         gui_skipped+=("${native_os}/${native_arch}") ;;
       *)
         echo "  GUI: no native build defined for ${native_os}/${native_arch}"
@@ -826,6 +976,31 @@ if $build_gui; then
     build_wsjtx_gui_linux_amd64
     build_wsjtx_gui_linux_arm64
     build_wsjtx_gui_windows_amd64
+  fi
+fi
+
+# Desktop wrapper runs in the same GUI orchestration lane as helper-gui,
+# but toggled by its own flag so an operator can opt out (or build it
+# alone) without touching the helper-gui build.
+if $build_desktop; then
+  if $native_build && [ -z "$single_target" ]; then
+    native_os="$(go env GOOS)"
+    native_arch="$(go env GOARCH)"
+    case "${native_os}/${native_arch}" in
+      linux/amd64)   build_desktop_linux_amd64 ;;
+      linux/arm64)   build_desktop_linux_arm64 ;;
+      windows/amd64) build_desktop_windows_amd64 ;;
+      darwin/*)
+        echo "  desktop: run 'wails build' in cmd/desktop natively on a Mac"
+        gui_skipped+=("desktop/${native_os}/${native_arch}") ;;
+      *)
+        echo "  desktop: no native build defined for ${native_os}/${native_arch}"
+        gui_skipped+=("desktop/${native_os}/${native_arch}") ;;
+    esac
+  else
+    build_desktop_linux_amd64
+    build_desktop_linux_arm64
+    build_desktop_windows_amd64
   fi
 fi
 

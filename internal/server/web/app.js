@@ -1123,6 +1123,17 @@
 
     const APP_DEFS = [
       {
+        // Native desktop wrapper for the Noctalum web UI.  Same app the
+        // browser sees, running inside the OS-native webview (WebView2 /
+        // WebKit / WebKitGTK) with a persistent login.  Listed first so
+        // operators see it before the CAT / WSJT-X helpers.
+        type: 'desktop',
+        icon: '🌙',
+        nameKey: 'downloads.appDesktopName',
+        variantKey: 'downloads.appDesktopVariant',
+        descKey: 'downloads.appDesktopDesc',
+      },
+      {
         type: 'helper-gui',
         icon: '🖥️',
         nameKey: 'downloads.appHelperGuiName',
@@ -1236,7 +1247,7 @@
     // stolen by the Go-helper card.
     const grouped = {};
     for (const f of files) {
-      const m = f.match(/^noctalum-(helper-gui-cpp|helper-gui|helper-cpp|helper|wsjtx-gui|wsjtx-cpp|wsjtx)-(.+?)(?:\.AppImage|\.exe|\.zip)?$/);
+      const m = f.match(/^noctalum-(helper-gui-cpp|helper-gui|helper-cpp|helper|wsjtx-gui|wsjtx-cpp|wsjtx|desktop)-(.+?)(?:\.AppImage|\.exe|\.zip)?$/);
       if (!m) continue;
       const [, type, platform] = m;
       if (!grouped[type]) grouped[type] = [];
