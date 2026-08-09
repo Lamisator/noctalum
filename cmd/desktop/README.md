@@ -82,11 +82,17 @@ wails dev
   entry to the server's own login form.  A native password field would
   require a small `/api/desktop-handoff` endpoint on the server to hand
   the session cookie to the webview cleanly; that's a follow-up.
-- **Pop-out panels open in the system browser**, not a second native
-  window.  Wails v2.9 has no multi-window API (that's v3), and the
-  current pop-out mechanism relies on cross-document DOM adoption
-  (`doc.write` + `adoptNode`) which cannot cross a webview-process
-  boundary.  A proper native-window pop-out will need both a Wails v3
-  upgrade and a small frontend change to render a single panel by URL
-  (e.g. `/?panel=ops`).
+- **Pop-out panels spawn a fresh wrapper process** (Linux + macOS) or
+  fall back to the system browser (Windows).  Wails v2.9 has no
+  in-process multi-window API — that's v3 — so each pop-out is a
+  separate `noctalum-desktop -url <target>` subprocess.  On Linux and
+  macOS the WebKit cookie jar is stored per-user, so the second
+  window opens already logged in.  Windows WebView2 locks its
+  user-data folder to a single process, so the browser fallback
+  applies there until we can either upgrade to Wails v3 or teach the
+  wrapper to hand a session-cookie handoff between processes.  The
+  spawned window loads the full app at the pop-out URL, not just the
+  isolated panel, because the current DOM-adoption pop-out (doc.write
+  + adoptNode) doesn't survive a webview-process boundary — a solo
+  panel view (e.g. `/?panel=ops`) is a natural frontend follow-up.
 - **No auto-update.**  Ship a new binary per release.

@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -28,12 +31,19 @@ type App struct {
 	ctx context.Context
 	cfg *configStore
 
-	mu        sync.Mutex
-	serverURL string // active server, without trailing slash
+	// overrideURL is set (via the -url CLI flag) when this process was
+	// spawned as a secondary window from OpenPanelWindow.  When present
+	// the wrapper skips the bootstrap prompt and navigates straight to
+	// this URL.
+	overrideURL string
+
+	mu             sync.Mutex
+	serverURL      string // active server, without trailing slash
+	firstDomReady  bool
 }
 
-func newApp(cfg *configStore) *App {
-	return &App{cfg: cfg}
+func newApp(cfg *configStore, overrideURL string) *App {
+	return &App{cfg: cfg, overrideURL: overrideURL}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -52,16 +62,40 @@ func (a *App) shutdown(_ context.Context) {
 
 // onDomReady runs after every DOM-ready in the main window (both the
 // bootstrap prompt and every subsequent navigation to the server).  We
-// use it to re-inject shim.js — the shim is idempotent, so re-injection
-// on the bootstrap page or the empty prompt is harmless.
+// use it to re-inject shim.js on every page — the shim is idempotent,
+// so re-injection on the bootstrap page or the empty prompt is harmless
+// — and to trigger the immediate navigation for secondary windows that
+// were spawned with a -url override.
 func (a *App) onDomReady(ctx context.Context) {
 	a.injectShim(ctx)
+
+	a.mu.Lock()
+	first := !a.firstDomReady
+	a.firstDomReady = true
+	override := a.overrideURL
+	a.mu.Unlock()
+
+	if first && override != "" {
+		// Secondary window: replace the bootstrap prompt with the
+		// target URL immediately.  navigateToServer stores serverURL
+		// as the origin, which is what shim.js reads for its
+		// window.open fallback.
+		a.navigateToServer(override)
+	}
 }
 
 // LoadConfig — bound.  Returns the persisted server URL and username so
 // the bootstrap prompt can prefill them.
 func (a *App) LoadConfig() Config {
 	return a.cfg.get()
+}
+
+// IsOverride — bound.  Reports whether this process was spawned as a
+// secondary window with a -url override.  The bootstrap page uses it
+// to skip auto-connect, so its ConnectServer call can't race with the
+// override navigation Go issues from onDomReady.
+func (a *App) IsOverride() bool {
+	return a.overrideURL != ""
 }
 
 // ConnectServer — bound.  Called from the bootstrap prompt.  Verifies
@@ -104,17 +138,25 @@ func (a *App) RememberUsername(name string) {
 }
 
 // OpenPanelWindow — bound.  Invoked by shim.js when the loaded page
-// calls window.open() (e.g. undocking the ops panel).  Spawns a fresh
-// native window pointed at the same server URL.  The new window shares
-// cookies with the main window through the persistent webview data
-// folder, so the second window is logged in from the start.
+// calls window.open() (e.g. undocking the ops panel).  Wails v2.9 has
+// no in-process multi-window API, so we spawn a fresh copy of the
+// wrapper as a subprocess with `-url <target>`; each copy is its own
+// native window.  On Linux + macOS the WebKit cookie jar is shared
+// per-user, so the new window opens already logged in.  On Windows
+// WebView2 locks the user-data folder to a single process, so we fall
+// back to opening the URL in the operator's default browser there.
+//
+// If the subprocess spawn fails for any reason (missing exe path,
+// permission error), we degrade to BrowserOpenURL rather than dropping
+// the click silently — the operator will still see the panel content
+// in a real window, just not a native one.
 //
 // Note: the frontend's current pop-out flow expects to hand a live DOM
 // node to the opened Window; that trick doesn't survive a process
-// boundary.  The MVP therefore opens a full-app window; a follow-up on
-// the frontend to render a solo-panel-by-URL will make pop-out
-// perfectly faithful (see cmd/desktop/README.md).
+// boundary.  The spawned window therefore loads the full app at the
+// pop-out URL, not just the isolated panel — see cmd/desktop/README.md.
 func (a *App) OpenPanelWindow(rawURL, title string) {
+	_ = title
 	target := strings.TrimSpace(rawURL)
 	a.mu.Lock()
 	server := a.serverURL
@@ -122,13 +164,48 @@ func (a *App) OpenPanelWindow(rawURL, title string) {
 	if target == "" || target == "about:blank" {
 		target = server
 	}
-	// runtime.WindowCreate isn't available in Wails v2.9 — multi-window
-	// support is v3.  Until we upgrade, open the URL in the operator's
-	// default browser so at least the "second view" workflow works.  The
-	// shim treats the returned stub as if the window opened, so the
-	// caller's UI state stays consistent.
-	_ = title
-	wruntime.BrowserOpenURL(a.ctx, target)
+	if target == "" {
+		wruntime.LogWarningf(a.ctx, "OpenPanelWindow: no target URL and no active server, ignoring")
+		return
+	}
+
+	if !supportsMultiInstance() {
+		// Windows: WebView2 refuses to open a second process against
+		// the same user-data folder.  Give the operator the panel in
+		// their default browser rather than nothing at all.
+		wruntime.BrowserOpenURL(a.ctx, target)
+		return
+	}
+
+	exe, err := os.Executable()
+	if err != nil || exe == "" {
+		wruntime.LogWarningf(a.ctx, "OpenPanelWindow: os.Executable failed (%v) — falling back to system browser", err)
+		wruntime.BrowserOpenURL(a.ctx, target)
+		return
+	}
+	cmd := exec.Command(exe, "-url", target)
+	// Detach so the child outlives us and vice versa; the child's stdio
+	// is left disconnected — we don't want its logs bleeding into the
+	// parent's console.
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		wruntime.LogWarningf(a.ctx, "OpenPanelWindow: subprocess start failed (%v) — falling back to system browser", err)
+		wruntime.BrowserOpenURL(a.ctx, target)
+		return
+	}
+	// Release the process handle so Go doesn't try to reap it; the OS
+	// takes over parenting once we drop the reference.
+	_ = cmd.Process.Release()
+}
+
+// supportsMultiInstance reports whether the current OS's webview allows
+// two wrapper processes to share the same webview data folder.  WebKit
+// (macOS + Linux) does; WebView2 on Windows locks its user-data folder
+// to a single process at a time and will refuse the second launch.
+func supportsMultiInstance() bool {
+	return runtime.GOOS != "windows"
 }
 
 // -- internals --------------------------------------------------------

@@ -25,6 +25,16 @@
   const boot = async () => {
     const api = bindings();
     if (!api) { setTimeout(boot, 30); return; }
+    // Secondary window (spawned by pop-out): Go navigates the webview
+    // on its own from onDomReady, so we mustn't fire ConnectServer with
+    // the cached URL — that would race with the pop-out target and
+    // could rewrite the config's server_url with a panel path if the
+    // ping happened to fail.  Just idle; the override navigation is
+    // about to replace us.
+    try {
+      if (await api.IsOverride()) return;
+    } catch { /* older desktop wrapper — fall through to normal boot */ }
+
     let cfg;
     try {
       cfg = await api.LoadConfig();

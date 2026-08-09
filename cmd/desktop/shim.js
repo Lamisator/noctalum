@@ -13,11 +13,69 @@
 // The wrapper injects this script via runtime.WindowExecJs on every
 // DOM-ready event.  It idempotently sets a sentinel so repeat injections
 // on the same document are no-ops.
+//
+// Important:  when the webview navigates to the operator's Noctalum
+// server, the pages served by that server are NOT served by Wails'
+// asset server — so Wails' `window.go.main.App` bindings are absent.
+// Fortunately the native IPC bridge (WebView2 postMessage on Windows,
+// WebKit message handlers on macOS + Linux) is attached at the webview
+// level, not per-origin, so it *is* available on external pages.  The
+// shim calls it directly, encoding the Wails "Call" wire format itself.
 (function () {
   if (window.__NOCTALUM_DESKTOP_SHIM__) return;
   window.__NOCTALUM_DESKTOP_SHIM__ = true;
 
   const CACHED_USERNAME = window.__NOCTALUM_DESKTOP_USERNAME__ || '';
+
+  // ------------------------------------------------------------------
+  // Native-bridge fallback for Go-bound methods
+  // ------------------------------------------------------------------
+  // Wails' runtime and bindings are injected by its asset server and
+  // therefore only exist on pages the wrapper serves locally (the boot
+  // prompt).  For calls made from within the Noctalum server's origin
+  // we replicate the tiny slice of the runtime we actually need:  the
+  // "C" (Call) message, posted through the raw platform IPC.  Callback
+  // IDs are unique but unowned — Go's reply is silently dropped, which
+  // is fine since none of our bound methods return anything the shim
+  // cares about (OpenPanelWindow is fire-and-forget, RememberUsername
+  // returns void).
+  function rawPostMessage(msg) {
+    if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+      window.chrome.webview.postMessage(msg);
+      return true;
+    }
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.external
+        && typeof window.webkit.messageHandlers.external.postMessage === 'function') {
+      window.webkit.messageHandlers.external.postMessage(msg);
+      return true;
+    }
+    return false;
+  }
+
+  let __callSeq = 0;
+  function invokeGoMethod(fullName, args) {
+    // Preferred path: the bindings object exists (bootstrap page).
+    const parts = fullName.split('.');
+    let ref = window.go;
+    for (const p of parts) {
+      if (!ref) break;
+      ref = ref[p];
+    }
+    if (typeof ref === 'function') {
+      try { ref.apply(null, args); return true; } catch {}
+    }
+    // Fallback: encode the Wails "C" message and post it directly to
+    // the native bridge.  The wrapper's Go side registers `main.App` as
+    // a bind target, so this reaches the same handler as the runtime
+    // wrapper would have.
+    __callSeq += 1;
+    const payload = {
+      name: fullName,
+      args: Array.isArray(args) ? args : [],
+      callbackID: 'desktop-shim-' + __callSeq + '-' + Date.now(),
+    };
+    return rawPostMessage('C' + JSON.stringify(payload));
+  }
 
   // ------------------------------------------------------------------
   // 1. window.open interception
@@ -32,12 +90,9 @@
   const origOpen = window.open.bind(window);
   window.open = function (url, name, features) {
     try {
-      // Fully-qualified URL: pass through untouched, but ask the Go
-      // side to open it in a native window.
       const target = (url && url.length) ? url : window.location.href;
       const title  = (typeof name === 'string' && name) ? name : document.title;
-      if (window.go && window.go.main && window.go.main.App && window.go.main.App.OpenPanelWindow) {
-        window.go.main.App.OpenPanelWindow(target, title);
+      if (invokeGoMethod('main.App.OpenPanelWindow', [target, title])) {
         // Return a minimal Window-shaped stub so callers that immediately
         // do `if (!win) alert(...)` don't complain, and follow-up
         // doc.write / addEventListener calls no-op gracefully.
@@ -119,8 +174,8 @@
       const r = await origFetch('/api/me', { credentials: 'same-origin' });
       if (!r.ok) return;
       const j = await r.json();
-      if (j && j.username && window.go && window.go.main && window.go.main.App && window.go.main.App.RememberUsername) {
-        window.go.main.App.RememberUsername(String(j.username));
+      if (j && j.username) {
+        invokeGoMethod('main.App.RememberUsername', [String(j.username)]);
       }
     } catch {}
   }

@@ -7,6 +7,7 @@ package main
 
 import (
 	"embed"
+	"flag"
 	"log"
 
 	"github.com/wailsapp/wails/v2"
@@ -26,11 +27,17 @@ var assets embed.FS
 var appIcon []byte
 
 func main() {
+	// -url is set by OpenPanelWindow when we spawn ourselves as a
+	// secondary window; the child skips the server-URL prompt and
+	// navigates straight to this URL.  Not intended for interactive use.
+	overrideURL := flag.String("url", "", "internal: secondary-window target URL (used by pop-out)")
+	flag.Parse()
+
 	cfg, err := newConfigStore()
 	if err != nil {
 		log.Fatalf("noctalum-desktop: config: %v", err)
 	}
-	app := newApp(cfg)
+	app := newApp(cfg, *overrideURL)
 
 	w, h, bg := app.desktopWindowOptions()
 
