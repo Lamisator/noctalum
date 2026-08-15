@@ -194,14 +194,23 @@ func (r *RigRegistry) All(inUseBy func(name string) []string) []Rig {
 
 // AllForContest is like All but separates same-contest usage from cross-contest usage.
 // rigUsage returns (sameContestCallsigns, otherContestNames) for a rig name.
+//
+// rigUsage is invoked AFTER r.mu is released: the production callback is
+// Hub.RigUsageForContest, which acquires h.mu. Hub.OperatorsForContest
+// takes h.mu and (used to) call Server.rigBand → RigRegistry.Get, which
+// acquires r.mu — so calling rigUsage under r.mu closes an AB-BA cycle
+// between r.mu and h.mu and deadlocks every endpoint that touches either
+// (/api/rigs, /api/operators, /api/contests/*/select, /api/rigs/release,
+// and the /ws upgrade) until the process is restarted.
 func (r *RigRegistry) AllForContest(rigUsage func(name string) ([]string, []string)) []Rig {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	out := make([]Rig, 0, len(r.rigs))
 	for _, rig := range r.rigs {
-		copy := *rig
-		copy.InUseBy, copy.OtherContests = rigUsage(rig.Name)
-		out = append(out, copy)
+		out = append(out, *rig)
+	}
+	r.mu.Unlock()
+	for i := range out {
+		out[i].InUseBy, out[i].OtherContests = rigUsage(out[i].Name)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out

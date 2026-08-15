@@ -149,9 +149,19 @@ func (h *Hub) BroadcastGlobalOperators() {
 // logged-in browser operators that have the given contest selected.  If
 // contestID is zero, every connected browser is included (legacy behaviour).
 // rigBand resolves a rig name to its current band string for the Band field.
+//
+// rigBand is invoked AFTER h.mu is released: the production callback is
+// Server.rigBand, which acquires RigRegistry.mu. RigRegistry.AllForContest
+// takes rigs.mu and then calls Hub.RigUsageForContest which acquires h.mu —
+// so calling rigBand under h.mu would close an AB-BA cycle between h.mu
+// and rigs.mu and deadlock the whole hub (any endpoint touching either
+// mutex then hangs until process restart).
 func (h *Hub) OperatorsForContest(contestID int64, rigBand func(name string) string) []OperatorInfo {
+	type snap struct {
+		username, callsign, rig string
+	}
 	h.mu.Lock()
-	seen := map[string]OperatorInfo{}
+	snaps := make([]snap, 0, len(h.clients))
 	for c := range h.clients {
 		if c.role != RoleBrowser || c.session == nil || c.session.Callsign == "" {
 			continue
@@ -162,24 +172,31 @@ func (h *Hub) OperatorsForContest(contestID int64, rigBand func(name string) str
 				continue
 			}
 		}
-		cs := c.session.Callsign
-		rig := c.session.SelectedRig()
+		snaps = append(snaps, snap{
+			username: c.session.Username,
+			callsign: c.session.Callsign,
+			rig:      c.session.SelectedRig(),
+		})
+	}
+	h.mu.Unlock()
+
+	seen := map[string]OperatorInfo{}
+	for _, s := range snaps {
 		band := ""
-		if rig != "" && rigBand != nil {
-			band = rigBand(rig)
+		if s.rig != "" && rigBand != nil {
+			band = rigBand(s.rig)
 		}
-		if existing, ok := seen[cs]; ok {
+		if existing, ok := seen[s.callsign]; ok {
 			// If multiple sessions share a callsign, prefer the entry that has a rig/band.
-			if existing.Rig == "" && rig != "" {
-				existing.Rig = rig
+			if existing.Rig == "" && s.rig != "" {
+				existing.Rig = s.rig
 				existing.Band = band
-				seen[cs] = existing
+				seen[s.callsign] = existing
 			}
 			continue
 		}
-		seen[cs] = OperatorInfo{Username: c.session.Username, Callsign: cs, Rig: rig, Band: band}
+		seen[s.callsign] = OperatorInfo{Username: s.username, Callsign: s.callsign, Rig: s.rig, Band: band}
 	}
-	h.mu.Unlock()
 	out := make([]OperatorInfo, 0, len(seen))
 	for _, v := range seen {
 		out = append(out, v)
