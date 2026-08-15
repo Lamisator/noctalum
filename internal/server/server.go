@@ -551,11 +551,26 @@ func (s *Server) broadcastOperators() {
 
 // ----- middleware -----
 
+// slowRequestThreshold is the wall-clock cap over which a non-WebSocket
+// request is considered anomalous and gets its own SysWarn entry with
+// source "http". Chosen to sit above any legitimate handler on this
+// service (PDF export and bulk backups are the slowest known paths, both
+// under 2 s in practice) but well below the point at which a browser
+// gives up (Chrome fetch default is ~2 min). The WebSocket upgrade path
+// is excluded because /ws requests are long-lived by design.
+const slowRequestThreshold = 5 * time.Second
+
 func logMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+		elapsed := time.Since(start)
+		log.Printf("%s %s %s", r.Method, r.URL.Path, elapsed)
+		if elapsed > slowRequestThreshold && r.URL.Path != "/ws" {
+			SysLog(store.SysWarn, "http",
+				fmt.Sprintf("slow request: %s %s took %s (threshold %s)",
+					r.Method, r.URL.Path, elapsed, slowRequestThreshold))
+		}
 	})
 }
 

@@ -65,10 +65,25 @@ func main() {
 	// to "prod" — dev instances that don't set this get no ribbon.
 	srv.SetEnv(os.Getenv("NOCTALUM_ENV"))
 
+	// Timeout budgets:
+	//   ReadHeaderTimeout — cap slow-header attacks.
+	//   ReadTimeout       — cap total request-read time; feature-request
+	//                       uploads (multi-MB) fit comfortably.
+	//   IdleTimeout       — recycle idle keep-alive connections so a
+	//                       ballooning file-descriptor count from stalled
+	//                       clients stays bounded.
+	// WriteTimeout is intentionally left unset: /ws upgrades are hijacked
+	// and long-lived, and there is no non-WS route that legitimately
+	// streams a response for minutes. If a plain HTTP handler ever stalls
+	// past the slowRequestThreshold, logMiddleware records a SysWarn so
+	// the anomaly is visible in the System Log without truncating the
+	// response.
 	httpSrv := &http.Server{
 		Addr:              *addr,
 		Handler:           srv.Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {
