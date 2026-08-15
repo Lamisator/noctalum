@@ -207,6 +207,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateAudit(); err != nil {
 		return err
 	}
+	if err := s.migrateSystemLog(); err != nil {
+		return err
+	}
 	if err := s.migrateSessions(); err != nil {
 		return err
 	}

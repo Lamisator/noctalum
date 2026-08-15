@@ -701,7 +701,7 @@
   // ----- screens -----
   function show(which) {
     ['setup-screen', 'login-screen', 'contest-screen', 'global-settings-screen',
-     'contests-admin-screen', 'users-admin-screen', 'groups-admin-screen', 'audit-admin-screen', 'featurerequests-admin-screen',
+     'contests-admin-screen', 'users-admin-screen', 'groups-admin-screen', 'audit-admin-screen', 'syslog-admin-screen', 'featurerequests-admin-screen',
      'callsign-requests-admin-screen', 'backups-admin-screen',
      'my-featurerequests-screen', 'my-settings-screen', 'changelog-screen', 'dok-cache-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
     $(which).classList.remove('hidden');
@@ -793,6 +793,7 @@
   $('contests-admin-btn')?.addEventListener('click', () => showAdminScreen('contests-admin-screen', refreshContests));
   $('users-admin-btn').addEventListener('click', () => { if (!hasPerm('users.manage')) return; showAdminScreen('users-admin-screen', refreshUsers); });
   $('audit-admin-btn').addEventListener('click', () => { if (!hasPerm('audit.log')) return; showAdminScreen('audit-admin-screen', () => refreshAuditLog(true)); });
+  $('syslog-admin-btn')?.addEventListener('click', () => { if (!hasPerm('system.log')) return; showAdminScreen('syslog-admin-screen', () => refreshSystemLog(true)); });
   $('featurerequests-admin-btn').addEventListener('click', () => { if (!hasPerm('feature_requests.read')) return; showAdminScreen('featurerequests-admin-screen', refreshFeatureRequests); });
   $('callsign-requests-admin-btn')?.addEventListener('click', () => { if (!hasPerm('callsign_requests.review')) return; showAdminScreen('callsign-requests-admin-screen', refreshCallsignRequests); });
   $('backups-admin-btn')?.addEventListener('click', () => { if (!hasPerm('backups.manage')) return; showAdminScreen('backups-admin-screen', refreshBackups); });
@@ -8535,6 +8536,201 @@
     if (e.key === 'Enter') refreshAuditLog(true);
   });
 
+  // ----- system log -----
+  //
+  // Deliberately mirrors the audit-log module (state variables, filter
+  // shape, sort/pagination flow, timezone handling) so future edits can
+  // touch both consistently. The two logs are conceptually similar —
+  // filtered, paginated, timestamped tables — but backed by different
+  // tables and different permission gates, so we don't factor them into
+  // one component; the duplication is intentional and small.
+  let syslogEntries = [];
+  let syslogTotal = 0;
+  let syslogOffset = 0;
+  const syslogPageSize = 100;
+  let syslogSort = { col: 'timestamp', desc: true };
+  let syslogSources = [];
+
+  const SYSLOG_TZ_KEY = 'systemLogTimezone';
+  function getSysLogTZ() { return localStorage.getItem(SYSLOG_TZ_KEY) || getAuditTZ(); }
+  function setSysLogTZ(tz) { localStorage.setItem(SYSLOG_TZ_KEY, tz); }
+
+  function formatSysLogTimestamp(isoStr) {
+    const tz = getSysLogTZ();
+    const d = new Date(isoStr);
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      }).formatToParts(d);
+      const get = name => parts.find(p => p.type === name)?.value || '00';
+      return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
+    } catch {
+      return d.toISOString().substring(0, 19).replace('T', ' ');
+    }
+  }
+
+  function syslogLocalToUTC(str) {
+    if (!str) return null;
+    const tz = getSysLogTZ();
+    const rough = new Date(str + ':00Z');
+    if (tz === 'UTC') return rough.toISOString();
+    try {
+      const offset = tzOffsetMs(tz, rough);
+      return new Date(rough.getTime() + offset).toISOString();
+    } catch {
+      return rough.toISOString();
+    }
+  }
+
+  function updateSysLogTZHeader() {
+    const tz = getSysLogTZ();
+    const h = $('syslog-ts-header');
+    if (h) h.textContent = tz === 'UTC' ? t('audit.colTime') : t('audit.colTimeTZ', { tz });
+  }
+
+  function initSysLogTZSelect() {
+    const sel = $('syslog-tz');
+    if (!sel) return;
+    const saved = getSysLogTZ();
+    let zones = ['UTC'];
+    try { zones = ['UTC', ...Intl.supportedValuesOf('timeZone').filter(z => z !== 'UTC')]; } catch {}
+    for (const z of zones) {
+      const o = document.createElement('option');
+      o.value = z; o.textContent = z;
+      if (z === saved) o.selected = true;
+      sel.appendChild(o);
+    }
+    if (!zones.includes(saved)) {
+      const o = document.createElement('option');
+      o.value = saved; o.textContent = saved; o.selected = true;
+      sel.insertBefore(o, sel.firstChild);
+    }
+    sel.addEventListener('change', () => {
+      setSysLogTZ(sel.value);
+      updateSysLogTZHeader();
+      renderSystemLog();
+    });
+    updateSysLogTZHeader();
+  }
+  initSysLogTZSelect();
+
+  function syslogFilterParams(offset) {
+    const params = new URLSearchParams();
+    const level = $('syslog-level').value;
+    const source = $('syslog-source').value;
+    const search = $('syslog-search').value.trim();
+    const sinceUTC = syslogLocalToUTC($('syslog-since').value);
+    const untilUTC = syslogLocalToUTC($('syslog-until').value);
+    if (level) params.set('level', level);
+    if (source) params.set('source', source);
+    if (search) params.set('search', search);
+    if (sinceUTC) params.set('since', sinceUTC);
+    if (untilUTC) params.set('until', untilUTC);
+    params.set('sort', syslogSort.col);
+    params.set('dir', syslogSort.desc ? 'desc' : 'asc');
+    params.set('limit', String(syslogPageSize));
+    params.set('offset', String(offset));
+    return params;
+  }
+
+  async function refreshSystemLog(reset) {
+    if (!hasPerm('system.log')) return;
+    if (reset) { syslogEntries = []; syslogOffset = 0; }
+    const res = await api('/api/system-log?' + syslogFilterParams(syslogOffset));
+    if (!res.ok) return;
+    const j = await res.json();
+    syslogTotal = j.total || 0;
+    if (reset) syslogEntries = j.entries || [];
+    else syslogEntries = syslogEntries.concat(j.entries || []);
+    syslogOffset = syslogEntries.length;
+    // Refresh the source dropdown every load so newly-seen sources
+    // appear without a page reload.
+    const incomingSources = j.sources || [];
+    const same = incomingSources.length === syslogSources.length &&
+                 incomingSources.every((v, i) => v === syslogSources[i]);
+    if (!same) {
+      syslogSources = incomingSources;
+      const sel = $('syslog-source');
+      const current = sel.value;
+      // Keep the "All sources" placeholder (first option) intact.
+      while (sel.options.length > 1) sel.remove(1);
+      for (const src of syslogSources) {
+        const o = document.createElement('option');
+        o.value = src; o.textContent = src;
+        sel.appendChild(o);
+      }
+      if (current && syslogSources.includes(current)) sel.value = current;
+    }
+    renderSystemLog();
+  }
+
+  function renderSystemLog() {
+    const tbody = $('syslog-tbody');
+    tbody.innerHTML = '';
+    for (const e of syslogEntries) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="mono">${escHtml(formatSysLogTimestamp(e.timestamp))}</td>
+        <td><span class="audit-level audit-level-${escHtml(e.level)}">${escHtml(e.level)}</span></td>
+        <td class="mono small">${escHtml(e.source)}</td>
+        <td class="small">${escHtml(e.message)}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+    const shown = syslogEntries.length;
+    $('syslog-status').textContent = t('audit.showing', { shown, total: syslogTotal });
+    const moreBtn = $('syslog-load-more');
+    if (shown < syslogTotal) {
+      moreBtn.classList.remove('hidden');
+      moreBtn.textContent = t('audit.loadMoreCount', { n: syslogTotal - shown });
+    } else {
+      moreBtn.classList.add('hidden');
+    }
+    updateSysLogSortArrows();
+  }
+
+  function updateSysLogSortArrows() {
+    document.querySelectorAll('#syslog-table th.sortable').forEach(th => {
+      const arrow = th.querySelector('.sort-arrow');
+      if (th.dataset.col === syslogSort.col) {
+        arrow.textContent = syslogSort.desc ? ' ▼' : ' ▲';
+        th.classList.add('sort-active');
+      } else {
+        arrow.textContent = '';
+        th.classList.remove('sort-active');
+      }
+    });
+  }
+
+  document.querySelectorAll('#syslog-table th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (syslogSort.col === col) {
+        syslogSort.desc = !syslogSort.desc;
+      } else {
+        syslogSort.col = col;
+        syslogSort.desc = col === 'timestamp';
+      }
+      refreshSystemLog(true);
+    });
+  });
+
+  $('syslog-apply')?.addEventListener('click', () => refreshSystemLog(true));
+  $('syslog-reset')?.addEventListener('click', () => {
+    $('syslog-level').value = '';
+    $('syslog-source').value = '';
+    $('syslog-search').value = '';
+    $('syslog-since').value = '';
+    $('syslog-until').value = '';
+    syslogSort = { col: 'timestamp', desc: true };
+    refreshSystemLog(true);
+  });
+  $('syslog-load-more')?.addEventListener('click', () => refreshSystemLog(false));
+  $('syslog-search')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') refreshSystemLog(true);
+  });
+
   // ----- feature requests -----
   let featureRequests = [];
   let myFeatureRequests = [];
@@ -10477,9 +10673,11 @@
       try { renderUsers(window.__usersCache || []); } catch {}
       try { renderRoles(); } catch {}
       try { renderAuditLog(); } catch {}
+      try { renderSystemLog(); } catch {}
       try { renderFeatureRequests(); } catch {}
       try { updateMsChatMutePill(); } catch {}
       try { updateAuditTZHeader(); } catch {}
+      try { updateSysLogTZHeader(); } catch {}
       try { renderStatistics(); } catch {}
       try { renderDownloads(window.__downloadsCache || []); } catch {}
       try { renderGlobalOperators(); } catch {}

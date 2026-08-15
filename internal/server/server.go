@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -160,7 +161,17 @@ func (s *Server) SetBackupsDir(dir string) {
 		if isError {
 			level = store.AuditError
 		}
-		_ = s.store.InsertAuditLog(level, action, "system", target, details, "")
+		if err := s.store.InsertAuditLog(level, action, "system", target, details, ""); err != nil {
+			s.sysLog(store.SysError, "backup", "persist audit for "+action+": "+err.Error())
+		}
+		// Mirror backup subsystem events into the system log so operators
+		// can correlate them with everything else the process did around
+		// the same time without cross-referencing two tables.
+		lvl := store.SysInfo
+		if isError {
+			lvl = store.SysError
+		}
+		s.sysLog(lvl, "backup", action+" "+target+": "+details)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.backupsCancel = cancel
@@ -219,6 +230,12 @@ func New(st *store.Store) (*Server, error) {
 		},
 	}
 	s.hub = NewHub(s.handleInbound, s.handleBrowserGone, s.handleHelperGone)
+
+	// Wire the system logger before any subsystem starts. Anything that
+	// calls log.Printf from here on (session restore, cluster connect,
+	// scheduler ticks) will be tee'd into the DB-backed system log so
+	// operators with system.log permission can inspect it later.
+	installSystemLogger(st)
 
 	if err := st.EnsureBuiltinRoles(DefaultUserRolePermissions); err != nil {
 		return nil, err
@@ -282,7 +299,9 @@ func (s *Server) sessionCleanupLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.sessions.CleanExpired()
-			_ = s.store.DeleteExpiredLoginRequests()
+			if err := s.store.DeleteExpiredLoginRequests(); err != nil {
+				s.sysLog(store.SysWarn, "sessions", "prune expired login requests: "+err.Error())
+			}
 		}
 	}
 }
@@ -362,6 +381,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/export/edi", s.requirePerm(PermQSOExport, s.handleExportEDI))
 	mux.HandleFunc("/api/export/pdf", s.requirePerm(PermQSOExport, s.handleExportPDF))
 	mux.HandleFunc("/api/audit", s.requirePerm(PermAuditLog, s.handleAuditLog))
+	mux.HandleFunc("/api/system-log", s.requirePerm(PermSystemLog, s.handleSystemLog))
 	mux.HandleFunc("/api/callsign-requests", s.requirePerm(PermCallsignRequestsReview, s.handleCallsignRequests))
 	mux.HandleFunc("/api/callsign-requests/", s.requirePerm(PermCallsignRequestsReview, s.handleCallsignRequestByID))
 	mux.HandleFunc("/api/backups", s.requirePerm(PermBackupsManage, s.handleBackups))
@@ -384,7 +404,7 @@ func (s *Server) Routes() http.Handler {
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
-	return securityHeadersMiddleware(logMiddleware(mux))
+	return securityHeadersMiddleware(logMiddleware(s.recoverMiddleware(mux)))
 }
 
 // Shutdown stops long-running server-owned goroutines (currently just
@@ -456,7 +476,9 @@ func (s *Server) handleInbound(c *client, raw []byte) {
 			"time": now,
 		}
 		s.hub.BroadcastToContest(contestID, Event{Type: "chat", Payload: payload})
-		_ = s.store.InsertChatMessage(contestID, c.session.Callsign, c.session.Username, text, now)
+		if err := s.store.InsertChatMessage(contestID, c.session.Callsign, c.session.Username, text, now); err != nil {
+			s.sysLog(store.SysWarn, "chat", "persist message from "+c.session.Callsign+": "+err.Error())
+		}
 	}
 }
 
@@ -534,6 +556,43 @@ func logMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+	})
+}
+
+// recoverMiddleware turns handler panics into 500 responses and — the
+// point of installing it — records them in the system log so an
+// operator with system.log permission can inspect the stack trace
+// after the fact. Without this middleware, net/http would still
+// intercept the panic (avoiding process crash) but the only trace of
+// it would be a two-line stderr scribble that scrolls off with the
+// next request.
+// debugStack indirects through runtime/debug so tests can monkey-patch it if
+// they ever need deterministic output; kept as a package-level variable
+// rather than an inline call so future stack-formatting tweaks (e.g.
+// trimming the recover frames) have exactly one home.
+var debugStack = debug.Stack
+
+func (s *Server) recoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			rec := recover()
+			if rec == nil {
+				return
+			}
+			// http.ErrAbortHandler is the sanctioned way for a
+			// handler to bail out mid-response; don't dress it up
+			// as an unexpected panic.
+			if rec == http.ErrAbortHandler {
+				panic(rec)
+			}
+			stack := debugStack()
+			msg := fmt.Sprintf("panic in %s %s: %v\n%s", r.Method, r.URL.Path, rec, stack)
+			s.sysLog(store.SysError, "http", msg)
+			// Best-effort 500; header may already be written.
+			defer func() { _ = recover() }()
+			writeError(w, http.StatusInternalServerError, "internal server error")
+		}()
+		next.ServeHTTP(w, r)
 	})
 }
 
@@ -632,6 +691,14 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
+	// Every 5xx response is a server-side problem worth investigating,
+	// so mirror it into the system log. 4xx errors (client mistake)
+	// stay out of the log to avoid flooding it with bad-request noise.
+	// The classification runs here rather than at each call site so
+	// none of the ~150 writeError users have to remember to log.
+	if status >= 500 {
+		SysLog(store.SysError, "http", fmt.Sprintf("HTTP %d: %s", status, msg))
+	}
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
@@ -1225,7 +1292,9 @@ func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 		// Key the cache on the base callsign so a DOK learned from
 		// "F/DM2LAP/P" later resolves for the bare "DM2LAP" lookup too.
 		if baseCall := BaseCallsign(in.Callsign); s.store.GetCachedDOK(baseCall) == "" {
-			_ = s.store.UpsertCallsignDOK(baseCall, in.DOK)
+			if err := s.store.UpsertCallsignDOK(baseCall, in.DOK); err != nil {
+				s.sysLog(store.SysWarn, "dok-cache", "upsert "+baseCall+": "+err.Error())
+			}
 		}
 	}
 	s.audit(r, store.AuditInfo, AuditQSOCreate, sess.Username, in.Callsign,
@@ -1429,7 +1498,9 @@ func (s *Server) handleWSJTXBridgeQSO(w http.ResponseWriter, r *http.Request) {
 	in.ID = id
 	if in.DOK != "" {
 		if baseCall := BaseCallsign(in.Callsign); s.store.GetCachedDOK(baseCall) == "" {
-			_ = s.store.UpsertCallsignDOK(baseCall, in.DOK)
+			if err := s.store.UpsertCallsignDOK(baseCall, in.DOK); err != nil {
+				s.sysLog(store.SysWarn, "dok-cache", "upsert "+baseCall+" (wsjtx): "+err.Error())
+			}
 		}
 	}
 	s.audit(r, store.AuditInfo, AuditQSOCreate, u.Username, in.Callsign,
@@ -1563,7 +1634,9 @@ func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.DOK != "" {
 			if baseCall := BaseCallsign(in.Callsign); s.store.GetCachedDOK(baseCall) == "" {
-				_ = s.store.UpsertCallsignDOK(baseCall, in.DOK)
+				if err := s.store.UpsertCallsignDOK(baseCall, in.DOK); err != nil {
+					s.sysLog(store.SysWarn, "dok-cache", "upsert "+baseCall+" (edit): "+err.Error())
+				}
 			}
 		}
 		s.audit(r, store.AuditInfo, AuditQSOUpdate, sess.Username, in.Callsign,

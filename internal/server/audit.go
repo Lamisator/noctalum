@@ -177,3 +177,69 @@ func (s *Server) handleAuditLog(w http.ResponseWriter, r *http.Request) {
 		"actions": AllAuditActions,
 	})
 }
+
+// handleSystemLog serves GET /api/system-log. Shape mirrors handleAuditLog
+// (level/search/date/sort/limit/offset) so the frontend can reuse the
+// same fetch + pagination scaffolding — but the record shape is
+// simpler: no actor/IP/action, just level/source/message.
+func (s *Server) handleSystemLog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	q := r.URL.Query()
+	f := store.SysFilter{
+		Level:    q.Get("level"),
+		Source:   q.Get("source"),
+		Search:   q.Get("search"),
+		SortBy:   q.Get("sort"),
+		SortDesc: q.Get("dir") != "asc",
+	}
+	if v := q.Get("since"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid since timestamp")
+			return
+		}
+		f.Since = &t
+	}
+	if v := q.Get("until"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid until timestamp")
+			return
+		}
+		f.Until = &t
+	}
+	if v := q.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			f.Limit = n
+		}
+	}
+	if v := q.Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			f.Offset = n
+		}
+	}
+
+	entries, total, err := s.store.ListSystemLogs(f)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if entries == nil {
+		entries = []store.SysEntry{}
+	}
+	sources, err := s.store.SystemLogSources()
+	if err != nil {
+		// Non-fatal — the filter dropdown just won't be pre-populated.
+		s.sysLog(store.SysWarn, "system-log", "list sources: "+err.Error())
+		sources = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"total":   total,
+		"entries": entries,
+		"sources": sources,
+		"levels":  AllSystemLogLevels,
+	})
+}

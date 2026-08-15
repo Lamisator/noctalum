@@ -35,6 +35,7 @@ const (
 	PermContestsManagePrivate = "contests.manage_private"
 	PermContestAdmin          = "contest.admin"
 	PermAuditLog              = "audit.log"
+	PermSystemLog             = "system.log" // view the process-wide diagnostic log
 	PermFeatureRequestsRead   = "feature_requests.read"  // view/manage all requests
 	PermFeatureRequestsWrite  = "feature_requests.write" // submit a request
 	PermDOKEdit               = "dok.edit"               // manage DOK callsign cache
@@ -45,7 +46,7 @@ const (
 
 // AllPermissions is the canonical list (used by UI + role validation).
 var AllPermissions = []string{
-	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermRigRelease, PermRigSimulate, PermContestsManage, PermContestsCreatePrivate, PermContestsManagePrivate, PermContestAdmin, PermAuditLog, PermFeatureRequestsRead, PermFeatureRequestsWrite, PermDOKEdit, PermCallsignRequestsReview, PermBackupsManage, PermGroupsManage,
+	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermRigRelease, PermRigSimulate, PermContestsManage, PermContestsCreatePrivate, PermContestsManagePrivate, PermContestAdmin, PermAuditLog, PermSystemLog, PermFeatureRequestsRead, PermFeatureRequestsWrite, PermDOKEdit, PermCallsignRequestsReview, PermBackupsManage, PermGroupsManage,
 }
 
 // DefaultUserRolePermissions are the permissions assigned to the built-in
@@ -409,7 +410,9 @@ func (s *SessionStore) Get(id string) (*Session, bool) {
 	if now.After(sess.ExpiresAt) {
 		delete(s.sessions, id)
 		s.mu.Unlock()
-		_ = s.db.DeleteSession(id)
+		if err := s.db.DeleteSession(id); err != nil {
+			SysLog(store.SysWarn, "sessions", "delete expired session "+id+": "+err.Error())
+		}
 		return nil, false
 	}
 	sess.lastSeen = now
@@ -422,7 +425,9 @@ func (s *SessionStore) Get(id string) (*Session, bool) {
 	s.mu.Unlock()
 
 	if needsDBFlush {
-		_ = s.db.TouchSession(id, now, newExpiry)
+		if err := s.db.TouchSession(id, now, newExpiry); err != nil {
+			SysLog(store.SysWarn, "sessions", "touch session "+id+": "+err.Error())
+		}
 	}
 	return sess, true
 }
@@ -432,7 +437,9 @@ func (s *SessionStore) Delete(id string) {
 	s.mu.Lock()
 	delete(s.sessions, id)
 	s.mu.Unlock()
-	_ = s.db.DeleteSession(id)
+	if err := s.db.DeleteSession(id); err != nil {
+		SysLog(store.SysWarn, "sessions", "delete session "+id+": "+err.Error())
+	}
 }
 
 // DeleteAllForUser removes every session for the given user from both memory
@@ -445,7 +452,9 @@ func (s *SessionStore) DeleteAllForUser(userID int64) {
 		}
 	}
 	s.mu.Unlock()
-	_ = s.db.DeleteSessionsForUser(userID)
+	if err := s.db.DeleteSessionsForUser(userID); err != nil {
+		SysLog(store.SysWarn, "sessions", "delete sessions for user: "+err.Error())
+	}
 }
 
 // CleanExpired removes expired sessions from the in-memory map and the DB.
@@ -458,7 +467,9 @@ func (s *SessionStore) CleanExpired() {
 		}
 	}
 	s.mu.Unlock()
-	_ = s.db.DeleteExpiredSessions()
+	if err := s.db.DeleteExpiredSessions(); err != nil {
+		SysLog(store.SysWarn, "sessions", "clean expired sessions: "+err.Error())
+	}
 }
 
 // AllForUser returns every active session for a user.

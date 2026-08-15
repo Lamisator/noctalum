@@ -132,6 +132,10 @@
         <span class="nav-pill-icon">&#9776;</span>
         <span data-i18n="contestScreen.auditLog">Audit Log</span>
       </button>
+      <button id="syslog-admin-btn" class="nav-pill-btn perm-required" data-perm="system.log">
+        <span class="nav-pill-icon">&#128203;</span>
+        <span data-i18n="contestScreen.systemLog">System Log</span>
+      </button>
       <button id="featurerequests-admin-btn" class="nav-pill-btn perm-required" data-perm="feature_requests.read">
         <span class="nav-pill-icon">&#9733;</span>
         <span data-i18n="contestScreen.featureRequests">Feature Requests</span>
@@ -971,6 +975,72 @@
 
       <div class="history-footer">
         <button id="audit-load-more" class="ghost hidden" data-i18n="audit.loadMore">Load more</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="syslog-admin-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="systemLog.title">System Log</h1>
+  </div>
+  <div class="admin-screen-body">
+    <div class="card">
+      <div class="history-header">
+        <h2 data-i18n="systemLog.title">System Log</h2>
+        <span class="muted small" data-i18n="systemLog.retention">365-day retention &middot; process diagnostics</span>
+      </div>
+
+      <div class="audit-filters">
+        <label><span data-i18n="systemLog.level">Level</span>
+          <select id="syslog-level">
+            <option value="" data-i18n="systemLog.allLevels">All levels</option>
+            <option value="debug" data-i18n="systemLog.levelDebug">Debug</option>
+            <option value="info" data-i18n="systemLog.levelInfo">Info</option>
+            <option value="warn" data-i18n="systemLog.levelWarn">Warn</option>
+            <option value="error" data-i18n="systemLog.levelError">Error</option>
+          </select>
+        </label>
+        <label><span data-i18n="systemLog.source">Source</span>
+          <select id="syslog-source">
+            <option value="" data-i18n="systemLog.allSources">All sources</option>
+          </select>
+        </label>
+        <label><span data-i18n="systemLog.search">Search</span>
+          <input id="syslog-search" type="search" data-i18n-placeholder="systemLog.searchPlaceholder" placeholder="source, message…" />
+        </label>
+        <label><span data-i18n="audit.since">Since</span>
+          <input id="syslog-since" type="datetime-local" />
+        </label>
+        <label><span data-i18n="audit.until">Until</span>
+          <input id="syslog-until" type="datetime-local" />
+        </label>
+        <label><span data-i18n="audit.timezone">Timezone</span>
+          <select id="syslog-tz"></select>
+        </label>
+        <button id="syslog-apply" class="primary" data-i18n="audit.apply">Apply</button>
+        <button id="syslog-reset" class="ghost" data-i18n="audit.reset">Reset</button>
+      </div>
+
+      <div class="audit-status muted small" id="syslog-status">—</div>
+
+      <div class="table-scroll">
+        <table id="syslog-table">
+          <thead>
+            <tr>
+              <th class="sortable" data-col="timestamp"><span id="syslog-ts-header" data-i18n="audit.colTime">Time UTC</span> <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="level"><span data-i18n="systemLog.colLevel">Level</span> <span class="sort-arrow"></span></th>
+              <th class="sortable" data-col="source"><span data-i18n="systemLog.colSource">Source</span> <span class="sort-arrow"></span></th>
+              <th data-i18n="systemLog.colMessage">Message</th>
+            </tr>
+          </thead>
+          <tbody id="syslog-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="history-footer">
+        <button id="syslog-load-more" class="ghost hidden" data-i18n="audit.loadMore">Load more</button>
       </div>
     </div>
   </div>
