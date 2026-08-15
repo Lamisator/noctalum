@@ -17,6 +17,7 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/http/pprof"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -397,6 +398,20 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/sounds", s.requireAuth(s.handleSoundsAPI))
 	mux.HandleFunc("/api/sounds/", s.requireAuth(s.handleSoundsAPI))
 	mux.HandleFunc("/sounds/", s.requireAuth(s.handleSoundFile))
+
+	// Runtime debug endpoints — gated on system.log so only operators
+	// with the diagnostic role can dump goroutines/heap/profile from
+	// prod. Registering the individual pprof handlers rather than
+	// delegating to http.DefaultServeMux avoids exposing DefaultServeMux
+	// on our public listener even by accident. See net/http/pprof docs
+	// for what each endpoint returns; /debug/pprof/goroutine?debug=2 is
+	// the smoking-gun grab during a suspected deadlock (would have made
+	// today's investigation take 30 s instead of an hour).
+	mux.HandleFunc("/debug/pprof/", s.requirePerm(PermSystemLog, pprof.Index))
+	mux.HandleFunc("/debug/pprof/cmdline", s.requirePerm(PermSystemLog, pprof.Cmdline))
+	mux.HandleFunc("/debug/pprof/profile", s.requirePerm(PermSystemLog, pprof.Profile))
+	mux.HandleFunc("/debug/pprof/symbol", s.requirePerm(PermSystemLog, pprof.Symbol))
+	mux.HandleFunc("/debug/pprof/trace", s.requirePerm(PermSystemLog, pprof.Trace))
 
 	// WebSocket — auth-checked inside (browser uses cookie, helper uses token).
 	mux.HandleFunc("/ws", s.handleWS)
