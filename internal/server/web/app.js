@@ -2237,16 +2237,18 @@
   function _statsSvgBars(items, color) {
     if (!items.length) return '<div class="muted small">' + escHtml(t('stats.noDataShort')) + '</div>';
     const max = Math.max(...items.map(i => i.value)) || 1;
-    const rowH = 18, gap = 4, padL = 90, padR = 40;
+    const total = items.reduce((s, i) => s + i.value, 0) || 1;
+    const rowH = 18, gap = 4, padL = 90, padR = 78;
     const w = 320, h = items.length * (rowH + gap) + 8;
     let svg = `<svg class="stats-svg" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">`;
     items.forEach((it, i) => {
       const y = 4 + i * (rowH + gap);
       const bw = Math.max(1, Math.round((w - padL - padR) * (it.value / max)));
       const label = String(it.label).slice(0, 12);
+      const pct = ((it.value / total) * 100).toFixed(1);
       svg += `<text x="${padL - 4}" y="${y + rowH / 2 + 4}" text-anchor="end" font-size="11" fill="currentColor">${_statsEscape(label)}</text>`;
       svg += `<rect x="${padL}" y="${y}" width="${bw}" height="${rowH}" fill="${color}" rx="2"/>`;
-      svg += `<text x="${padL + bw + 4}" y="${y + rowH / 2 + 4}" font-size="11" fill="currentColor">${it.value}</text>`;
+      svg += `<text x="${padL + bw + 4}" y="${y + rowH / 2 + 4}" font-size="11" fill="currentColor">${it.value} (${pct}%)</text>`;
     });
     svg += '</svg>';
     return svg;
@@ -2329,13 +2331,15 @@
     const modes = _statsTally(qsos, 'mode');
     const hours = _statsByHour(qsos);
     const countries = _statsByCountry(qsos).slice(0, 12);
+    const ops = _statsTally(qsos, 'operator').map(it => ({ ...it, label: it.label === '—' ? it.label : it.label.toUpperCase() })).slice(0, 12);
     const card = (title, body) =>
       `<div class="stats-card"><h3>${escHtml(title)}</h3>${body}</div>`;
     grid.innerHTML =
       card(t('stats.qsoPerBand'), _statsSvgBars(bands, '#4e79a7')) +
       card(t('stats.qsoPerMode'), _statsSvgPie(modes, palette)) +
       card(t('stats.qsoPerHourUTC'), _statsSvgBars(hours, '#59a14f')) +
-      card(t('stats.topCountries'), _statsSvgBars(countries, '#f28e2c'));
+      card(t('stats.topCountries'), _statsSvgBars(countries, '#f28e2c')) +
+      card(t('stats.qsoPerOperator'), _statsSvgBars(ops, '#af7aa1'));
   }
 
   // ----- Contest map tab -----

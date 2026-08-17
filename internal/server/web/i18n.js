@@ -627,6 +627,7 @@
         qsoPerMode: 'QSOs per mode',
         qsoPerHourUTC: 'QSOs per hour (UTC)',
         topCountries: 'Top countries',
+        qsoPerOperator: 'QSOs per operator',
       },
       map: {
         title: 'Worked Stations Map',
@@ -1553,6 +1554,7 @@
         qsoPerMode: 'QSOs pro Mode',
         qsoPerHourUTC: 'QSOs pro Stunde (UTC)',
         topCountries: 'Top-Länder',
+        qsoPerOperator: 'QSOs pro Operator',
       },
       map: {
         title: 'Karte der gearbeiteten Stationen',
