@@ -54,7 +54,16 @@ const cfgEls = {
   interval:    $("cfg-interval"),
   autoDetect:      $("auto-detect"),
   autoDetectModel: $("auto-detect-model"),
+  omnirigRig:      $("cfg-omnirig-rig"),
 };
+
+// currentBackend returns the value of the checked backend radio, defaulting
+// to "rigctld" if none is checked (which shouldn't happen but keeps the
+// form usable during boot before radios are wired).
+function currentBackend() {
+  const el = document.querySelector('input[name="backend"]:checked');
+  return el ? el.value : "rigctld";
+}
 
 // Confirm dialog ----------------------------------------------------------
 function showConfirm(msg, opts = {}) {
@@ -75,6 +84,10 @@ function showConfirm(msg, opts = {}) {
 let profileStore = { profiles: [], last_used: "" };
 let detectedPorts = [];
 let allRigs = [];
+// omnirigSupported reflects the Windows-only OmniRig build.  It's set
+// from Backend.OmnirigAvailable() during boot; until then treat it as
+// false so the option stays hidden.
+let omnirigSupported = false;
 
 // ---- Rig model combobox -------------------------------------------------
 let comboOpen = false;
@@ -260,6 +273,13 @@ function applyProfileToForm(p) {
   cfgEls.interval.value  = String(p.interval_ms || 1000);
   cfgEls.autoDetect.checked = !!p.auto_detect;
   cfgEls.autoDetectModel.checked = !!p.auto_detect_model;
+  // Backend default is rigctld — older profiles have no field and
+  // must not silently switch to OmniRig even if it's compiled in.
+  const backend = (p.backend === "omnirig" && omnirigSupported) ? "omnirig" : "rigctld";
+  const radio = document.querySelector(`input[name="backend"][value="${backend}"]`);
+  if (radio) radio.checked = true;
+  cfgEls.omnirigRig.value = String(p.omnirig_rig || 1);
+  applyBackendUI();
   applyModelDetectUI();
 }
 function applyRigModel(value) {
@@ -314,6 +334,8 @@ function readForm() {
     interval_ms: parseInt(cfgEls.interval.value || "1000", 10) || 1000,
     auto_detect:       cfgEls.autoDetect.checked,
     auto_detect_model: cfgEls.autoDetectModel.checked,
+    backend:     currentBackend(),
+    omnirig_rig: parseInt(cfgEls.omnirigRig.value || "1", 10) || 1,
   };
 }
 
@@ -326,6 +348,12 @@ async function loadInitialState() {
   versionEl.textContent = "v" + (await Backend.Version());
   detectedPorts = (await Backend.DetectPorts()) || [];
   allRigs = (await Backend.AllRigs()) || [];
+
+  // OmniRig only ships on Windows; hide the radio button entirely on
+  // other OSes so operators don't pick an option that can't work.
+  omnirigSupported = !!(await Backend.OmnirigAvailable());
+  const omnirigChoice = document.getElementById("backend-choice-omnirig");
+  if (omnirigChoice) omnirigChoice.hidden = !omnirigSupported;
 
   // Populate serial device dropdown.
   cfgEls.rigDevice.innerHTML = '<option value="">— pick or type below —</option>';
@@ -365,14 +393,23 @@ if (Runtime) {
   Runtime.EventsOn("rigctld-params", (p) => {
     const body = $("readout-body");
     body.innerHTML = "";
-    const rows = [
-      ["Binary", p.binary || ""],
-      ["Rig", p.rig_label ? `${p.rig_label} (model ${p.model})` : `model ${p.model}`],
-      ["Device", p.device || "(default)"],
-      ["Baud rate", p.speed ? `${p.speed} baud` : "(default)"],
-      ["Listen", `${p.host}:${p.port}`],
-      ["Argv", `${p.binary} ${p.args}`],
-    ];
+    // OmniRig sessions don't have a Hamlib model / serial device /
+    // baud / listen port — the readout is a two-row summary in that
+    // case (Binary + Argv) instead of the full rigctld invocation.
+    const isOmnirig = !p.model && !p.host;
+    const rows = isOmnirig
+      ? [
+          ["Backend", p.binary || "OmniRig"],
+          ["Rig",     p.rig_label || `slot ${p.args}`],
+        ]
+      : [
+          ["Binary",   p.binary || ""],
+          ["Rig",      p.rig_label ? `${p.rig_label} (model ${p.model})` : `model ${p.model}`],
+          ["Device",   p.device || "(default)"],
+          ["Baud rate", p.speed ? `${p.speed} baud` : "(default)"],
+          ["Listen",   `${p.host}:${p.port}`],
+          ["Argv",     `${p.binary} ${p.args}`],
+        ];
     for (const [k, v] of rows) {
       const tr = document.createElement("tr");
       tr.innerHTML = `<td class="k">${k}</td><td class="v">${escapeHtml(v)}</td>`;
@@ -409,7 +446,33 @@ function applyModelDetectUI() {
   cfgEls.autoDetect.closest(".toggle").style.opacity = on ? "0.4" : "";
 }
 
+// applyBackendUI toggles all rigctld-specific fields and the two
+// auto-detect toggles based on the currently selected backend.  On
+// OmniRig those inputs are meaningless (OmniRig owns model / baud /
+// device configuration itself), so we hide them entirely to keep the
+// form uncluttered rather than just greying them out.
+function applyBackendUI() {
+  const backend = currentBackend();
+  const isOmnirig = backend === "omnirig";
+  document.querySelectorAll(".rigctld-only").forEach(el => { el.hidden = isOmnirig; });
+  document.querySelectorAll(".omnirig-only").forEach(el => { el.hidden = !isOmnirig; });
+  const toggleModel = document.getElementById("toggle-auto-detect-model");
+  const toggleBaud  = document.getElementById("toggle-auto-detect");
+  if (toggleModel) toggleModel.hidden = isOmnirig;
+  if (toggleBaud)  toggleBaud.hidden  = isOmnirig;
+  // config-hint doesn't apply to OmniRig — swap it out for a matching one.
+  const hint = document.getElementById("config-hint");
+  if (hint) {
+    hint.textContent = isOmnirig
+      ? "OmniRig manages the rig model, serial port, and baud rate. Pick the rig slot below."
+      : "Pick the rig model and serial device. Baud rate can be auto-detected.";
+  }
+}
+
 cfgEls.autoDetectModel.addEventListener("change", applyModelDetectUI);
+document.querySelectorAll('input[name="backend"]').forEach(el => {
+  el.addEventListener("change", applyBackendUI);
+});
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
@@ -424,11 +487,17 @@ $("btn-connect").addEventListener("click", async () => {
   if (!cfg.server)   return appendLog("server URL is required", true);
   if (!cfg.token)    return appendLog("helper token is required", true);
   if (!cfg.rig_name) return appendLog("rig display name is required", true);
-  if (!cfg.auto_detect_model && !cfg.rig_model)
-    return appendLog("rig model is required — pick one from the list or enable auto-detect model", true);
-  if (!cfg.rig_device) return appendLog("serial device is required", true);
-  if (!cfg.auto_detect_model && !cfg.auto_detect && !cfg.rig_speed) {
-    return appendLog("baud rate is required when auto-detect is off", true);
+  if (cfg.backend === "omnirig") {
+    if (cfg.omnirig_rig !== 1 && cfg.omnirig_rig !== 2) {
+      return appendLog("OmniRig rig slot must be 1 or 2", true);
+    }
+  } else {
+    if (!cfg.auto_detect_model && !cfg.rig_model)
+      return appendLog("rig model is required — pick one from the list or enable auto-detect model", true);
+    if (!cfg.rig_device) return appendLog("serial device is required", true);
+    if (!cfg.auto_detect_model && !cfg.auto_detect && !cfg.rig_speed) {
+      return appendLog("baud rate is required when auto-detect is off", true);
+    }
   }
   resetPhases();
   try {
@@ -498,5 +567,6 @@ $("btn-delete-profile").addEventListener("click", async () => {
 // ---- Boot ---------------------------------------------------------------
 renderPhases();
 resetPhases();
+applyBackendUI();
 applyModelDetectUI();
 loadInitialState().catch(err => appendLog("init: " + err, true));

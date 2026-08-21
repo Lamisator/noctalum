@@ -38,12 +38,23 @@
 
     <!-- ============ Connect controls ============ -->
     <section class="controls card">
-      <label class="toggle">
+      <div class="backend-row" id="backend-row">
+        <span class="backend-label">Rig backend</span>
+        <label class="backend-choice">
+          <input type="radio" name="backend" value="rigctld" checked />
+          <span>rigctld (Hamlib)</span>
+        </label>
+        <label class="backend-choice" id="backend-choice-omnirig" hidden>
+          <input type="radio" name="backend" value="omnirig" />
+          <span>OmniRig</span>
+        </label>
+      </div>
+      <label class="toggle" id="toggle-auto-detect-model">
         <input type="checkbox" id="auto-detect-model" />
         <span class="toggle-track"><span class="toggle-thumb"></span></span>
         <span class="toggle-label">Auto-detect rig model &amp; baud (tries all Hamlib models on the selected device — slow for unknown rigs)</span>
       </label>
-      <label class="toggle">
+      <label class="toggle" id="toggle-auto-detect">
         <input type="checkbox" id="auto-detect" checked />
         <span class="toggle-track"><span class="toggle-thumb"></span></span>
         <span class="toggle-label">Auto-detect baud rate (rig model and serial device must be set below)</span>
@@ -78,7 +89,7 @@
           <span class="field-label">Rig display name</span>
           <input id="cfg-rig-name" type="text" placeholder="IC-7300" />
         </label>
-        <label class="field">
+        <label class="field rigctld-only">
           <span class="field-label">Rig model (Hamlib)</span>
           <div class="combobox" id="rig-model-combobox">
             <input type="text" id="cfg-rig-model-search" placeholder="Type to search all rigs…" autocomplete="off" spellcheck="false" />
@@ -86,19 +97,19 @@
           </div>
           <input type="hidden" id="cfg-rig-model" />
         </label>
-        <label class="field">
+        <label class="field rigctld-only">
           <span class="field-label">Custom model #</span>
           <input id="cfg-rig-model-custom" type="number" placeholder="override" />
         </label>
-        <label class="field">
+        <label class="field rigctld-only">
           <span class="field-label">Serial device</span>
           <select id="cfg-rig-device"></select>
         </label>
-        <label class="field">
+        <label class="field rigctld-only">
           <span class="field-label">Custom device path</span>
           <input id="cfg-rig-device-custom" type="text" placeholder="/dev/ttyUSB0 or COM3" />
         </label>
-        <label class="field">
+        <label class="field rigctld-only">
           <span class="field-label">Baud rate</span>
           <select id="cfg-rig-speed">
             <option value="0">auto</option>
@@ -110,9 +121,17 @@
             <option>115200</option>
           </select>
         </label>
-        <label class="field">
+        <label class="field rigctld-only">
           <span class="field-label">rigctld binary</span>
           <input id="cfg-rigctld-bin" type="text" />
+        </label>
+        <label class="field omnirig-only" hidden>
+          <span class="field-label">OmniRig rig slot</span>
+          <select id="cfg-omnirig-rig">
+            <option value="1">Rig 1</option>
+            <option value="2">Rig 2</option>
+          </select>
+          <span class="field-hint muted">OmniRig exposes two independent rig configurations. Pick the one your CAT interface is bound to (see the OmniRig tray icon).</span>
         </label>
         <label class="field">
           <span class="field-label">Polling interval (ms)</span>

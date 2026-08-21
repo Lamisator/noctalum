@@ -237,6 +237,29 @@ button, input, select, textarea {
   gap: 8px;
 }
 
+/* Backend picker (rigctld / OmniRig radio group).  Shown as a compact
+   row above the auto-detect toggles; the OmniRig option is hidden
+   entirely on non-Windows builds via the [hidden] attribute set by JS. */
+.backend-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+}
+.backend-label {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.backend-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.backend-choice input { accent-color: var(--accent); }
+
 /* Toggle switch */
 .toggle {
   display: inline-flex;
