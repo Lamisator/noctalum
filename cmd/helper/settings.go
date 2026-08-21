@@ -45,6 +45,13 @@ type sharedProfile struct {
 	RigctldBin string `json:"rigctld_bin"`
 	IntervalMs int    `json:"interval_ms"`
 	AutoDetect bool   `json:"auto_detect"`
+
+	// Backend selects the rig control path: "rigctld" (default, historical
+	// behaviour) or "omnirig" (Windows-only, attaches to a running OmniRig
+	// COM server so operators who already run OmniRig for MMTTY / N1MM /
+	// HRD-friendly apps can share their existing CAT configuration).
+	Backend    string `json:"backend,omitempty"`
+	OmnirigRig int    `json:"omnirig_rig,omitempty"`
 }
 
 type sharedProfileStore struct {
@@ -117,6 +124,8 @@ func loadSharedProfileFile(pathFn func() (string, error)) (tuiConfig, bool) {
 		RigSpeed:   p.RigSpeed,
 		RigctldBin: p.RigctldBin,
 		IntervalMs: p.IntervalMs,
+		Backend:    p.Backend,
+		OmnirigRig: p.OmnirigRig,
 	}, true
 }
 
@@ -151,6 +160,8 @@ func saveToShared(cfg tuiConfig) {
 		RigSpeed:   cfg.RigSpeed,
 		RigctldBin: cfg.RigctldBin,
 		IntervalMs: cfg.IntervalMs,
+		Backend:    cfg.Backend,
+		OmnirigRig: cfg.OmnirigRig,
 	}
 	updated := false
 	for i, existing := range store.Profiles {

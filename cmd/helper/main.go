@@ -43,6 +43,14 @@ func main() {
 	rigDevice := flag.String("rig-device", "", "serial device for the rig (e.g. /dev/ttyUSB0, COM3)")
 	rigSpeed := flag.Int("rig-speed", 0, "serial baud rate (0 = rigctld default)")
 	rigctldBin := flag.String("rigctld", defaultRigctldBin(), "path to rigctld binary")
+
+	// Backend selection.  "rigctld" is the historical default; "omnirig"
+	// attaches to OmniRig via COM (Windows only) so operators who already
+	// run OmniRig for MMTTY / N1MM / HRD-friendly apps can share their
+	// existing CAT configuration instead of also configuring rigctld.
+	backend := flag.String("backend", backendRigctld, `rig control backend: "rigctld" or "omnirig" (Windows only)`)
+	omnirigRig := flag.Int("omnirig-rig", 1, "OmniRig rig slot to attach to (1 or 2)")
+
 	flag.Parse()
 
 	// No flags provided: launch the interactive setup TUI.
@@ -62,6 +70,12 @@ func main() {
 		*rigSpeed = cfg.RigSpeed
 		*rigctldBin = cfg.RigctldBin
 		*intervalMs = cfg.IntervalMs
+		if cfg.Backend != "" {
+			*backend = cfg.Backend
+		}
+		if cfg.OmnirigRig != 0 {
+			*omnirigRig = cfg.OmnirigRig
+		}
 	}
 
 	if *name == "" {
@@ -74,38 +88,79 @@ func main() {
 		*intervalMs = 250
 	}
 
-	logSettings(*server, *name, *rigModel, *rigDevice, *rigSpeed, *rigctldBin, *rigHost, *rigPort, *intervalMs)
+	logSettings(*backend, *omnirigRig, *server, *name, *rigModel, *rigDevice, *rigSpeed, *rigctldBin, *rigHost, *rigPort, *intervalMs)
 
-	if *rigModel != 0 {
-		port, err := freePort()
-		if err != nil {
-			log.Fatalf("find free port: %v", err)
-		}
-		*rigPort = port
-		cmd, err := spawnRigctld(*rigctldBin, *rigModel, *rigDevice, *rigSpeed, *rigHost, port)
-		if err != nil {
-			log.Fatalf("start rigctld: %v", err)
-		}
-		defer func() { _ = cmd.Process.Kill() }()
-		if err := waitForRigctld(*rigHost, port, 30*time.Second); err != nil {
-			_ = cmd.Process.Kill()
-			log.Fatalf("rigctld startup: %v", err)
-		}
-		log.Printf("rigctld started (model %d) on port %d", *rigModel, port)
+	rig, cleanup, err := openBackend(*backend, *omnirigRig, *rigctldBin, *rigModel, *rigDevice, *rigSpeed, *rigHost, *rigPort)
+	if err != nil {
+		log.Fatalf("open backend: %v", err)
 	}
+	defer cleanup()
+	defer rig.Close()
 
 	for {
-		err := session(*server, *name, *token, *rigHost, *rigPort, *intervalMs)
+		err := session(*server, *name, *token, rig, *intervalMs)
 		log.Printf("session ended: %v; reconnecting in 5s", err)
 		time.Sleep(5 * time.Second)
 	}
 }
 
-func logSettings(server, name string, rigModel int, rigDevice string, rigSpeed int, rigctldBin, rigHost string, rigPort, intervalMs int) {
+const (
+	backendRigctld = "rigctld"
+	backendOmnirig = "omnirig"
+)
+
+// openBackend picks the requested backend and returns it along with
+// a cleanup func (e.g. killing the managed rigctld subprocess).
+// Errors here are fatal — the helper cannot function without a
+// working backend so we bail out cleanly at startup.
+func openBackend(name string, omnirigRig int, rigctldBin string, rigModel int, rigDevice string, rigSpeed int, rigHost string, rigPort int) (RigBackend, func(), error) {
+	switch strings.ToLower(name) {
+	case backendOmnirig:
+		if !omnirigAvailable {
+			return nil, func() {}, errors.New("OmniRig backend is only available on Windows builds")
+		}
+		b, err := newOmnirigBackend(omnirigRig)
+		if err != nil {
+			return nil, func() {}, err
+		}
+		log.Printf("attached to OmniRig Rig%d", omnirigRig)
+		return b, func() {}, nil
+
+	case "", backendRigctld:
+		port := rigPort
+		cleanup := func() {}
+		if rigModel != 0 {
+			p, err := freePort()
+			if err != nil {
+				return nil, func() {}, fmt.Errorf("find free port: %w", err)
+			}
+			port = p
+			cmd, err := spawnRigctld(rigctldBin, rigModel, rigDevice, rigSpeed, rigHost, port)
+			if err != nil {
+				return nil, func() {}, fmt.Errorf("start rigctld: %w", err)
+			}
+			cleanup = func() { _ = cmd.Process.Kill() }
+			if err := waitForRigctld(rigHost, port, 30*time.Second); err != nil {
+				cleanup()
+				return nil, func() {}, fmt.Errorf("rigctld startup: %w", err)
+			}
+			log.Printf("rigctld started (model %d) on port %d", rigModel, port)
+		}
+		return &rigctldBackend{host: rigHost, port: port}, cleanup, nil
+
+	default:
+		return nil, func() {}, fmt.Errorf("unknown backend %q (expected %q or %q)", name, backendRigctld, backendOmnirig)
+	}
+}
+
+func logSettings(backend string, omnirigRig int, server, name string, rigModel int, rigDevice string, rigSpeed int, rigctldBin, rigHost string, rigPort, intervalMs int) {
 	log.Printf("=== Noctalum Helper v%s ===", helperVersion)
 	log.Printf("  server:   %s", server)
 	log.Printf("  rig name: %s", name)
-	if rigModel != 0 {
+	log.Printf("  backend:  %s", backend)
+	if strings.EqualFold(backend, backendOmnirig) {
+		log.Printf("  omnirig:  Rig%d", omnirigRig)
+	} else if rigModel != 0 {
 		log.Printf("  rig mode: managed (spawning rigctld)")
 		log.Printf("  rigctld:  %s", rigctldBin)
 		log.Printf("  model:    %d", rigModel)
@@ -176,7 +231,7 @@ func waitForRigctld(host string, port int, timeout time.Duration) error {
 	return fmt.Errorf("rigctld did not start after %v", timeout)
 }
 
-func session(serverURL, name, token, rigHost string, rigPort, intervalMs int) error {
+func session(serverURL, name, token string, rig RigBackend, intervalMs int) error {
 	u, err := url.Parse(serverURL)
 	if err != nil {
 		return fmt.Errorf("parse server url: %w", err)
@@ -225,13 +280,13 @@ func session(serverURL, name, token, rigHost string, rigPort, intervalMs int) er
 				continue
 			}
 			if ev.Type == "set_freq" && ev.Payload.FreqHz > 0 {
-				if err := setRigFreq(rigHost, rigPort, ev.Payload.FreqHz); err != nil {
+				if err := rig.SetFreq(ev.Payload.FreqHz); err != nil {
 					log.Printf("set_freq %d: %v", ev.Payload.FreqHz, err)
 				} else {
 					log.Printf("set freq → %d Hz", ev.Payload.FreqHz)
 				}
 				if m := toRigctldMode(ev.Payload.Mode, ev.Payload.FreqHz); m != "" {
-					if err := setRigMode(rigHost, rigPort, m); err != nil {
+					if err := rig.SetMode(m); err != nil {
 						log.Printf("set_mode %s: %v", m, err)
 					} else {
 						log.Printf("set mode → %s", m)
@@ -247,7 +302,7 @@ func session(serverURL, name, token, rigHost string, rigPort, intervalMs int) er
 	errCount := 0
 
 	for {
-		freq, mode, rigErr := readRig(rigHost, rigPort)
+		freq, mode, rigErr := rig.Read()
 
 		if rigErr != nil {
 			if errCount == 0 {

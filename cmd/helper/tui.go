@@ -31,6 +31,11 @@ type tuiConfig struct {
 	RigSpeed   int    `json:"rig_speed"`
 	RigctldBin string `json:"rigctld_bin"`
 	IntervalMs int    `json:"interval_ms"`
+
+	// Backend is "rigctld" or "omnirig".  Empty is treated as
+	// "rigctld" so existing profile files upgrade seamlessly.
+	Backend    string `json:"backend"`
+	OmnirigRig int    `json:"omnirig_rig"`
 }
 
 func runTUI() (tuiConfig, error) {
@@ -108,6 +113,25 @@ func runTUI() (tuiConfig, error) {
 		presetNames[i] = p.label
 	}
 
+	// Backend options.  On non-Windows builds OmniRig is still listed
+	// so the field is visible and consistent, but attempts to run it
+	// fail cleanly with a friendly error at startup.
+	backendOptions := []string{"rigctld (Hamlib)", "OmniRig (Windows)"}
+	backendValues := []string{backendRigctld, backendOmnirig}
+	initialBackend := 0
+	for i, v := range backendValues {
+		if v == saved.Backend {
+			initialBackend = i
+			break
+		}
+	}
+
+	omnirigOptions := []string{"Rig 1", "Rig 2"}
+	initialOmnirig := 0
+	if saved.OmnirigRig == 2 {
+		initialOmnirig = 1
+	}
+
 	form := tview.NewForm()
 
 	inp := func(label string) *tview.InputField {
@@ -141,7 +165,19 @@ func runTUI() (tuiConfig, error) {
 	// initializing suppresses the preset auto-fill while we're building the form.
 	initializing := true
 
+	// selectedBackend tracks the current backend dropdown value so
+	// the Start handler can read it without walking through the form
+	// items again.
+	selectedBackend := backendValues[initialBackend]
+	selectedOmnirig := initialOmnirig + 1 // 1 or 2
+
 	form.
+		AddDropDown("Backend", backendOptions, initialBackend, func(_ string, index int) {
+			selectedBackend = backendValues[index]
+		}).
+		AddDropDown("OmniRig Rig #", omnirigOptions, initialOmnirig, func(_ string, index int) {
+			selectedOmnirig = index + 1
+		}).
 		AddDropDown("Preset", presetNames, initialPreset, func(_ string, index int) {
 			if initializing {
 				return
@@ -211,6 +247,8 @@ func runTUI() (tuiConfig, error) {
 				RigSpeed:   speed,
 				RigctldBin: inp("rigctld path").GetText(),
 				IntervalMs: interval,
+				Backend:    selectedBackend,
+				OmnirigRig: selectedOmnirig,
 			}
 			saveSettings(result)
 			submitted = true
