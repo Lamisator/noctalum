@@ -170,6 +170,15 @@ func (a *App) IsRunning() bool {
 	return a.running
 }
 
+// OmnirigAvailable reports whether this build was compiled with
+// OmniRig COM support (Windows-only).  The frontend uses this to
+// decide whether to show OmniRig in the backend picker — on Linux
+// and macOS the option is hidden entirely so operators aren't
+// tempted by an unusable radio button.
+func (a *App) OmnirigAvailable() bool {
+	return omnirigAvailable
+}
+
 // Profiles ----------------------------------------------------------------
 
 func (a *App) LoadProfiles() ProfileStore { return loadProfileStore() }

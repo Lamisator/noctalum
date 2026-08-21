@@ -28,14 +28,23 @@ type ConnectRequest struct {
 	RigSpeed        int    `json:"rig_speed"`
 	RigctldBin      string `json:"rigctld_bin"`
 	IntervalMs      int    `json:"interval_ms"`
+
+	// Backend selects the rig control path: "rigctld" (default) or
+	// "omnirig" (Windows-only, attaches to a running OmniRig COM
+	// server).  Empty is treated as "rigctld" so profiles saved by
+	// earlier versions upgrade seamlessly.
+	Backend    string `json:"backend"`
+	OmnirigRig int    `json:"omnirig_rig"`
 }
 
+const (
+	backendRigctld = "rigctld"
+	backendOmnirig = "omnirig"
+)
+
 // runSession is the goroutine started by Connect; it walks the phases and
-// then runs the rigctld → Noctalum bridge until ctx is cancelled.
+// then runs the rig-backend → Noctalum bridge until ctx is cancelled.
 func (a *App) runSession(ctx context.Context, req ConnectRequest) error {
-	if req.RigctldBin == "" {
-		req.RigctldBin = defaultRigctldBin()
-	}
 	if req.IntervalMs < 250 {
 		req.IntervalMs = 1000
 	}
@@ -43,6 +52,63 @@ func (a *App) runSession(ctx context.Context, req ConnectRequest) error {
 		err := errors.New("Server URL, token, and rig name are required")
 		a.emitPhase(PhaseConnecting, StateError, err.Error())
 		return err
+	}
+
+	switch strings.ToLower(req.Backend) {
+	case backendOmnirig:
+		return a.runOmnirigSession(ctx, req)
+	default:
+		return a.runRigctldSession(ctx, req)
+	}
+}
+
+// runOmnirigSession attaches to an already-running OmniRig COM
+// server on Windows.  The Model and Baud phases are skipped since
+// OmniRig owns the CAT configuration itself.
+func (a *App) runOmnirigSession(ctx context.Context, req ConnectRequest) error {
+	if req.OmnirigRig == 0 {
+		req.OmnirigRig = 1
+	}
+
+	// OmniRig owns model and baud selection — mark those phases as
+	// skipped so the operator sees at a glance that we didn't touch
+	// them (and doesn't mistake them for silently failed steps).
+	a.emitPhase(PhaseModel, StateSkipped, "Managed by OmniRig")
+	a.emitPhase(PhaseBaud, StateSkipped, "Managed by OmniRig")
+	a.emitPhase(PhaseConnecting, StateActive, fmt.Sprintf("Attaching to OmniRig Rig%d…", req.OmnirigRig))
+
+	backend, err := newOmnirigBackend(req.OmnirigRig)
+	if err != nil {
+		a.emitPhase(PhaseConnecting, StateError, err.Error())
+		return err
+	}
+	defer backend.Close()
+
+	a.emit("rigctld-params", rigctldParamsEvent{
+		Binary:   "OmniRig (COM)",
+		RigLabel: fmt.Sprintf("OmniRig Rig%d", req.OmnirigRig),
+		Args:     fmt.Sprintf("Rig%d", req.OmnirigRig),
+	})
+	a.emitPhase(PhaseConnecting, StateDone, "OmniRig attached")
+
+	a.emitPhase(PhaseConnected, StateActive, "Streaming rig state to the server")
+	err = a.bridge(ctx, req, backend)
+	if errors.Is(err, context.Canceled) {
+		a.emitPhase(PhaseConnected, StateIdle, "Disconnected")
+		return nil
+	}
+	a.emitPhase(PhaseConnected, StateError, err.Error())
+	return err
+}
+
+// runRigctldSession is the historical path: optionally auto-detect
+// model + baud, spawn a managed rigctld, then bridge it to the
+// server.  Behaviour is unchanged from before OmniRig support
+// landed; only the final bridge() call now goes through the
+// RigBackend interface.
+func (a *App) runRigctldSession(ctx context.Context, req ConnectRequest) error {
+	if req.RigctldBin == "" {
+		req.RigctldBin = defaultRigctldBin()
 	}
 	if req.RigModel == 0 && !req.AutoDetectModel {
 		err := errors.New("Rig model is required — pick one from the list or enable auto-detect")
@@ -136,7 +202,8 @@ func (a *App) runSession(ctx context.Context, req ConnectRequest) error {
 
 	// --- Phase 3: Connected ---------------------------------------------
 	a.emitPhase(PhaseConnected, StateActive, "Streaming rig state to the server")
-	err = a.bridge(ctx, req, args.Host, args.Port)
+	backend := &rigctldBackend{host: args.Host, port: args.Port}
+	err = a.bridge(ctx, req, backend)
 	if errors.Is(err, context.Canceled) {
 		a.emitPhase(PhaseConnected, StateIdle, "Disconnected")
 		return nil
@@ -146,9 +213,10 @@ func (a *App) runSession(ctx context.Context, req ConnectRequest) error {
 }
 
 // bridge is the long-running session loop: open a websocket to Noctalum,
-// poll rigctld for frequency/mode, push updates, and honour set_freq events.
-// Any non-cancellation error returns; the caller's defer kills rigctld.
-func (a *App) bridge(ctx context.Context, req ConnectRequest, rigHost string, rigPort int) error {
+// poll the rig backend for frequency/mode, push updates, and honour set_freq
+// events.  Any non-cancellation error returns; the caller's defer releases
+// the backend (kills rigctld for the rigctld path; CoUninitialize for OmniRig).
+func (a *App) bridge(ctx context.Context, req ConnectRequest, rig RigBackend) error {
 	u, err := url.Parse(req.Server)
 	if err != nil {
 		return fmt.Errorf("parse server url: %w", err)
@@ -197,13 +265,13 @@ func (a *App) bridge(ctx context.Context, req ConnectRequest, rigHost string, ri
 				continue
 			}
 			if ev.Type == "set_freq" && ev.Payload.FreqHz > 0 {
-				if err := setRigFreq(rigHost, rigPort, ev.Payload.FreqHz); err != nil {
+				if err := rig.SetFreq(ev.Payload.FreqHz); err != nil {
 					a.emitLog("set_freq %d: %v", ev.Payload.FreqHz, err)
 				} else {
 					a.emitLog("set freq → %d Hz", ev.Payload.FreqHz)
 				}
 				if m := toRigctldMode(ev.Payload.Mode, ev.Payload.FreqHz); m != "" {
-					if err := setRigMode(rigHost, rigPort, m); err != nil {
+					if err := rig.SetMode(m); err != nil {
 						a.emitLog("set_mode %s: %v", m, err)
 					} else {
 						a.emitLog("set mode → %s", m)
@@ -226,7 +294,7 @@ func (a *App) bridge(ctx context.Context, req ConnectRequest, rigHost string, ri
 		default:
 		}
 
-		freq, mode, rigErr := readRig(rigHost, rigPort)
+		freq, mode, rigErr := rig.Read()
 		if rigErr != nil {
 			if errCount == 0 {
 				a.emitLog("rig %q offline: %v", req.RigName, rigErr)

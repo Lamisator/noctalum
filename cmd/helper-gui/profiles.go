@@ -21,6 +21,12 @@ type Profile struct {
 	IntervalMs      int    `json:"interval_ms"`
 	AutoDetect      bool   `json:"auto_detect"`
 	AutoDetectModel bool   `json:"auto_detect_model"`
+
+	// Backend is "rigctld" (default) or "omnirig".  Empty upgrades
+	// silently to "rigctld" so profiles written by earlier versions
+	// keep working.
+	Backend    string `json:"backend,omitempty"`
+	OmnirigRig int    `json:"omnirig_rig,omitempty"`
 }
 
 // ProfileStore is the on-disk shape of noctalum-helper-gui.json.  It is
