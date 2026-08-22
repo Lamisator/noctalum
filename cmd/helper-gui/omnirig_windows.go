@@ -5,8 +5,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
-	"sync"
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
@@ -49,42 +49,82 @@ var omnirigProgIDs = []string{
 // omnirigBackend talks to OmniRig via late-bound COM (IDispatch), so
 // this build has no compile-time dependency on the OmniRig SDK — any
 // installed version registered on the machine works.
+//
+// COM apartments are per-OS-thread.  OmniRig registers as STA
+// (COINIT_APARTMENTTHREADED), so every call on the engine or its
+// RigX objects must happen on the exact same OS thread that created
+// them — otherwise Windows returns RPC_E_WRONG_THREAD ("An interface
+// that was marshalled for a different thread was called by the
+// application").  A plain mutex is not enough because Go goroutines
+// can migrate between OS threads between calls.  We therefore spawn
+// a dedicated worker goroutine that pins itself to one OS thread via
+// runtime.LockOSThread and funnel every dispatch call through it via
+// a channel of closures.
 type omnirigBackend struct {
 	rigIndex int
+	calls    chan func()
+	done     chan struct{}
 
-	// COM is not free-threaded and the OmniRig object is
-	// apartment-scoped, so every dispatch call is serialised through
-	// this mutex.  We do not LockOSThread here because the Wails main
-	// loop and the session goroutine would fight over it; STA
-	// re-entry from a single goroutine works in practice as long as
-	// calls are serialised.
-	mu sync.Mutex
-
+	// engine/unknown are only ever touched on the worker goroutine.
 	engine  *ole.IDispatch
 	unknown *ole.IUnknown
 }
 
-// newOmnirigBackend initialises COM and creates the OmniRigX engine
-// object.  It does not wait for the rig to come online — Status is
-// checked on every Read so a rig that appears mid-session is picked
-// up automatically.
+// newOmnirigBackend spawns the OS-thread-pinned COM worker and
+// creates the OmniRigX engine object on it.  It does not wait for
+// the rig to come online — Status is checked on every Read so a rig
+// that appears mid-session is picked up automatically.
 func newOmnirigBackend(rigIndex int) (*omnirigBackend, error) {
 	if rigIndex != 1 && rigIndex != 2 {
 		return nil, fmt.Errorf("omnirig rig index must be 1 or 2 (got %d)", rigIndex)
 	}
 
+	o := &omnirigBackend{
+		rigIndex: rigIndex,
+		calls:    make(chan func()),
+		done:     make(chan struct{}),
+	}
+
+	initErr := make(chan error, 1)
+	go o.worker(initErr)
+	if err := <-initErr; err != nil {
+		return nil, err
+	}
+	return o, nil
+}
+
+// worker is the sole goroutine that ever touches COM.  It pins
+// itself to one OS thread for its entire lifetime, initialises COM
+// as STA, creates the OmniRigX engine, and then services calls
+// arriving on o.calls.  When o.calls is closed, it releases COM
+// objects and CoUninitialize on the same thread, then closes o.done
+// to signal Close() that shutdown is complete.
+func (o *omnirigBackend) worker(initErr chan<- error) {
+	runtime.LockOSThread()
+	// Deliberately no UnlockOSThread — this goroutine exits at the
+	// end of the function and the thread goes with it, which is the
+	// safest disposal for a thread that has held COM state.  In
+	// particular, the Wails main loop runs on its own locked thread
+	// and is not affected by this one.
+
 	if err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED); err != nil {
 		var oe *ole.OleError
 		if errors.As(err, &oe) {
 			switch uint32(oe.Code()) {
-			case 0x00000001: // S_FALSE — already initialised, OK
+			case 0x00000001: // S_FALSE — already initialised in a compatible mode, OK
 			case 0x80010106: // RPC_E_CHANGED_MODE — incompatible apartment
-				return nil, fmt.Errorf("COM apartment conflict (RPC_E_CHANGED_MODE): another library initialised COM in MTA mode")
+				initErr <- fmt.Errorf("COM apartment conflict (RPC_E_CHANGED_MODE): another library initialised COM in MTA mode")
+				close(o.done)
+				return
 			default:
-				return nil, fmt.Errorf("CoInitializeEx: %w", err)
+				initErr <- fmt.Errorf("CoInitializeEx: %w", err)
+				close(o.done)
+				return
 			}
 		} else {
-			return nil, fmt.Errorf("CoInitializeEx: %w", err)
+			initErr <- fmt.Errorf("CoInitializeEx: %w", err)
+			close(o.done)
+			return
 		}
 	}
 
@@ -104,26 +144,55 @@ func newOmnirigBackend(rigIndex int) (*omnirigBackend, error) {
 	}
 	if unknown == nil {
 		ole.CoUninitialize()
-		return nil, fmt.Errorf("create OmniRig COM object: %w (is OmniRig installed and registered?)", lastErr)
+		initErr <- fmt.Errorf("create OmniRig COM object: %w (is OmniRig installed and registered?)", lastErr)
+		close(o.done)
+		return
 	}
 
 	engine, err := unknown.QueryInterface(ole.IID_IDispatch)
 	if err != nil {
 		unknown.Release()
 		ole.CoUninitialize()
-		return nil, fmt.Errorf("query IDispatch on %s: %w", progUsed, err)
+		initErr <- fmt.Errorf("query IDispatch on %s: %w", progUsed, err)
+		close(o.done)
+		return
 	}
 
-	return &omnirigBackend{
-		rigIndex: rigIndex,
-		engine:   engine,
-		unknown:  unknown,
-	}, nil
+	o.engine = engine
+	o.unknown = unknown
+	initErr <- nil
+
+	for fn := range o.calls {
+		fn()
+	}
+
+	if o.engine != nil {
+		o.engine.Release()
+		o.engine = nil
+	}
+	if o.unknown != nil {
+		o.unknown.Release()
+		o.unknown = nil
+	}
+	ole.CoUninitialize()
+	close(o.done)
+}
+
+// call submits fn to the worker goroutine and blocks until it
+// finishes.  This is how every public method reaches COM.
+func (o *omnirigBackend) call(fn func()) {
+	done := make(chan struct{})
+	o.calls <- func() {
+		fn()
+		close(done)
+	}
+	<-done
 }
 
 // rig returns the RigX dispatch object for the configured slot.  The
-// caller must Release it when done.  We refetch on every operation
-// because OmniRig replaces the RigX object on rig-type changes.
+// caller must Release it when done.  MUST be invoked from the worker
+// goroutine.  We refetch on every operation because OmniRig replaces
+// the RigX object on rig-type changes.
 func (o *omnirigBackend) rig() (*ole.IDispatch, error) {
 	property := fmt.Sprintf("Rig%d", o.rigIndex)
 	result, err := oleutil.GetProperty(o.engine, property)
@@ -138,9 +207,18 @@ func (o *omnirigBackend) rig() (*ole.IDispatch, error) {
 }
 
 func (o *omnirigBackend) Read() (int64, string, error) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	var (
+		freq int64
+		mode string
+		err  error
+	)
+	o.call(func() {
+		freq, mode, err = o.readOnWorker()
+	})
+	return freq, mode, err
+}
 
+func (o *omnirigBackend) readOnWorker() (int64, string, error) {
 	r, err := o.rig()
 	if err != nil {
 		return 0, "", err
@@ -174,9 +252,14 @@ func (o *omnirigBackend) Read() (int64, string, error) {
 }
 
 func (o *omnirigBackend) SetFreq(freqHz int64) error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	var err error
+	o.call(func() {
+		err = o.setFreqOnWorker(freqHz)
+	})
+	return err
+}
 
+func (o *omnirigBackend) setFreqOnWorker(freqHz int64) error {
 	r, err := o.rig()
 	if err != nil {
 		return err
@@ -190,9 +273,14 @@ func (o *omnirigBackend) SetFreq(freqHz int64) error {
 }
 
 func (o *omnirigBackend) SetMode(mode string) error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	var err error
+	o.call(func() {
+		err = o.setModeOnWorker(mode)
+	})
+	return err
+}
 
+func (o *omnirigBackend) setModeOnWorker(mode string) error {
 	r, err := o.rig()
 	if err != nil {
 		return err
@@ -213,18 +301,18 @@ func (o *omnirigBackend) SetMode(mode string) error {
 	return nil
 }
 
+// Close signals the worker to release its COM state and shut down,
+// then waits for it to exit.  Must not be called concurrently with
+// Read/SetFreq/SetMode — the session loop stops issuing calls before
+// closing the backend.
 func (o *omnirigBackend) Close() {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.engine != nil {
-		o.engine.Release()
-		o.engine = nil
-	}
-	if o.unknown != nil {
-		o.unknown.Release()
-		o.unknown = nil
-	}
-	ole.CoUninitialize()
+	defer func() {
+		// close on an already-closed channel panics; swallow that so
+		// a double-Close is a no-op.
+		_ = recover()
+	}()
+	close(o.calls)
+	<-o.done
 }
 
 func omnirigStatusError(rig *ole.IDispatch, rigIndex, status int) error {
