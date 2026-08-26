@@ -60,6 +60,19 @@ type Settings struct {
 	// scheduler keeps in /backups. 0 disables pruning (keep forever).
 	// Default: 30.
 	BackupRetentionDays int `json:"backup_retention_days"`
+
+	// OIDC single-sign-on. Enabled when both OIDCIssuerURL and
+	// OIDCClientID are set (and the "Enabled" flag is on). One
+	// external identity provider at a time — sufficient for the
+	// current single-tenant Zitadel deployment.
+	OIDCEnabled       bool   `json:"oidc_enabled"`
+	OIDCIssuerURL     string `json:"oidc_issuer_url"`
+	OIDCClientID      string `json:"oidc_client_id"`
+	OIDCClientSecret  string `json:"oidc_client_secret"`
+	OIDCScopes        string `json:"oidc_scopes"`         // space-separated; empty => "openid profile email"
+	OIDCButtonLabel   string `json:"oidc_button_label"`   // e.g. "Sign in with Zitadel"
+	OIDCCallsignClaim string `json:"oidc_callsign_claim"` // ID-token claim name to seed the callsign; default preferred_username
+	OIDCAutoCreate    bool   `json:"oidc_auto_create"`    // provision unknown users on first successful SSO login
 }
 
 // DummyRig is a simulated transceiver configuration persisted in the database.
@@ -831,6 +844,22 @@ func (s *Store) LoadSettings() (Settings, error) {
 			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 				out.BackupRetentionDays = n
 			}
+		case "oidc_enabled":
+			out.OIDCEnabled = v == "1" || v == "true"
+		case "oidc_issuer_url":
+			out.OIDCIssuerURL = v
+		case "oidc_client_id":
+			out.OIDCClientID = v
+		case "oidc_client_secret":
+			out.OIDCClientSecret = v
+		case "oidc_scopes":
+			out.OIDCScopes = v
+		case "oidc_button_label":
+			out.OIDCButtonLabel = v
+		case "oidc_callsign_claim":
+			out.OIDCCallsignClaim = v
+		case "oidc_auto_create":
+			out.OIDCAutoCreate = v == "1" || v == "true"
 		}
 	}
 	return out, rows.Err()
@@ -865,6 +894,27 @@ func (s *Store) SaveSettings(set Settings) error {
 	if set.BackupRetentionDays >= 0 {
 		pairs = append(pairs, [2]string{"backup_retention_days", strconv.Itoa(set.BackupRetentionDays)})
 	}
+	// OIDC single-sign-on settings — always persisted so admins can
+	// disable/enable without losing their previously entered issuer
+	// URL, client ID etc.
+	oidcEnabled := "0"
+	if set.OIDCEnabled {
+		oidcEnabled = "1"
+	}
+	pairs = append(pairs, [2]string{"oidc_enabled", oidcEnabled})
+	pairs = append(pairs, [2]string{"oidc_issuer_url", set.OIDCIssuerURL})
+	pairs = append(pairs, [2]string{"oidc_client_id", set.OIDCClientID})
+	if set.OIDCClientSecret != "" {
+		pairs = append(pairs, [2]string{"oidc_client_secret", set.OIDCClientSecret})
+	}
+	pairs = append(pairs, [2]string{"oidc_scopes", set.OIDCScopes})
+	pairs = append(pairs, [2]string{"oidc_button_label", set.OIDCButtonLabel})
+	pairs = append(pairs, [2]string{"oidc_callsign_claim", set.OIDCCallsignClaim})
+	oidcAuto := "0"
+	if set.OIDCAutoCreate {
+		oidcAuto = "1"
+	}
+	pairs = append(pairs, [2]string{"oidc_auto_create", oidcAuto})
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err

@@ -706,7 +706,14 @@
      'my-featurerequests-screen', 'my-settings-screen', 'changelog-screen', 'dok-cache-screen', 'app'].forEach(id => $(id).classList.add('hidden'));
     $(which).classList.remove('hidden');
     if (which === 'setup-screen') $('setup-username').focus();
-    if (which === 'login-screen') $('login-username').focus();
+    if (which === 'login-screen') {
+      $('login-username').focus();
+      // Fire-and-forget: reveal the SSO button if the admin has
+      // enabled OIDC in Global Settings. Function is defined below
+      // in the OIDC section — the forward reference is safe at
+      // call-time since show('login-screen') only fires post-boot.
+      if (typeof showLoginScreenOIDC === 'function') showLoginScreenOIDC();
+    }
   }
 
   // ----- API helper -----
@@ -769,6 +776,45 @@
     const loginData = await res.json().catch(() => ({}));
     csrfToken = loginData.csrf_token || null;
     await bootstrap();
+  });
+
+  // ----- OIDC (single sign-on) -----
+  // The button is initially hidden; showLoginScreenOIDC() polls the public
+  // /api/oidc/config endpoint on every visit to the login screen so admins
+  // enabling SSO from Global Settings see it appear without a reload.
+  async function showLoginScreenOIDC() {
+    const btn = $('oidc-login-btn');
+    const errEl = $('oidc-login-error');
+    if (!btn) return;
+    if (errEl) errEl.textContent = '';
+    // Callback redirects here with #oidc_error=... on failure; surface it.
+    if (location.hash.startsWith('#oidc_error=')) {
+      try {
+        const msg = decodeURIComponent(location.hash.slice('#oidc_error='.length));
+        if (errEl) errEl.textContent = t('login.ssoLoginFailed', { msg });
+      } catch {}
+      // Clear the fragment so a reload doesn't keep showing it.
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+    try {
+      const res = await fetch('/api/oidc/config', { credentials: 'same-origin' });
+      if (!res.ok) { btn.classList.add('hidden'); return; }
+      const cfg = await res.json();
+      if (!cfg.enabled) { btn.classList.add('hidden'); return; }
+      // Overwrite the default label with the admin-configured one when set;
+      // otherwise the data-i18n default ("Sign in with SSO") stays in place.
+      if (cfg.label && cfg.label !== 'Sign in with SSO') {
+        btn.textContent = '\u{1F310} ' + cfg.label;
+      }
+      btn.classList.remove('hidden');
+    } catch {
+      btn.classList.add('hidden');
+    }
+  }
+  $('oidc-login-btn')?.addEventListener('click', () => {
+    // Full page navigation — the callback ends in a 302 back to "/", at
+    // which point the app boots normally from a fresh session cookie.
+    window.location.href = '/api/oidc/login';
   });
 
   $('logout-btn').addEventListener('click', doLogout);
@@ -841,6 +887,23 @@
           _gsQrzLoadedUser = s.qrz_username || '';
           $('gs-qrz-user').value = _gsQrzLoadedUser;
           $('gs-qrz-status').textContent = s.qrz_configured ? t('settings.qrzConfigured') : t('settings.qrzNotConfigured');
+        }
+        // OIDC (only present in the response when the caller has
+        // settings.write permission; the fieldset is unconditional in
+        // the DOM so we simply guard on the key's presence).
+        if ('oidc_enabled' in s) {
+          $('gs-oidc-enabled').checked = !!s.oidc_enabled;
+          $('gs-oidc-auto-create').checked = !!s.oidc_auto_create;
+          $('gs-oidc-issuer').value = s.oidc_issuer_url || '';
+          $('gs-oidc-client-id').value = s.oidc_client_id || '';
+          $('gs-oidc-client-secret').value = '';
+          $('gs-oidc-secret-status').textContent = s.oidc_client_secret_configured
+            ? t('globalSettings.oidcClientSecretConfigured')
+            : t('globalSettings.oidcClientSecretMissing');
+          $('gs-oidc-scopes').value = s.oidc_scopes || '';
+          $('gs-oidc-button-label').value = s.oidc_button_label || '';
+          $('gs-oidc-callsign-claim').value = s.oidc_callsign_claim || '';
+          $('gs-oidc-redirect-url').value = s.oidc_redirect_url || '';
         }
       }
     } catch {}
@@ -947,6 +1010,19 @@
     const qrzPass = $('gs-qrz-pass').value;
     if (qrzUser !== _gsQrzLoadedUser) body.qrz_username = qrzUser;
     if (qrzPass !== '') body.qrz_password = qrzPass;
+    // OIDC — always send the visible fields; the server preserves the
+    // existing client secret when we omit it (i.e. when the input is empty).
+    if ($('gs-oidc-enabled')) {
+      body.oidc_enabled = $('gs-oidc-enabled').checked;
+      body.oidc_auto_create = $('gs-oidc-auto-create').checked;
+      body.oidc_issuer_url = $('gs-oidc-issuer').value.trim();
+      body.oidc_client_id = $('gs-oidc-client-id').value.trim();
+      const secret = $('gs-oidc-client-secret').value;
+      if (secret !== '') body.oidc_client_secret = secret;
+      body.oidc_scopes = $('gs-oidc-scopes').value.trim();
+      body.oidc_button_label = $('gs-oidc-button-label').value.trim();
+      body.oidc_callsign_claim = $('gs-oidc-callsign-claim').value.trim();
+    }
     const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
@@ -954,10 +1030,24 @@
       return;
     }
     $('gs-qrz-pass').value = '';
+    // Clear the OIDC secret input after a successful save so the "leave
+    // blank to keep existing" hint is accurate on the next open.
+    if ($('gs-oidc-client-secret')) $('gs-oidc-client-secret').value = '';
     loadGlobalClusterLog();
     if (settings) {
       settings.chat_sound = body.chat_sound;
       settings.public_feature_requests = body.public_feature_requests;
+    }
+  });
+
+  $('gs-oidc-redirect-copy')?.addEventListener('click', () => {
+    const el = $('gs-oidc-redirect-url');
+    if (!el || !el.value) return;
+    try {
+      navigator.clipboard.writeText(el.value);
+    } catch {
+      el.select();
+      document.execCommand('copy');
     }
   });
 

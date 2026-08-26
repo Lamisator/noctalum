@@ -319,6 +319,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/me", s.handleMe)
 	mux.HandleFunc("/api/passkey/login/begin", s.handlePasskeyLoginBegin)
 	mux.HandleFunc("/api/passkey/login/finish", s.handlePasskeyLoginFinish)
+	mux.HandleFunc("/api/oidc/config", s.handleOIDCConfig)
+	mux.HandleFunc("/api/oidc/login", s.handleOIDCLogin)
+	mux.HandleFunc("/api/oidc/callback", s.handleOIDCCallback)
 	mux.HandleFunc("/api/login-request/create", s.handleLoginRequestCreate)
 	mux.HandleFunc("/api/login-request/status", s.handleLoginRequestStatus)
 	mux.HandleFunc("/api/downloads", s.handleDownloadsList)
@@ -1724,6 +1727,19 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			out["cluster_call"] = s.settings.ClusterCall
 			out["cluster_server"] = s.settings.ClusterServer
 			out["cluster_retention_days"] = s.settings.ClusterRetentionDays
+			// OIDC. Client secret is only surfaced as a "configured"
+			// flag — the plaintext never leaves the server so an
+			// admin who forgets it must re-enter it, matching how QRZ
+			// credentials are handled above.
+			out["oidc_enabled"] = s.settings.OIDCEnabled
+			out["oidc_issuer_url"] = s.settings.OIDCIssuerURL
+			out["oidc_client_id"] = s.settings.OIDCClientID
+			out["oidc_client_secret_configured"] = s.settings.OIDCClientSecret != ""
+			out["oidc_scopes"] = s.settings.OIDCScopes
+			out["oidc_button_label"] = s.settings.OIDCButtonLabel
+			out["oidc_callsign_claim"] = s.settings.OIDCCallsignClaim
+			out["oidc_auto_create"] = s.settings.OIDCAutoCreate
+			out["oidc_redirect_url"] = oidcRedirectURL(r)
 		}
 		if HasPermission(sess.Permissions, PermBackupsManage) {
 			// Also surface the retention setting to backup managers
@@ -1754,6 +1770,14 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			ChatSound             *string `json:"chat_sound"`
 			PublicFeatureRequests *bool   `json:"public_feature_requests"`
 			BackupRetentionDays   *int    `json:"backup_retention_days"`
+			OIDCEnabled           *bool   `json:"oidc_enabled"`
+			OIDCIssuerURL         *string `json:"oidc_issuer_url"`
+			OIDCClientID          *string `json:"oidc_client_id"`
+			OIDCClientSecret      *string `json:"oidc_client_secret"`
+			OIDCScopes            *string `json:"oidc_scopes"`
+			OIDCButtonLabel       *string `json:"oidc_button_label"`
+			OIDCCallsignClaim     *string `json:"oidc_callsign_claim"`
+			OIDCAutoCreate        *bool   `json:"oidc_auto_create"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1804,6 +1828,50 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		if in.QRZPassword != nil && *in.QRZPassword != "" {
 			ns.QRZPassword = *in.QRZPassword
 		}
+		// OIDC — same "blank == keep secret" trick as QRZ, so the
+		// admin form can leave the client-secret input empty on
+		// subsequent saves without wiping the stored value.
+		oidcChanged := false
+		if in.OIDCEnabled != nil {
+			if ns.OIDCEnabled != *in.OIDCEnabled {
+				oidcChanged = true
+			}
+			ns.OIDCEnabled = *in.OIDCEnabled
+		}
+		if in.OIDCIssuerURL != nil {
+			v := strings.TrimSpace(*in.OIDCIssuerURL)
+			if ns.OIDCIssuerURL != v {
+				oidcChanged = true
+			}
+			ns.OIDCIssuerURL = v
+		}
+		if in.OIDCClientID != nil {
+			v := strings.TrimSpace(*in.OIDCClientID)
+			if ns.OIDCClientID != v {
+				oidcChanged = true
+			}
+			ns.OIDCClientID = v
+		}
+		if in.OIDCClientSecret != nil && *in.OIDCClientSecret != "" {
+			ns.OIDCClientSecret = *in.OIDCClientSecret
+			oidcChanged = true
+		}
+		if in.OIDCScopes != nil {
+			v := strings.TrimSpace(*in.OIDCScopes)
+			if ns.OIDCScopes != v {
+				oidcChanged = true
+			}
+			ns.OIDCScopes = v
+		}
+		if in.OIDCButtonLabel != nil {
+			ns.OIDCButtonLabel = strings.TrimSpace(*in.OIDCButtonLabel)
+		}
+		if in.OIDCCallsignClaim != nil {
+			ns.OIDCCallsignClaim = strings.TrimSpace(*in.OIDCCallsignClaim)
+		}
+		if in.OIDCAutoCreate != nil {
+			ns.OIDCAutoCreate = *in.OIDCAutoCreate
+		}
 		if err := s.store.SaveSettings(ns); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1813,6 +1881,12 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			s.qrz = NewQRZClient(ns.QRZUsername, ns.QRZPassword)
 		} else {
 			s.qrz = nil
+		}
+		if oidcChanged {
+			// Force a fresh discovery on the next SSO click so the
+			// new issuer/client/scope combo is picked up without a
+			// server restart.
+			invalidateOIDCCache()
 		}
 		SetClusterCall(ns.ClusterCall)
 		SetClusterServer(ns.ClusterServer)
@@ -1844,6 +1918,30 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.PublicFeatureRequests != nil {
 			appendDetail("public_feature_requests", strconv.FormatBool(*in.PublicFeatureRequests))
+		}
+		if in.OIDCEnabled != nil {
+			appendDetail("oidc_enabled", strconv.FormatBool(*in.OIDCEnabled))
+		}
+		if in.OIDCIssuerURL != nil {
+			appendDetail("oidc_issuer_url", ns.OIDCIssuerURL)
+		}
+		if in.OIDCClientID != nil {
+			appendDetail("oidc_client_id", ns.OIDCClientID)
+		}
+		if in.OIDCClientSecret != nil && *in.OIDCClientSecret != "" {
+			appendDetail("oidc_client_secret", "updated")
+		}
+		if in.OIDCScopes != nil {
+			appendDetail("oidc_scopes", ns.OIDCScopes)
+		}
+		if in.OIDCButtonLabel != nil {
+			appendDetail("oidc_button_label", ns.OIDCButtonLabel)
+		}
+		if in.OIDCCallsignClaim != nil {
+			appendDetail("oidc_callsign_claim", ns.OIDCCallsignClaim)
+		}
+		if in.OIDCAutoCreate != nil {
+			appendDetail("oidc_auto_create", strconv.FormatBool(*in.OIDCAutoCreate))
 		}
 		// Retention is edited in the same "Global Settings" form but
 		// gated on backups.manage rather than settings.write — spell

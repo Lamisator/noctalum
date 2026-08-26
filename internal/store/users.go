@@ -100,6 +100,15 @@ func (s *Store) migrateUsers() error {
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 			FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
 		)`,
+		// OIDC / SSO linkage. NULL for password-only accounts. The
+		// (issuer, subject) pair uniquely identifies an external identity;
+		// enforced by the partial unique index below so multiple local
+		// users can coexist without an SSO link (both columns NULL).
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS oidc_issuer  TEXT`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS oidc_subject TEXT`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_identity
+		     ON users(oidc_issuer, oidc_subject)
+		     WHERE oidc_issuer IS NOT NULL AND oidc_subject IS NOT NULL`,
 	}
 	for _, q := range stmts {
 		if _, err := s.db.Exec(q); err != nil {
@@ -172,6 +181,93 @@ func (s *Store) CreateUser(username, callsign, plainPassword string, roleNames [
 		return User{}, err
 	}
 	return s.GetUserByID(id)
+}
+
+// CreateOIDCUser inserts a user provisioned via an external OIDC provider.
+// No local password is set — a random 32-byte string is bcrypt-hashed and
+// stored so the NOT NULL column stays satisfied while making password login
+// mathematically infeasible for the account. issuer and subject are the
+// verified iss / sub claims from the IdP and are used to look the user up
+// again on subsequent SSO logins.
+func (s *Store) CreateOIDCUser(username, callsign, issuer, subject string, roleNames []string) (User, error) {
+	username = strings.ToLower(strings.TrimSpace(username))
+	callsign = strings.ToUpper(strings.TrimSpace(callsign))
+	issuer = strings.TrimSpace(issuer)
+	subject = strings.TrimSpace(subject)
+	if username == "" {
+		return User{}, errors.New("username is required")
+	}
+	if issuer == "" || subject == "" {
+		return User{}, errors.New("issuer and subject are required")
+	}
+	// Random unusable password so bcrypt.CompareHashAndPassword against any
+	// user-supplied string will fail.
+	pw := make([]byte, 32)
+	if _, err := rand.Read(pw); err != nil {
+		return User{}, err
+	}
+	hash, err := bcrypt.GenerateFromPassword(pw, 12)
+	if err != nil {
+		return User{}, err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback()
+	var id int64
+	err = tx.QueryRow(
+		`INSERT INTO users (username, callsign, password_hash, helper_token, created_at, oidc_issuer, oidc_subject)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+		username, callsign, string(hash), generateHelperToken(), time.Now().UTC(),
+		issuer, subject).Scan(&id)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return User{}, ErrUsernameTaken
+		}
+		return User{}, err
+	}
+	if err := assignRolesTx(tx, id, roleNames); err != nil {
+		return User{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return User{}, err
+	}
+	return s.GetUserByID(id)
+}
+
+// GetUserByOIDC looks up the local account previously linked to the given
+// (issuer, subject) claim pair. Returns ErrNotFound when no such link exists.
+func (s *Store) GetUserByOIDC(issuer, subject string) (User, error) {
+	if issuer == "" || subject == "" {
+		return User{}, ErrNotFound
+	}
+	var id int64
+	err := s.db.QueryRow(
+		`SELECT id FROM users WHERE oidc_issuer = $1 AND oidc_subject = $2`,
+		issuer, subject).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	if err != nil {
+		return User{}, err
+	}
+	return s.GetUserByID(id)
+}
+
+// LinkOIDCToUser attaches an OIDC identity to an existing local user.
+// Fails with a unique-violation error if the (issuer, subject) pair is
+// already linked to another account.
+func (s *Store) LinkOIDCToUser(userID int64, issuer, subject string) error {
+	issuer = strings.TrimSpace(issuer)
+	subject = strings.TrimSpace(subject)
+	if issuer == "" || subject == "" {
+		return errors.New("issuer and subject are required")
+	}
+	_, err := s.db.Exec(
+		`UPDATE users SET oidc_issuer = $1, oidc_subject = $2 WHERE id = $3`,
+		issuer, subject, userID)
+	return err
 }
 
 // SetPassword replaces the password hash for a user.

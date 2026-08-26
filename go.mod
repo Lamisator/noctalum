@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	fyne.io/fyne/v2 v2.8.0
+	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/go-ole/go-ole v1.3.0
 	github.com/go-webauthn/webauthn v0.10.2
 	github.com/gorilla/websocket v1.5.3
@@ -12,6 +13,7 @@ require (
 	github.com/rivo/tview v0.42.0
 	github.com/wailsapp/wails/v2 v2.9.2
 	golang.org/x/crypto v0.41.0
+	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.44.0
 	golang.org/x/term v0.34.0
 	modernc.org/sqlite v1.53.0
@@ -37,6 +39,7 @@ require (
 	github.com/gdamore/tcell/v2 v2.8.1 // indirect
 	github.com/go-gl/gl v0.0.0-20260331235117-4566fea9a276 // indirect
 	github.com/go-gl/glfw/v3.4/glfw v0.1.0-pre.1.0.20260707082822-2a407d02d01a // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-text/render v0.2.1 // indirect
 	github.com/go-text/typesetting v0.3.4 // indirect
 	github.com/go-webauthn/x v0.1.9 // indirect

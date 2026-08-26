@@ -56,6 +56,8 @@
     <button id="passkey-login-btn" class="passkey-btn" data-i18n="login.signInWithPasskey">&#128273; Sign in with passkey</button>
     <div id="passkey-login-error" class="error"></div>
     <button id="device-login-btn" class="passkey-btn" data-i18n="login.signInWithOtherDevice">&#128241; Login with other device</button>
+    <button id="oidc-login-btn" class="passkey-btn hidden" data-i18n="login.signInWithSSO">&#127760; Sign in with SSO</button>
+    <div id="oidc-login-error" class="error"></div>
   </div>
 </div>
 
@@ -287,6 +289,43 @@
         <label style="display:flex;align-items:center;gap:8px;margin-top:6px">
           <input id="gs-public-feature-requests" type="checkbox" style="width:auto;margin:0" />
           <span data-i18n="globalSettings.publicFeatureRequests">Make feature requests public to all logged-in users</span>
+        </label>
+      </fieldset>
+      <fieldset style="margin-top:16px">
+        <legend data-i18n="globalSettings.oidcTitle">Single sign-on (OIDC)</legend>
+        <p class="muted small" data-i18n="globalSettings.oidcHint">When enabled, the login screen shows an extra button that redirects the operator to an external identity provider (e.g. Zitadel, Keycloak). Register the redirect URL below with the IdP.</p>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <input id="gs-oidc-enabled" type="checkbox" style="width:auto;margin:0" />
+          <span data-i18n="globalSettings.oidcEnabled">Enable OIDC single sign-on</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <input id="gs-oidc-auto-create" type="checkbox" style="width:auto;margin:0" />
+          <span data-i18n="globalSettings.oidcAutoCreate">Auto-create a local account on first successful SSO login</span>
+        </label>
+        <label style="margin-top:10px"><span data-i18n="globalSettings.oidcIssuerUrl">Issuer URL (must expose /.well-known/openid-configuration)</span>
+          <input id="gs-oidc-issuer" type="url" autocomplete="off" placeholder="https://auth1.antwire.net" style="max-width:420px" />
+        </label>
+        <label style="margin-top:10px"><span data-i18n="globalSettings.oidcClientId">Client ID</span>
+          <input id="gs-oidc-client-id" type="text" autocomplete="off" style="max-width:340px" />
+        </label>
+        <label style="margin-top:10px"><span data-i18n="globalSettings.oidcClientSecret">Client secret</span>
+          <input id="gs-oidc-client-secret" type="password" autocomplete="new-password" data-i18n-placeholder="globalSettings.oidcClientSecretKeep" placeholder="leave blank to keep existing" style="max-width:340px" />
+        </label>
+        <div class="muted small" id="gs-oidc-secret-status" style="margin-top:4px"></div>
+        <label style="margin-top:10px"><span data-i18n="globalSettings.oidcScopes">Scopes (space-separated, defaults to "openid profile email")</span>
+          <input id="gs-oidc-scopes" type="text" autocomplete="off" placeholder="openid profile email" style="max-width:340px" />
+        </label>
+        <label style="margin-top:10px"><span data-i18n="globalSettings.oidcButtonLabel">Login button label (shown on the sign-in screen)</span>
+          <input id="gs-oidc-button-label" type="text" autocomplete="off" placeholder="Sign in with Zitadel" style="max-width:340px" />
+        </label>
+        <label style="margin-top:10px"><span data-i18n="globalSettings.oidcCallsignClaim">ID-token claim carrying the operator callsign (default: preferred_username)</span>
+          <input id="gs-oidc-callsign-claim" type="text" autocomplete="off" placeholder="preferred_username" style="max-width:280px" />
+        </label>
+        <label style="margin-top:10px"><span data-i18n="globalSettings.oidcRedirectUrl">Redirect URL to register with the IdP</span>
+          <div class="row" style="gap:6px;align-items:center">
+            <input id="gs-oidc-redirect-url" type="text" readonly style="max-width:420px" />
+            <button type="button" id="gs-oidc-redirect-copy" class="ghost" style="width:auto;margin:0" data-i18n="globalSettings.oidcRedirectUrlCopy">Copy</button>
+          </div>
         </label>
       </fieldset>
       <fieldset style="margin-top:16px" class="perm-required" data-perm="backups.manage">
