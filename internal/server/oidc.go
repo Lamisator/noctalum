@@ -308,6 +308,47 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	// admin-selected claim name for the callsign.
 	var raw map[string]any
 	_ = idTok.Claims(&raw)
+
+	// Enrich with the userinfo endpoint. Zitadel (and quite a few other
+	// IdPs) only ship the minimum required claims — sub, aud, iss,
+	// exp, iat, auth_time — in the ID token itself and put
+	// preferred_username / email / nickname / name at /oauth/v2/userinfo.
+	// Without this step, the auto-provisioning path sees empty
+	// preferred_username and falls back to the "sso-<hash>" username +
+	// N0CALL callsign. Userinfo values only fill gaps, never overwrite —
+	// the ID token remains the source of truth for anything it did
+	// contain.
+	if uinfo, err := prov.provider.UserInfo(ctx, oauth2.StaticTokenSource(tok)); err == nil {
+		var ui map[string]any
+		if err := uinfo.Claims(&ui); err == nil {
+			for k, v := range ui {
+				if _, present := raw[k]; !present {
+					raw[k] = v
+				}
+			}
+			if claims.PreferredUsername == "" {
+				if v, ok := ui["preferred_username"].(string); ok {
+					claims.PreferredUsername = v
+				}
+			}
+			if claims.Email == "" {
+				if v, ok := ui["email"].(string); ok {
+					claims.Email = v
+				}
+			}
+			if claims.Nickname == "" {
+				if v, ok := ui["nickname"].(string); ok {
+					claims.Nickname = v
+				}
+			}
+			if claims.Name == "" {
+				if v, ok := ui["name"].(string); ok {
+					claims.Name = v
+				}
+			}
+		}
+	}
+
 	callsignRaw := ""
 	if v, ok := raw[callsignClaim].(string); ok {
 		callsignRaw = v
