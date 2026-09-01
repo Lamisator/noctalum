@@ -42,19 +42,21 @@ const (
 	PermCallsignRequestsReview = "callsign_requests.review" // view/decide all callsign change requests
 	PermBackupsManage         = "backups.manage"            // list / trigger / download / delete DB backups
 	PermGroupsManage          = "groups.manage"             // create / edit / delete groups; assign group members
+	PermContestTemplatesManage = "contest_templates.manage" // create / edit / delete your own contest templates
 )
 
 // AllPermissions is the canonical list (used by UI + role validation).
 var AllPermissions = []string{
-	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermRigRelease, PermRigSimulate, PermContestsManage, PermContestsCreatePrivate, PermContestsManagePrivate, PermContestAdmin, PermAuditLog, PermSystemLog, PermFeatureRequestsRead, PermFeatureRequestsWrite, PermDOKEdit, PermCallsignRequestsReview, PermBackupsManage, PermGroupsManage,
+	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermRigRelease, PermRigSimulate, PermContestsManage, PermContestsCreatePrivate, PermContestsManagePrivate, PermContestAdmin, PermAuditLog, PermSystemLog, PermFeatureRequestsRead, PermFeatureRequestsWrite, PermDOKEdit, PermCallsignRequestsReview, PermBackupsManage, PermGroupsManage, PermContestTemplatesManage,
 }
 
 // DefaultUserRolePermissions are the permissions assigned to the built-in
 // "user" role on first startup. groups.manage is included so every
 // authenticated user can create their own groups; per-group ownership then
-// gates who may edit / delete each group.
+// gates who may edit / delete each group. contest_templates.manage follows
+// the same pattern for contest templates.
 var DefaultUserRolePermissions = []string{
-	PermQSOWrite, PermQSOExport, PermRigUse, PermFeatureRequestsWrite, PermGroupsManage,
+	PermQSOWrite, PermQSOExport, PermRigUse, PermFeatureRequestsWrite, PermGroupsManage, PermContestTemplatesManage,
 }
 
 // HasPermission returns true if perms grants key (or wildcard).

@@ -844,6 +844,7 @@
   $('callsign-requests-admin-btn')?.addEventListener('click', () => { if (!hasPerm('callsign_requests.review')) return; showAdminScreen('callsign-requests-admin-screen', refreshCallsignRequests); });
   $('backups-admin-btn')?.addEventListener('click', () => { if (!hasPerm('backups.manage')) return; showAdminScreen('backups-admin-screen', refreshBackups); });
   $('groups-admin-btn')?.addEventListener('click', () => { if (!hasPerm('groups.manage')) return; showAdminScreen('groups-admin-screen', refreshGroups); });
+  $('contest-templates-nav-btn')?.addEventListener('click', () => { if (!hasPerm('contest_templates.manage')) return; showAdminScreen('contest-templates-screen', refreshTemplates); });
 
   document.querySelectorAll('.admin-back-btn').forEach(btn => {
     btn.addEventListener('click', () => showContestScreen());
@@ -5568,34 +5569,96 @@
     return null;
   }
 
-  // Built-in contest presets (FR #58). Each preset pre-fills name, bands,
-  // and one or more custom fields so an operator does not have to assemble
-  // a recurring contest's exchange structure by hand. Add new presets here
-  // as the catalogue grows; the dropdown at the top of contestCreateModal
-  // renders this object dynamically.
-  const CONTEST_PRESETS = {
-    eu_dx: {
-      nameKey: 'contestScreen.presetEUDXName',
-      defaultName: 'EU DX Contest',
-      bands: ['80m', '40m', '20m', '15m', '10m'],
-      customFields: [
-        { name: 'region_code', label: 'Region', type: 'text', required: true, options: [] },
-      ],
-    },
-  };
+  // Contest templates. This catalogue used to be a hardcoded CONTEST_PRESETS
+  // object right here (FR #58); it now lives in the contest_templates table
+  // and is maintained by operators themselves on the "Contest templates"
+  // screen. allTemplates backs both that screen and the dropdown at the top
+  // of contestCreateModal. The list the server returns is already filtered to
+  // what the caller may use — their own templates plus every shared one —
+  // with their own sorted first.
+  let allTemplates = [];
+  async function refreshTemplates() {
+    const r = await api('/api/contest-templates');
+    if (!r.ok) return;
+    allTemplates = await r.json();
+    renderTemplates();
+  }
 
-  function contestCreateModal(forcePrivate = false) {
+  // Applies a template's shape to whichever contest/template form is
+  // currently in the modal. Shared by the create-contest dropdown so the
+  // pre-fill logic lives in exactly one place. Returns the fields the caller
+  // has to carry itself because the form has no input for them.
+  function applyTemplateToForm(tpl) {
+    const nameInput = document.querySelector('#modal-card input[name=name]');
+    if (nameInput && !nameInput.value.trim()) nameInput.value = tpl.default_name || '';
+    document.querySelectorAll('#modal-band-grid .band-select-pill').forEach(pill => {
+      pill.classList.toggle('selected', (tpl.bands || []).includes(pill.dataset.band));
+    });
+    // Replace the custom-field rows wholesale — the operator picked a
+    // template, so any half-typed rows are intentionally overridden.
+    const fields = parseCustomFields(tpl.custom_fields || '');
+    const cfRows = document.querySelector('#cf-editor .cf-editor-rows');
+    if (cfRows) cfRows.innerHTML = fields.map((f, i) => customFieldRowHTML(f, i)).join('');
+    // The layout editor keys off the custom fields, so it has to be re-seeded
+    // after the rows above changed or it would keep dangling cf:* entries.
+    if (_layoutState) {
+      _layoutState.json = tpl.qso_layout || '';
+      renderLayoutEditor();
+    }
+    const objective = document.querySelector('#modal-card textarea[name=objective]');
+    if (objective) {
+      objective.value = tpl.objective || '';
+      objective.dispatchEvent(new Event('input'));
+    }
+    const nrPadded = document.querySelector('#modal-card input[name=nr_padded]');
+    if (nrPadded) nrPadded.checked = tpl.nr_padded !== false;
+    return {
+      log_columns: tpl.log_columns || '',
+      freq_unit: tpl.freq_unit || 'kHz',
+      stash_expiry_minutes: tpl.stash_expiry_minutes > 0 ? tpl.stash_expiry_minutes : 60,
+    };
+  }
+
+  async function contestCreateModal(forcePrivate = false) {
     const canPriv = hasPerm('contests.create_private') || hasPerm('contests.manage_private');
-    const presetOptions = Object.entries(CONTEST_PRESETS)
-      .map(([k, p]) => `<option value="${escHtml(k)}">${escHtml(t(p.nameKey))}</option>`).join('');
+    const canSaveTemplates = hasPerm('contest_templates.manage');
+    // Fetched every time the dialog opens so a template saved in another tab
+    // — or shared by another operator since the last page load — shows up
+    // without a reload.
+    await refreshTemplates();
+    const presetOptions = allTemplates.map(tpl => {
+      const owner = tpl.my_role === 'owner' || !tpl.owner_user_id ? '' : ' — ' + (tpl.owner_username || '');
+      return `<option value="${Number(tpl.id)}">${escHtml(tpl.name + owner)}</option>`;
+    }).join('');
+    // Template fields the create dialog has no input of its own for. Applying
+    // a template stashes them here and the POST body picks them up, so a new
+    // contest starts with the template's log-column order, frequency unit and
+    // stash expiry already in place instead of the server defaults.
+    let carried = { log_columns: '', freq_unit: 'kHz', stash_expiry_minutes: 60 };
+    const templateRow = allTemplates.length
+      ? `<label>${escHtml(t('contestScreen.preset'))} <span class="muted small">${escHtml(t('contestScreen.presetHint'))}</span></label>
+         <select name="preset" id="cm-preset">
+           <option value="">${escHtml(t('contestScreen.presetNone'))}</option>
+           ${presetOptions}
+         </select>`
+      : '';
+    // Save-as-template lives inline rather than in a nested dialog: the app
+    // has a single modal root, so opening a second modal would destroy the
+    // half-filled contest form behind it.
+    const saveTemplateRow = canSaveTemplates
+      ? `<div class="tpl-save-row" id="cm-save-tpl-row">
+           <button type="button" class="ghost" id="cm-save-tpl-btn">${escHtml(t('templates.saveAsTemplate'))}</button>
+           <span id="cm-save-tpl-form" class="hidden">
+             <input id="cm-save-tpl-name" maxlength="120" placeholder="${escHtml(t('templates.namePlaceholder'))}" />
+             <button type="button" class="ghost" id="cm-save-tpl-confirm">${escHtml(t('common.save'))}</button>
+           </span>
+           <span id="cm-save-tpl-status" class="muted small"></span>
+         </div>`
+      : '';
     showModal(`
       <h3>${escHtml(t('contestScreen.createTitle'))}</h3>
       <form>
-        <label>${escHtml(t('contestScreen.preset'))} <span class="muted small">${escHtml(t('contestScreen.presetHint'))}</span></label>
-        <select name="preset" id="cm-preset">
-          <option value="">${escHtml(t('contestScreen.presetNone'))}</option>
-          ${presetOptions}
-        </select>
+        ${templateRow}
         <label>${escHtml(t('contestScreen.contestName'))}</label>
         <input name="name" placeholder="${escHtml(t('contestScreen.contestNamePlaceholder'))}" required />
         <label>${escHtml(t('contestScreen.stationCall'))}</label>
@@ -5618,6 +5681,7 @@
           <textarea name="objective" placeholder="${escHtml(t('contestScreen.objectivePlaceholder'))}"></textarea>
           <div class="md-preview-pane objective-content" id="modal-md-preview"></div>
         </div>
+        ${saveTemplateRow}
         <div class="modal-err error"></div>
         <div class="modal-actions">
           <button type="button" class="ghost cancel-btn">${escHtml(t('common.cancel'))}</button>
@@ -5639,6 +5703,9 @@
           private: forcePrivate || !!(form.private && form.private.checked),
           custom_fields: serializeCustomFieldsEditor(),
           qso_layout: serializeQSOLayout(),
+          log_columns: carried.log_columns,
+          freq_unit: carried.freq_unit,
+          stash_expiry_minutes: carried.stash_expiry_minutes,
           nr_padded: form.nr_padded.checked,
           start_date: (form.start_date?.value || '').trim(),
           end_date: (form.end_date?.value || '').trim(),
@@ -5665,28 +5732,62 @@
     if (taC && previewC) {
       taC.addEventListener('input', () => { previewC.innerHTML = renderMarkdown(taC.value); });
     }
-    // Apply preset on selection: pre-fill the contest name (if still empty),
-    // toggle the band pills to the preset's bands, and rebuild the custom-
-    // fields editor with the preset's fields. The operator can still tweak
-    // every field before submitting (FR #58).
+    // Apply a template on selection. Everything it touches stays editable
+    // before submit — the template is a one-shot pre-fill, never a live link.
     const presetSel = document.getElementById('cm-preset');
     if (presetSel) presetSel.addEventListener('change', () => {
-      const p = CONTEST_PRESETS[presetSel.value];
-      if (!p) return;
-      const nameInput = document.querySelector('#modal-card input[name=name]');
-      if (nameInput && !nameInput.value.trim()) nameInput.value = p.defaultName || '';
-      // Reset and re-select the preset's bands.
-      document.querySelectorAll('#modal-band-grid .band-select-pill').forEach(pill => {
-        pill.classList.toggle('selected', p.bands.includes(pill.dataset.band));
-      });
-      // Rebuild the custom-fields editor with the preset's fields. Replace
-      // the existing rows wholesale — the operator picked a preset so any
-      // half-typed rows are intentionally overridden.
-      const cfRows = document.querySelector('#cf-editor .cf-editor-rows');
-      if (cfRows) {
-        cfRows.innerHTML = (p.customFields || []).map((f, i) => customFieldRowHTML(f, i)).join('');
-      }
+      const tpl = allTemplates.find(x => String(x.id) === presetSel.value);
+      if (!tpl) { carried = { log_columns: '', freq_unit: 'kHz', stash_expiry_minutes: 60 }; return; }
+      carried = applyTemplateToForm(tpl);
     });
+    // Save the contest currently being composed as a reusable template.
+    const saveTplBtn = document.getElementById('cm-save-tpl-btn');
+    if (saveTplBtn) {
+      const nameInput = document.getElementById('cm-save-tpl-name');
+      const statusEl = document.getElementById('cm-save-tpl-status');
+      const doSave = async () => {
+        const tplName = (nameInput.value || '').trim();
+        if (!tplName) { nameInput.focus(); return; }
+        statusEl.textContent = t('common.loading');
+        const body = {
+          name: tplName,
+          default_name: document.querySelector('#modal-card input[name=name]')?.value.trim() || '',
+          bands: selectedBandsFromModal(),
+          objective: document.querySelector('#modal-card textarea[name=objective]')?.value || '',
+          custom_fields: serializeCustomFieldsEditor(),
+          qso_layout: serializeQSOLayout(),
+          log_columns: carried.log_columns,
+          freq_unit: carried.freq_unit,
+          stash_expiry_minutes: carried.stash_expiry_minutes,
+          nr_padded: !!document.querySelector('#modal-card input[name=nr_padded]')?.checked,
+          shared: false,
+        };
+        const r = await api('/api/contest-templates', { method: 'POST', body: JSON.stringify(body) });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          statusEl.textContent = j.error || t('common.saveFailed');
+          return;
+        }
+        statusEl.textContent = t('templates.saved');
+        document.getElementById('cm-save-tpl-form').classList.add('hidden');
+        saveTplBtn.classList.remove('hidden');
+        await refreshTemplates();
+      };
+      saveTplBtn.addEventListener('click', () => {
+        document.getElementById('cm-save-tpl-form').classList.remove('hidden');
+        saveTplBtn.classList.add('hidden');
+        // Seed the template name from the contest name — for a recurring
+        // contest the two are usually the same modulo the year.
+        if (!nameInput.value) nameInput.value = document.querySelector('#modal-card input[name=name]')?.value.trim() || '';
+        nameInput.focus();
+      });
+      document.getElementById('cm-save-tpl-confirm').addEventListener('click', doSave);
+      // Enter inside the template-name field must save the template, not
+      // submit the half-filled contest form behind it.
+      nameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); doSave(); }
+      });
+    }
   }
 
   function contestEditModal(c) {
@@ -7745,6 +7846,153 @@
       });
     });
   }
+
+  // ----- contest templates -----
+  //
+  // A template is a stored contest shape: bands, custom fields, the New QSO
+  // mask layout, log columns, objective markdown, NR padding, frequency unit
+  // and stash expiry. Station callsign / station ID / QTH are deliberately
+  // not part of it so a template can be shared across a club without
+  // dragging one operator's station identity along.
+  //
+  // Any user with contest_templates.manage (in the default "user" role) may
+  // keep their own catalogue; ticking "shared" publishes one to everybody.
+  // Editing and deleting is restricted to the template's owner or someone
+  // with contests.manage — the server enforces that authoritatively, this UI
+  // just hides affordances the caller could not use anyway.
+  function renderTemplates() {
+    const tbody = $('templates-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    const empty = $('templates-empty');
+    if (!allTemplates.length) {
+      if (empty) empty.classList.remove('hidden');
+      return;
+    }
+    if (empty) empty.classList.add('hidden');
+    for (const tpl of allTemplates) {
+      const tr = document.createElement('tr');
+      const canManage = tpl.my_role === 'owner' || hasPerm('contests.manage') || hasPerm('contest.admin');
+      const fieldCount = parseCustomFields(tpl.custom_fields || '').length;
+      const bands = (tpl.bands || []).length
+        ? (tpl.bands || []).map(b => escHtml(fmtBand(b))).join(', ')
+        : `<span class="muted">${escHtml(t('templates.noBands'))}</span>`;
+      const owner = tpl.owner_user_id
+        ? escHtml(tpl.owner_username || '')
+        : `<span class="muted">${escHtml(t('templates.builtIn'))}</span>`;
+      tr.innerHTML = `
+        <td>${escHtml(tpl.name)}</td>
+        <td>${bands}</td>
+        <td>${fieldCount}</td>
+        <td>${owner}</td>
+        <td>${tpl.shared ? escHtml(t('common.yes')) : `<span class="muted">${escHtml(t('common.no'))}</span>`}</td>
+        <td class="actions">
+          <button class="ghost" data-action="view">${escHtml(canManage ? t('common.edit') : t('common.view'))}</button>
+          ${canManage ? `<button class="ghost" data-action="delete">${escHtml(t('common.delete'))}</button>` : ''}
+        </td>
+      `;
+      tr.querySelectorAll('button').forEach(b => b.addEventListener('click', () => templateAction(tpl, b.dataset.action, canManage)));
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function templateAction(tpl, action, canManage) {
+    if (action === 'view') {
+      templateModal(tpl, false, canManage);
+    } else if (action === 'delete') {
+      if (!await showConfirm(t('templates.deleteConfirm', { name: tpl.name }), { ok: t('common.delete') })) return;
+      const r = await api('/api/contest-templates/' + tpl.id, { method: 'DELETE' });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(j.error || t('common.deleteFailed'));
+        return;
+      }
+      // Deleting a template never touches contests already created from it.
+      refreshTemplates();
+    }
+  }
+
+  // templateModal reuses the very same custom-fields / layout / log-column
+  // editors as the contest dialogs, so a shape built here lands in a contest
+  // without any translation step — both sides speak the same JSON.
+  function templateModal(tpl, isNew, canManage = true) {
+    const t0 = tpl || { bands: [], nr_padded: true, freq_unit: 'kHz', stash_expiry_minutes: 60, shared: false };
+    const fields = parseCustomFields(t0.custom_fields || '');
+    const readOnly = !isNew && !canManage;
+    const d = readOnly ? ' disabled' : '';
+    showModal(`
+      <h3>${escHtml(isNew ? t('templates.newTemplate') : (readOnly ? t('templates.viewTitle') : t('templates.editTitle')))}</h3>
+      <form${readOnly ? ' class="contest-modal-readonly"' : ''}>
+        <label>${escHtml(t('templates.name'))}</label>
+        <input name="tpl_name" value="${escHtml(t0.name || '')}" maxlength="120" placeholder="${escHtml(t('templates.namePlaceholder'))}"${d} required />
+        <label>${escHtml(t('templates.defaultName'))} <span class="muted small">${escHtml(t('templates.defaultNameHint'))}</span></label>
+        <input name="default_name" value="${escHtml(t0.default_name || '')}" placeholder="${escHtml(t('contestScreen.contestNamePlaceholder'))}"${d} />
+        <label style="margin-top:10px"><input type="checkbox" name="shared" ${t0.shared ? 'checked' : ''}${d} /> ${escHtml(t('templates.shared'))} <span class="muted small">${escHtml(t('templates.sharedHint'))}</span></label>
+        ${buildBandSelectHTML(t0.bands || [])}
+        <label style="margin-top:10px"><input type="checkbox" name="nr_padded" ${t0.nr_padded !== false ? 'checked' : ''}${d} /> ${escHtml(t('contestScreen.nrPadded'))}</label>
+        <label style="margin-top:10px">${escHtml(t('contestScreen.freqUnit'))}
+          <select name="freq_unit"${d}>
+            ${['Hz','kHz','MHz','GHz'].map(u => `<option value="${u}"${(t0.freq_unit || 'kHz') === u ? ' selected' : ''}>${escHtml(u)}</option>`).join('')}
+          </select>
+        </label>
+        <label style="margin-top:10px">${escHtml(t('contestScreen.stashExpiryMinutes'))}
+          <input type="number" name="stash_expiry_minutes" min="1" max="10080" value="${escHtml(String(t0.stash_expiry_minutes > 0 ? t0.stash_expiry_minutes : 60))}"${d} style="width:120px" />
+          <span class="muted small">${escHtml(t('contestScreen.stashExpiryHint'))}</span>
+        </label>
+        <label style="margin-top:10px">${escHtml(t('contestScreen.customFields'))} <span class="muted small">${escHtml(t('contestScreen.customFieldsPerQSO2'))}</span></label>
+        ${buildCustomFieldsEditorHTML(fields)}
+        <label style="margin-top:10px">${escHtml(t('contestScreen.layoutEditor'))} <span class="muted small">${escHtml(t('contestScreen.layoutHint'))}</span></label>
+        ${buildLayoutEditorHTML()}
+        <label style="margin-top:10px">${escHtml(t('contestScreen.objective'))} <span class="muted small">${escHtml(t('contestScreen.objectiveMdOptional'))}</span></label>
+        <div class="md-editor-wrap">
+          <textarea name="objective" placeholder="${escHtml(t('contestScreen.objectivePlaceholder'))}"${d}>${escHtml(t0.objective || '')}</textarea>
+          <div class="md-preview-pane objective-content" id="modal-md-preview"></div>
+        </div>
+        <label style="margin-top:14px">${escHtml(t('contestScreen.logColumns'))}</label>
+        <p class="muted small" style="margin:2px 0 0">${escHtml(t('contestScreen.logColumnsHint'))}</p>
+        ${buildLogColumnsEditorHTML(t0.log_columns || '', fields)}
+        <div class="modal-err error"></div>
+        <div class="modal-actions">
+          <button type="button" class="ghost cancel-btn">${escHtml(readOnly ? t('common.close') : t('common.cancel'))}</button>
+          ${readOnly ? '' : `<button type="submit" class="primary">${escHtml(isNew ? t('common.create') : t('common.save'))}</button>`}
+        </div>
+      </form>
+    `, readOnly ? null : async (form) => {
+      const body = {
+        name: form.tpl_name.value.trim(),
+        default_name: (form.default_name?.value || '').trim(),
+        bands: selectedBandsFromModal(),
+        objective: form.objective.value,
+        custom_fields: serializeCustomFieldsEditor(),
+        qso_layout: serializeQSOLayout(),
+        log_columns: serializeLogColumnsEditor(),
+        nr_padded: form.nr_padded.checked,
+        freq_unit: form.freq_unit?.value || 'kHz',
+        stash_expiry_minutes: Math.max(1, parseInt(form.stash_expiry_minutes?.value || '60', 10) || 60),
+        shared: !!form.shared?.checked,
+      };
+      const res = isNew
+        ? await api('/api/contest-templates', { method: 'POST', body: JSON.stringify(body) })
+        : await api('/api/contest-templates/' + tpl.id, { method: 'PUT', body: JSON.stringify(body) });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || t('common.saveFailed'));
+      }
+      await refreshTemplates();
+    }, { wide: true });
+    attachBandSelectListeners();
+    attachCustomFieldsEditorListeners();
+    attachLayoutEditorListeners(t0.qso_layout || '');
+    initLogColDragDrop();
+    const ta = document.querySelector('#modal-card textarea[name=objective]');
+    const preview = $('modal-md-preview');
+    if (ta && preview) {
+      preview.innerHTML = renderMarkdown(ta.value);
+      ta.addEventListener('input', () => { preview.innerHTML = renderMarkdown(ta.value); });
+    }
+  }
+
+  $('new-template-btn')?.addEventListener('click', () => templateModal(null, true));
 
   // ----- websocket -----
   function connectWS() {

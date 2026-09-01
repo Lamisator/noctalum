@@ -372,6 +372,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/roles/", s.requirePerm(PermUsersManage, s.handleRoleByID))
 	mux.HandleFunc("/api/contests", s.requireAuth(s.handleContests))
 	mux.HandleFunc("/api/contests/", s.requireAuth(s.handleContestByID))
+	mux.HandleFunc("/api/contest-templates", s.requireAuth(s.handleContestTemplates))
+	mux.HandleFunc("/api/contest-templates/", s.requireAuth(s.handleContestTemplateByID))
 	mux.HandleFunc("/api/groups", s.requireAuth(s.handleGroups))
 	mux.HandleFunc("/api/groups/", s.requireAuth(s.handleGroupByID))
 	// Share preview is public — the token is a bearer credential and the

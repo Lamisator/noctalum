@@ -130,6 +130,10 @@
         <span class="nav-pill-icon">&#128101;</span>
         <span data-i18n="contestScreen.groups">Groups</span>
       </button>
+      <button id="contest-templates-nav-btn" class="nav-pill-btn perm-required" data-perm="contest_templates.manage">
+        <span class="nav-pill-icon">&#128203;</span>
+        <span data-i18n="templates.navLabel">Contest templates</span>
+      </button>
       <button id="audit-admin-btn" class="nav-pill-btn perm-required" data-perm="audit.log">
         <span class="nav-pill-icon">&#9776;</span>
         <span data-i18n="contestScreen.auditLog">Audit Log</span>
@@ -947,6 +951,36 @@
         <tbody id="groups-tbody"></tbody>
       </table>
       <div id="groups-empty" class="muted small hidden" data-i18n="groups.empty">No groups yet.</div>
+    </div>
+  </div>
+</div>
+
+<div id="contest-templates-screen" class="screen admin-screen hidden">
+  <div class="admin-screen-header">
+    <button class="ghost admin-back-btn" data-i18n="common.backToContests">&#8592; Back to contests</button>
+    <h1 data-i18n="templates.title">Contest templates</h1>
+  </div>
+  <div class="admin-screen-body">
+    <div class="card">
+      <div class="history-header">
+        <h2 data-i18n="templates.title">Contest templates</h2>
+        <button id="new-template-btn" class="primary" data-i18n="templates.newTemplate">New template</button>
+      </div>
+      <p class="muted small" data-i18n="templates.intro">A template stores the shape of a recurring contest — bands, custom fields, the New QSO layout, log columns and the objective text — so you can create the next running of it in one click. Station callsign, station ID and QTH are never stored in a template; you fill those in per contest.</p>
+      <table id="templates-table">
+        <thead>
+          <tr>
+            <th data-i18n="templates.colName">Name</th>
+            <th data-i18n="templates.colBands">Bands</th>
+            <th data-i18n="templates.colFields">Custom fields</th>
+            <th data-i18n="templates.colOwner">Owner</th>
+            <th data-i18n="templates.colShared">Shared</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="templates-tbody"></tbody>
+      </table>
+      <div id="templates-empty" class="muted small hidden" data-i18n="templates.empty">No templates yet.</div>
     </div>
   </div>
 </div>

@@ -75,6 +75,9 @@ const (
 	AuditGroupMemberAdd      = "group.member_add"
 	AuditGroupMemberRemove   = "group.member_remove"
 	AuditGroupMemberRoleChange = "group.member_role_change"
+	AuditContestTemplateCreate = "contest_template.create"
+	AuditContestTemplateUpdate = "contest_template.update"
+	AuditContestTemplateDelete = "contest_template.delete"
 	AuditContestVisibilityChange = "contest.visibility_change"
 	AuditContestGroupAccessChange = "contest.group_access_change"
 )
@@ -99,6 +102,7 @@ var AllAuditActions = []string{
 	AuditGroupCreate, AuditGroupUpdate, AuditGroupDelete,
 	AuditGroupMemberAdd, AuditGroupMemberRemove, AuditGroupMemberRoleChange,
 	AuditContestVisibilityChange, AuditContestGroupAccessChange,
+	AuditContestTemplateCreate, AuditContestTemplateUpdate, AuditContestTemplateDelete,
 	AuditLoginPairApprove, AuditLoginPairDeny,
 }
 

@@ -217,6 +217,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateContests(); err != nil {
 		return err
 	}
+	if err := s.migrateContestTemplates(); err != nil {
+		return err
+	}
 	if err := s.migrateAudit(); err != nil {
 		return err
 	}

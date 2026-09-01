@@ -289,3 +289,124 @@ func TestSaveClusterSpotSanitisesInvalidUTF8(t *testing.T) {
 		}
 	}
 }
+
+// TestContestTemplates covers the contest-template CRUD end-to-end: the
+// built-in seed, per-owner (not global) name uniqueness, the visibility rule
+// that ListContestTemplates implements, and the update/delete paths.
+func TestContestTemplates(t *testing.T) {
+	st := openScratchDB(t)
+
+	if err := st.EnsureBuiltinRoles(nil); err != nil {
+		t.Fatalf("ensure roles: %v", err)
+	}
+	alice, err := st.CreateUser("alice", "DL0AAA", "supersecret1234", []string{"user"})
+	if err != nil {
+		t.Fatalf("create alice: %v", err)
+	}
+	bob, err := st.CreateUser("bob", "DL0BBB", "supersecret1234", []string{"user"})
+	if err != nil {
+		t.Fatalf("create bob: %v", err)
+	}
+
+	// The migration seeds the built-in EU DX template as a shared, ownerless
+	// row so upgrades keep the preset the create dialog used to hardcode.
+	seeded, err := st.ListContestTemplates(alice.ID)
+	if err != nil {
+		t.Fatalf("list seeded: %v", err)
+	}
+	if len(seeded) != 1 || seeded[0].Name != "EU DX Contest" || !seeded[0].Shared || seeded[0].OwnerUserID != 0 {
+		t.Fatalf("expected one shared built-in template, got %+v", seeded)
+	}
+
+	// A personal template is visible to its owner only.
+	priv, err := st.CreateContestTemplate(&store.ContestTemplate{
+		Name:         "Alice private",
+		DefaultName:  "Field Day",
+		Bands:        []string{"20m", "40m"},
+		CustomFields: `[{"name":"class","label":"Class","type":"text","required":true,"options":[],"order":0}]`,
+		FreqUnit:     "MHz",
+	}, alice.ID)
+	if err != nil {
+		t.Fatalf("create private template: %v", err)
+	}
+	if priv.StashExpiryMinutes != 60 {
+		t.Errorf("stash expiry should default to 60, got %d", priv.StashExpiryMinutes)
+	}
+
+	aliceList, err := st.ListContestTemplates(alice.ID)
+	if err != nil {
+		t.Fatalf("list for alice: %v", err)
+	}
+	if len(aliceList) != 2 {
+		t.Fatalf("alice should see her own + the shared built-in, got %d", len(aliceList))
+	}
+	if aliceList[0].MyRole != "owner" {
+		t.Errorf("alice's own template should sort first and be flagged owner, got %+v", aliceList[0])
+	}
+	bobList, err := st.ListContestTemplates(bob.ID)
+	if err != nil {
+		t.Fatalf("list for bob: %v", err)
+	}
+	if len(bobList) != 1 || bobList[0].OwnerUserID != 0 {
+		t.Fatalf("bob must not see alice's unshared template, got %+v", bobList)
+	}
+
+	// Names are unique per owner, not globally: bob may reuse alice's name.
+	if _, err := st.CreateContestTemplate(&store.ContestTemplate{Name: "Alice private"}, alice.ID); !errors.Is(err, store.ErrTemplateNameTaken) {
+		t.Fatalf("same owner + same name should be rejected, got %v", err)
+	}
+	if _, err := st.CreateContestTemplate(&store.ContestTemplate{Name: "Alice private"}, bob.ID); err != nil {
+		t.Fatalf("different owner should be allowed to reuse a name: %v", err)
+	}
+
+	// Sharing makes it visible to everyone; the round-trip preserves the
+	// JSON blobs and the band list untouched.
+	priv.Shared = true
+	priv.Bands = []string{"15m"}
+	if err := st.UpdateContestTemplate(priv.ID, priv); err != nil {
+		t.Fatalf("update template: %v", err)
+	}
+	got, err := st.GetContestTemplate(priv.ID)
+	if err != nil {
+		t.Fatalf("get template: %v", err)
+	}
+	if !got.Shared || len(got.Bands) != 1 || got.Bands[0] != "15m" || got.FreqUnit != "MHz" {
+		t.Fatalf("update did not round-trip: %+v", got)
+	}
+	if !strings.Contains(got.CustomFields, `"class"`) {
+		t.Errorf("custom_fields blob lost in round-trip: %q", got.CustomFields)
+	}
+	bobList, err = st.ListContestTemplates(bob.ID)
+	if err != nil {
+		t.Fatalf("re-list for bob: %v", err)
+	}
+	if len(bobList) != 3 {
+		t.Fatalf("bob should now see 3 templates (his own + 2 shared), got %d", len(bobList))
+	}
+
+	// An empty freq unit falls back to kHz rather than writing a value the
+	// frontend can't render.
+	got.FreqUnit = ""
+	if err := st.UpdateContestTemplate(got.ID, got); err != nil {
+		t.Fatalf("update with empty freq unit: %v", err)
+	}
+	again, err := st.GetContestTemplate(got.ID)
+	if err != nil {
+		t.Fatalf("re-get: %v", err)
+	}
+	if again.FreqUnit != "kHz" {
+		t.Errorf("empty freq unit should normalise to kHz, got %q", again.FreqUnit)
+	}
+
+	// Delete is idempotent from the caller's point of view: the second call
+	// reports ErrTemplateNotFound rather than silently succeeding.
+	if err := st.DeleteContestTemplate(priv.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if err := st.DeleteContestTemplate(priv.ID); !errors.Is(err, store.ErrTemplateNotFound) {
+		t.Fatalf("second delete should report not-found, got %v", err)
+	}
+	if _, err := st.GetContestTemplate(priv.ID); !errors.Is(err, store.ErrTemplateNotFound) {
+		t.Fatalf("deleted template should be gone, got %v", err)
+	}
+}

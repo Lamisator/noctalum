@@ -2918,6 +2918,30 @@ body.mobile-mode .mobile-bottom-nav { display: flex; }
   line-height: 1.4;
 }
 
+/* "Save as template" row inside the create-contest dialog. The name input
+   only appears after the button is pressed, so the row stays a single quiet
+   line until the operator actually wants it. */
+.tpl-save-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.tpl-save-row input {
+  width: auto;
+  min-width: 200px;
+  margin: 0;
+}
+.tpl-save-row > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.tpl-save-row > span.hidden {
+  display: none;
+}
+
 /* Chat panel — pin top + bottom, scroll only the message list */
 #ops-tab-chat.active {
   display: flex;
