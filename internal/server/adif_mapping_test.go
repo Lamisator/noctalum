@@ -209,3 +209,101 @@ func TestExportADIFRemappedContestNameSkipsNotesFallback(t *testing.T) {
 		t.Errorf("operator notes should be left alone: %q", out)
 	}
 }
+
+// A custom field can be pointed at a standard ADIF tag without renaming it, so
+// an operator whose exchange column is called "Region" can export it as STATE
+// while the QSO mask keeps saying "Region".
+func TestExportADIFCustomFieldMapping(t *testing.T) {
+	q := sampleQSO()
+	q.Extras = `{"Region":"NY","Club":"OV L01","Secret":"hidden"}`
+	cfJSON := `[{"name":"Region"},{"name":"Club"},{"name":"Secret"}]`
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{
+		ProgramID: "Noctalum", ProgramVersion: "test",
+		CustomFieldsJSON: cfJSON,
+		MappingJSON:      `{"cf:Region":"STATE","cf:Secret":""}`,
+	}); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "<STATE:2>NY") {
+		t.Errorf("mapped custom field should land on its chosen tag: %q", out)
+	}
+	// "Region" would otherwise land on ADIF's own REGION tag (WAE/CQ region),
+	// which is exactly the confusion an explicit mapping exists to resolve.
+	if strings.Contains(out, "<REGION:") {
+		t.Errorf("mapped custom field must not also emit its name-derived tag: %q", out)
+	}
+	// Unmapped custom fields keep the historical name-derived behaviour.
+	if !strings.Contains(out, "<APP_NOCTALUM_CLUB:6>OV L01") {
+		t.Errorf("unmapped custom field should keep the APP_ fallback: %q", out)
+	}
+	// An empty mapping value switches the field off entirely.
+	if strings.Contains(out, "hidden") || strings.Contains(out, "SECRET") {
+		t.Errorf("custom field switched off in the mapping was still exported: %q", out)
+	}
+}
+
+// Mapping a custom field must give it the target tag's data-type treatment,
+// not the one its own name would have implied.
+func TestExportADIFCustomFieldMappingAppliesTargetRules(t *testing.T) {
+	q := sampleQSO()
+	q.Extras = `{"Worked from":"München","Logged on":"2026-03-22"}`
+	cfJSON := `[{"name":"Worked from"},{"name":"Logged on"}]`
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{
+		ProgramID: "Noctalum", ProgramVersion: "test",
+		CustomFieldsJSON: cfJSON,
+		MappingJSON:      `{"cf:Worked from":"MY_CITY","cf:Logged on":"QSLSDATE"}`,
+	}); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "<MY_CITY_INTL:8>München") {
+		t.Errorf("non-ASCII value should move to the target's _INTL sibling: %q", out)
+	}
+	if !strings.Contains(out, "<QSLSDATE:8>20260322") {
+		t.Errorf("value should be normalised to the target's ADIF data type: %q", out)
+	}
+}
+
+// A custom field mapped onto a tag a built-in field already occupies must not
+// produce a second Data Specifier — ADIF forbids that inside one record.
+func TestExportADIFCustomFieldMappingCollision(t *testing.T) {
+	q := sampleQSO()
+	q.Extras = `{"Region":"NY"}`
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{
+		ProgramID: "Noctalum", ProgramVersion: "test",
+		CustomFieldsJSON: `[{"name":"Region"}]`,
+		MappingJSON:      `{"cf:Region":"DARC_DOK"}`,
+	}); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if n := strings.Count(out, "<DARC_DOK:"); n != 1 {
+		t.Errorf("DARC_DOK emitted %d times, want exactly 1: %q", n, out)
+	}
+	// The built-in DOK column is written first, so it wins.
+	if !strings.Contains(out, "<DARC_DOK:3>H01") {
+		t.Errorf("the built-in field should win the collision: %q", out)
+	}
+}
+
+// A mapping override naming something that is not an addressable tag is
+// ignored, leaving the custom field on its name-derived default.
+func TestExportADIFCustomFieldMappingRejectsBadTarget(t *testing.T) {
+	q := sampleQSO()
+	q.Extras = `{"Club night":"Tuesday"}`
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{
+		ProgramID: "Noctalum", ProgramVersion: "test",
+		CustomFieldsJSON: `[{"name":"Club night"}]`,
+		MappingJSON:      `{"cf:Club night":"not_a_tag"}`,
+	}); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	if !strings.Contains(buf.String(), "<APP_NOCTALUM_CLUB_NIGHT:7>Tuesday") {
+		t.Errorf("bad target should fall back to the name-derived default: %q", buf.String())
+	}
+}

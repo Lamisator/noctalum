@@ -88,6 +88,10 @@ func adifCompanion(key, effectiveTag string, q store.QSO) (tag, value string) {
 	return "", ""
 }
 
+// adifCustomKeyPrefix namespaces a per-QSO custom field inside the mapping
+// blob, so "cf:Region" cannot collide with a built-in source key.
+const adifCustomKeyPrefix = "cf:"
+
 // resolveADIFMapping turns a contest's stored override blob into the effective
 // ADIF tag for every source field. An empty value means "do not export this
 // field".
@@ -98,6 +102,12 @@ func adifCompanion(key, effectiveTag string, q store.QSO) (tag, value string) {
 // and storing the full resolved map would freeze it at today's answer instead.
 // A key present with an empty value is the operator explicitly switching a
 // field off, which is why absent and empty cannot mean the same thing.
+//
+// Custom fields are carried through under their "cf:<name>" keys rather than
+// being resolved here: their default depends on the program ID (the
+// APP_<PROGRAMID>_ fallback), which only the exporter knows. The caller looks
+// one up with comma-ok and falls back to the name-derived tag when it is
+// absent.
 //
 // Overrides naming something that is not an addressable ADIF tag are ignored
 // rather than honoured, so a hand-edited or downgraded blob degrades to the
@@ -129,7 +139,36 @@ func resolveADIFMapping(mappingJSON string) map[string]string {
 		}
 		out[f.Key] = tag
 	}
+	for key, tag := range overrides {
+		name, ok := strings.CutPrefix(key, adifCustomKeyPrefix)
+		if !ok || name == "" {
+			continue
+		}
+		tag = strings.ToUpper(strings.TrimSpace(tag))
+		if tag != "" && !adifMappableTarget(tag) {
+			continue
+		}
+		out[key] = tag
+	}
 	return out
+}
+
+// adifCustomFieldTag decides which ADIF tag a per-QSO custom field's value is
+// written under: the operator's explicit choice from the mapping editor when
+// there is one, otherwise the historical name-derived rule (a field named
+// after a standard ADIF tag lands on that tag; anything else goes to the
+// APP_<PROGRAMID>_<NAME> namespace ADIF reserves for application data).
+//
+// The second return is false when the operator switched the field off.
+func adifCustomFieldTag(name string, mapping map[string]string, appPrefix string) (string, bool) {
+	if tag, ok := mapping[adifCustomKeyPrefix+name]; ok {
+		return tag, tag != ""
+	}
+	tag := adifFieldName(name)
+	if _, ok := adif.Exportable(tag); !ok {
+		tag = appPrefix + tag
+	}
+	return tag, true
 }
 
 // adifMappableTarget reports whether a tag may be used as a mapping target.

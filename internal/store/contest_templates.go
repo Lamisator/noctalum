@@ -30,11 +30,12 @@ type ContestTemplate struct {
 	Name               string    `json:"name"`         // template name, shown in the picker
 	DefaultName        string    `json:"default_name"` // pre-filled contest name
 	Bands              []string  `json:"bands"`
-	Objective          string    `json:"objective"`     // markdown text
-	CustomFields       string    `json:"custom_fields"` // JSON array of {name,label,type,required,options,order}
-	QSOLayout          string    `json:"qso_layout"`    // JSON {cols, items:[{key,x,y,w}]}
-	LogColumns         string    `json:"log_columns"`   // JSON ordered array of {key,on}
-	ADIFMapping        string    `json:"adif_mapping"`  // JSON {noctalum field key: ADIF tag} overrides
+	Objective          string    `json:"objective"`        // markdown text
+	CustomFields       string    `json:"custom_fields"`    // JSON array of {name,label,type,required,options,order}
+	QSOLayout          string    `json:"qso_layout"`       // JSON {cols, items:[{key,x,y,w}]}
+	LogColumns         string    `json:"log_columns"`      // JSON ordered array of {key,on}
+	ADIFMapping        string    `json:"adif_mapping"`     // JSON {noctalum field key: ADIF tag} overrides
+	CabrilloMapping    string    `json:"cabrillo_mapping"` // JSON {sent:[field keys], received:[field keys]} exchange layout
 	NrPadded           bool      `json:"nr_padded"`
 	FreqUnit           string    `json:"freq_unit"`
 	StashExpiryMinutes int64     `json:"stash_expiry_minutes"`
@@ -65,6 +66,7 @@ func (s *Store) migrateContestTemplates() error {
 			qso_layout           TEXT NOT NULL DEFAULT '',
 			log_columns          TEXT NOT NULL DEFAULT '',
 			adif_mapping         TEXT NOT NULL DEFAULT '',
+			cabrillo_mapping     TEXT NOT NULL DEFAULT '',
 			nr_padded            BOOLEAN NOT NULL DEFAULT true,
 			freq_unit            TEXT NOT NULL DEFAULT 'kHz',
 			stash_expiry_minutes BIGINT NOT NULL DEFAULT 60,
@@ -81,6 +83,7 @@ func (s *Store) migrateContestTemplates() error {
 		// Added with the per-contest ADIF mapping editor. Empty means every
 		// field keeps its default tag, so existing templates are unaffected.
 		`ALTER TABLE contest_templates ADD COLUMN IF NOT EXISTS adif_mapping TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE contest_templates ADD COLUMN IF NOT EXISTS cabrillo_mapping TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, q := range stmts {
 		if _, err := s.db.Exec(q); err != nil {
@@ -120,12 +123,12 @@ func (s *Store) seedBuiltinTemplates() error {
 	for _, b := range builtins {
 		if _, err := s.db.Exec(
 			`INSERT INTO contest_templates
-			   (name, default_name, bands, objective, custom_fields, qso_layout, log_columns, adif_mapping,
+			   (name, default_name, bands, objective, custom_fields, qso_layout, log_columns, adif_mapping, cabrillo_mapping,
 			    nr_padded, freq_unit, stash_expiry_minutes, shared, owner_user_id, created_at, updated_at)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,0,$13,$13)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,0,$14,$14)
 			 ON CONFLICT (owner_user_id, name) DO NOTHING`,
 			b.Name, b.DefaultName, bandsToString(b.Bands), b.Objective, b.CustomFields,
-			b.QSOLayout, b.LogColumns, b.ADIFMapping, b.NrPadded, b.FreqUnit, b.StashExpiryMinutes, b.Shared, now,
+			b.QSOLayout, b.LogColumns, b.ADIFMapping, b.CabrilloMapping, b.NrPadded, b.FreqUnit, b.StashExpiryMinutes, b.Shared, now,
 		); err != nil {
 			return err
 		}
@@ -168,12 +171,12 @@ func (s *Store) CreateContestTemplate(t *ContestTemplate, ownerUserID int64) (*C
 	t.CreatedAt, t.UpdatedAt = now, now
 	err := s.db.QueryRow(
 		`INSERT INTO contest_templates
-		   (name, default_name, bands, objective, custom_fields, qso_layout, log_columns, adif_mapping,
+		   (name, default_name, bands, objective, custom_fields, qso_layout, log_columns, adif_mapping, cabrillo_mapping,
 		    nr_padded, freq_unit, stash_expiry_minutes, shared, owner_user_id, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)
 		 RETURNING id`,
 		t.Name, t.DefaultName, bandsToString(t.Bands), t.Objective, t.CustomFields,
-		t.QSOLayout, t.LogColumns, t.ADIFMapping, t.NrPadded, t.FreqUnit, t.StashExpiryMinutes,
+		t.QSOLayout, t.LogColumns, t.ADIFMapping, t.CabrilloMapping, t.NrPadded, t.FreqUnit, t.StashExpiryMinutes,
 		t.Shared, ownerUserID, now,
 	).Scan(&t.ID)
 	if err != nil {
@@ -186,13 +189,13 @@ func (s *Store) CreateContestTemplate(t *ContestTemplate, ownerUserID int64) (*C
 }
 
 const templateSelectCols = `id, name, default_name, bands, objective, custom_fields, qso_layout,
-	log_columns, adif_mapping, nr_padded, freq_unit, stash_expiry_minutes, shared, owner_user_id, created_at, updated_at`
+	log_columns, adif_mapping, cabrillo_mapping, nr_padded, freq_unit, stash_expiry_minutes, shared, owner_user_id, created_at, updated_at`
 
 func scanTemplate(sc interface{ Scan(...any) error }) (*ContestTemplate, error) {
 	var t ContestTemplate
 	var bands string
 	if err := sc.Scan(&t.ID, &t.Name, &t.DefaultName, &bands, &t.Objective, &t.CustomFields,
-		&t.QSOLayout, &t.LogColumns, &t.ADIFMapping, &t.NrPadded, &t.FreqUnit, &t.StashExpiryMinutes,
+		&t.QSOLayout, &t.LogColumns, &t.ADIFMapping, &t.CabrilloMapping, &t.NrPadded, &t.FreqUnit, &t.StashExpiryMinutes,
 		&t.Shared, &t.OwnerUserID, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -218,7 +221,7 @@ func (s *Store) GetContestTemplate(id int64) (*ContestTemplate, error) {
 func (s *Store) ListContestTemplates(userID int64) ([]ContestTemplate, error) {
 	rows, err := s.db.Query(
 		`SELECT t.id, t.name, t.default_name, t.bands, t.objective, t.custom_fields, t.qso_layout,
-		        t.log_columns, t.adif_mapping, t.nr_padded, t.freq_unit, t.stash_expiry_minutes, t.shared,
+		        t.log_columns, t.adif_mapping, t.cabrillo_mapping, t.nr_padded, t.freq_unit, t.stash_expiry_minutes, t.shared,
 		        t.owner_user_id, t.created_at, t.updated_at,
 		        COALESCE(u.username, '') AS owner_username
 		 FROM contest_templates t
@@ -234,7 +237,7 @@ func (s *Store) ListContestTemplates(userID int64) ([]ContestTemplate, error) {
 		var t ContestTemplate
 		var bands string
 		if err := rows.Scan(&t.ID, &t.Name, &t.DefaultName, &bands, &t.Objective, &t.CustomFields,
-			&t.QSOLayout, &t.LogColumns, &t.ADIFMapping, &t.NrPadded, &t.FreqUnit, &t.StashExpiryMinutes,
+			&t.QSOLayout, &t.LogColumns, &t.ADIFMapping, &t.CabrilloMapping, &t.NrPadded, &t.FreqUnit, &t.StashExpiryMinutes,
 			&t.Shared, &t.OwnerUserID, &t.CreatedAt, &t.UpdatedAt, &t.OwnerUsername); err != nil {
 			return nil, err
 		}
@@ -259,11 +262,12 @@ func (s *Store) UpdateContestTemplate(id int64, t *ContestTemplate) error {
 	res, err := s.db.Exec(
 		`UPDATE contest_templates
 		 SET name = $1, default_name = $2, bands = $3, objective = $4, custom_fields = $5,
-		     qso_layout = $6, log_columns = $7, adif_mapping = $8, nr_padded = $9, freq_unit = $10,
-		     stash_expiry_minutes = $11, shared = $12, updated_at = $13
-		 WHERE id = $14`,
+		     qso_layout = $6, log_columns = $7, adif_mapping = $8, cabrillo_mapping = $9,
+		     nr_padded = $10, freq_unit = $11,
+		     stash_expiry_minutes = $12, shared = $13, updated_at = $14
+		 WHERE id = $15`,
 		t.Name, t.DefaultName, bandsToString(t.Bands), t.Objective, t.CustomFields,
-		t.QSOLayout, t.LogColumns, t.ADIFMapping, t.NrPadded, t.FreqUnit, t.StashExpiryMinutes,
+		t.QSOLayout, t.LogColumns, t.ADIFMapping, t.CabrilloMapping, t.NrPadded, t.FreqUnit, t.StashExpiryMinutes,
 		t.Shared, time.Now().UTC(), id,
 	)
 	if err != nil {

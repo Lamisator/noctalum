@@ -167,21 +167,21 @@ func ExportADIF(w io.Writer, qsos []store.QSO, opts ADIFExportOptions) error {
 				if val == "" {
 					continue
 				}
-				// If the operator named their custom field after a standard
-				// ADIF tag (e.g. "STATE", "POTA_REF"), emit it under that
-				// standard tag so award trackers can consume it directly.
-				// Anything the ADIF catalogue doesn't recognise — plus the
-				// tags we write from a dedicated QSO column and the spec's
-				// import-only fields — falls back to APP_<PROGRAMID>_<NAME>,
-				// the ADIF-defined escape hatch for application-specific data.
-				tag := adifFieldName(cf.Name)
-				if _, ok := adif.Exportable(tag); ok {
+				// The tag comes from the operator's mapping when they set one,
+				// and otherwise from the field's own name: a field named after
+				// a standard ADIF tag (e.g. "STATE", "POTA_REF") lands on that
+				// tag so award trackers can consume it directly, and anything
+				// else falls back to APP_<PROGRAMID>_<NAME>, the ADIF-defined
+				// escape hatch for application-specific data.
+				tag, on := adifCustomFieldTag(cf.Name, mapping, appPrefix)
+				if !on {
+					continue // switched off in the mapping editor
+				}
+				if _, ok := adif.Lookup(tag); ok {
 					tag = adifTagFor(tag, &val)
 					if val == "" {
 						continue
 					}
-				} else {
-					tag = appPrefix + tag
 				}
 				emit(tag, val)
 			}
@@ -464,15 +464,39 @@ func ExportCSV(w io.Writer, qsos []store.QSO, customFieldsJSON string) error {
 	return nil
 }
 
-// ExportCabrillo writes the QSO list to w as a Cabrillo v3 contest log.
-// Exchanges are written as "<rst_sent> <station_call> | <rst_received> <callsign>"
-// in a generic form; users should post-process for specific contests.
-func ExportCabrillo(w io.Writer, qsos []store.QSO, contestName, stationCall string) error {
+// CabrilloExportOptions carries everything ExportCabrillo needs beyond the
+// QSOs. Like ADIFExportOptions it is a struct rather than a parameter list
+// because the members are all strings.
+type CabrilloExportOptions struct {
+	ContestName string
+	StationCall string
+	// MyGridsquare is the contest QTH, available as an exchange field for the
+	// VHF/UHF contests that send a locator.
+	MyGridsquare string
+	// CustomFieldsJSON lists the contest's per-QSO custom fields, so one can
+	// be placed in an exchange slot.
+	CustomFieldsJSON string
+	// MappingJSON is the contest's exchange layout. Empty means the
+	// historical sent=RST+ITU / received=RST+CQ arrangement.
+	MappingJSON string
+}
+
+// ExportCabrillo writes the QSO list to w as a Cabrillo 3.0 contest log.
+//
+// The QSO line's fixed spine (frequency, mode, date, time, and the two
+// callsigns) is dictated by the format; everything after each callsign is the
+// contest's exchange, and which Noctalum fields go there — and in what order —
+// comes from the contest's mapping. See internal/server/cabrillo_mapping.go.
+//
+// Operators normally still need to fine-tune the header categories before
+// submission; Noctalum writes a conservative multi-op/fixed/one-transmitter
+// set.
+func ExportCabrillo(w io.Writer, qsos []store.QSO, opts CabrilloExportOptions) error {
 	header := []string{
 		"START-OF-LOG: 3.0",
 		"CREATED-BY: Noctalum",
-		fmt.Sprintf("CONTEST: %s", strings.ToUpper(contestName)),
-		fmt.Sprintf("CALLSIGN: %s", strings.ToUpper(stationCall)),
+		fmt.Sprintf("CONTEST: %s", strings.ToUpper(opts.ContestName)),
+		fmt.Sprintf("CALLSIGN: %s", strings.ToUpper(opts.StationCall)),
 		"CATEGORY-OPERATOR: MULTI-OP",
 		"CATEGORY-STATION: FIXED",
 		"CATEGORY-TRANSMITTER: ONE",
@@ -482,15 +506,28 @@ func ExportCabrillo(w io.Writer, qsos []store.QSO, contestName, stationCall stri
 			return err
 		}
 	}
+	customFields := parseCustomFieldDefs(opts.CustomFieldsJSON)
+	sent, received := resolveCabrilloMapping(opts.MappingJSON, customFields)
+	myCall := strings.ToUpper(opts.StationCall)
 	for _, q := range qsos {
-		freqKHz := q.FreqHz / 1000
-		mode := cabrilloMode(q.Mode)
+		extras := parseExtras(q.Extras)
+		var b strings.Builder
 		t := q.Time.UTC()
-		if _, err := fmt.Fprintf(w, "QSO: %5d %2s %s %04s %-13s %-3s %-6s %-13s %-3s %-6s\n",
-			freqKHz, mode, t.Format("2006-01-02"), t.Format("1504"),
-			strings.ToUpper(stationCall), q.RSTSent, q.ITUZone,
-			strings.ToUpper(q.Callsign), q.RSTReceived, q.CQZone,
-		); err != nil {
+		fmt.Fprintf(&b, "QSO: %5d %2s %s %04s", q.FreqHz/1000, cabrilloMode(q.Mode),
+			t.Format("2006-01-02"), t.Format("1504"))
+		group := func(call string, keys []string) {
+			fmt.Fprintf(&b, " %-13s", call)
+			for _, k := range keys {
+				fmt.Fprintf(&b, " %-*s", cabrilloFieldWidth(k),
+					cabrilloExchangeValue(k, q, opts.MyGridsquare, extras))
+			}
+		}
+		group(myCall, sent)
+		group(strings.ToUpper(q.Callsign), received)
+		// The final column keeps its padding rather than being trimmed: that
+		// is what Noctalum has always written, and preserving it keeps an
+		// unmapped contest's file byte-identical to before.
+		if _, err := fmt.Fprintln(w, b.String()); err != nil {
 			return err
 		}
 	}

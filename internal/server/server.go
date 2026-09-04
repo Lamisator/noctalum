@@ -2234,6 +2234,7 @@ func (s *Server) autoCloseExpiredContests() {
 			"qso_layout":           c.QSOLayout,
 			"log_columns":          c.LogColumns,
 			"adif_mapping":         c.ADIFMapping,
+			"cabrillo_mapping":     c.CabrilloMapping,
 			"nr_padded":            c.NrPadded,
 			"stash_expiry_minutes": c.StashExpiryMinutes,
 			"freq_unit":            c.FreqUnit,
@@ -2901,6 +2902,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			QSOLayout          string   `json:"qso_layout"`
 			LogColumns         string   `json:"log_columns"`
 			ADIFMapping        string   `json:"adif_mapping"`
+			CabrilloMapping    string   `json:"cabrillo_mapping"`
 			NrPadded           *bool    `json:"nr_padded"`
 			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
 			FreqUnit           string   `json:"freq_unit"`
@@ -2970,7 +2972,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		if visibility == store.VisibilityPrivate {
 			ownerID = sess.UserID
 		}
-		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, visibility, ownerID, in.CustomFields, in.QSOLayout, in.LogColumns, in.ADIFMapping, nrPaddedCreate, stashExpiryCreate, in.FreqUnit, startDateCreate, endDateCreate)
+		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, visibility, ownerID, in.CustomFields, in.QSOLayout, in.LogColumns, in.ADIFMapping, in.CabrilloMapping, nrPaddedCreate, stashExpiryCreate, in.FreqUnit, startDateCreate, endDateCreate)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -3729,6 +3731,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			QSOLayout          string   `json:"qso_layout"`
 			LogColumns         string   `json:"log_columns"`
 			ADIFMapping        string   `json:"adif_mapping"`
+			CabrilloMapping    string   `json:"cabrillo_mapping"`
 			NrPadded           *bool    `json:"nr_padded"`
 			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
 			FreqUnit           string   `json:"freq_unit"`
@@ -3788,7 +3791,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		if putFreqUnit == "" {
 			putFreqUnit = "kHz"
 		}
-		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, in.ADIFMapping, nrPaddedPut, stashExpiryPut, putFreqUnit, startDatePut, endDatePut); err != nil {
+		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, in.ADIFMapping, in.CabrilloMapping, nrPaddedPut, stashExpiryPut, putFreqUnit, startDatePut, endDatePut); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -3811,6 +3814,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"qso_layout":           in.QSOLayout,
 			"log_columns":          in.LogColumns,
 			"adif_mapping":         in.ADIFMapping,
+			"cabrillo_mapping":     in.CabrilloMapping,
 			"nr_padded":            nrPaddedPut,
 			"stash_expiry_minutes": stashExpiryPut,
 			"freq_unit":            putFreqUnit,
@@ -3977,10 +3981,19 @@ func (s *Server) handleExportCabrillo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	cbrOpts := CabrilloExportOptions{
+		ContestName:  contestName,
+		StationCall:  contestCall,
+		MyGridsquare: sess.ContestQTH(),
+	}
+	if c, err := s.store.GetContest(contestID); err == nil {
+		cbrOpts.CustomFieldsJSON = c.CustomFields
+		cbrOpts.MappingJSON = c.CabrilloMapping
+	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: Cabrillo")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", attachmentDisposition(exportFilename(contestName, contestCall, "cbr")))
-	if err := ExportCabrillo(w, qsos, contestName, contestCall); err != nil {
+	if err := ExportCabrillo(w, qsos, cbrOpts); err != nil {
 		log.Printf("Cabrillo export error: %v", err)
 	}
 }

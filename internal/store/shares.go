@@ -33,6 +33,7 @@ type SharePayload struct {
 	QSOLayout          string   `json:"qso_layout"`
 	LogColumns         string   `json:"log_columns"`
 	ADIFMapping        string   `json:"adif_mapping"`
+	CabrilloMapping    string   `json:"cabrillo_mapping"`
 	Bands              []string `json:"bands"`
 	Objective          string   `json:"objective"`
 	NrPadded           bool     `json:"nr_padded"`
@@ -81,6 +82,7 @@ func BuildSharePayload(c *Contest) (string, error) {
 		QSOLayout:          c.QSOLayout,
 		LogColumns:         c.LogColumns,
 		ADIFMapping:        c.ADIFMapping,
+		CabrilloMapping:    c.CabrilloMapping,
 		Bands:              c.Bands,
 		Objective:          c.Objective,
 		NrPadded:           c.NrPadded,

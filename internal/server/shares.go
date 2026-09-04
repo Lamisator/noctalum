@@ -257,6 +257,7 @@ func (s *Server) handleImportShare(w http.ResponseWriter, r *http.Request) {
 		p.QSOLayout,
 		p.LogColumns,
 		p.ADIFMapping,
+		p.CabrilloMapping,
 		p.NrPadded,
 		p.StashExpiryMinutes,
 		p.FreqUnit,

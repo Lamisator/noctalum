@@ -92,7 +92,7 @@ func TestDumpAndRestoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("user: %v", err)
 	}
-	c, err := st.CreateContest("Round-Trip Contest", "DL0TEST", "JN49XX", []string{"20m", "40m"}, "obj", "OP1", store.VisibilityPrivate, u.ID, "", "", "", "", false, 45, "MHz", nil, nil)
+	c, err := st.CreateContest("Round-Trip Contest", "DL0TEST", "JN49XX", []string{"20m", "40m"}, "obj", "OP1", store.VisibilityPrivate, u.ID, "", "", "", "", "", false, 45, "MHz", nil, nil)
 	if err != nil {
 		t.Fatalf("contest: %v", err)
 	}
