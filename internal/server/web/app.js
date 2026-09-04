@@ -5618,6 +5618,7 @@
     if (mapEd) {
       mapEd.outerHTML = buildADIFMappingEditorHTML(tpl.adif_mapping || '', fields, false);
       attachADIFMappingListeners(fields);
+    attachCabrilloMappingListeners(fields);
     }
     return {
       log_columns: tpl.log_columns || '',
@@ -5685,6 +5686,8 @@
         ${buildLayoutEditorHTML()}
         <label style="margin-top:10px">${escHtml(t('contestScreen.adifMapping'))} <span class="muted small">${escHtml(t('contestScreen.adifMappingHint'))}</span></label>
         ${buildADIFMappingEditorHTML('', [], false)}
+        <label style="margin-top:10px">${escHtml(t('contestScreen.cabrilloMapping'))} <span class="muted small">${escHtml(t('contestScreen.cabrilloMappingHint'))}</span></label>
+        ${buildCabrilloMappingEditorHTML('', [], false)}
         <label style="margin-top:10px">${escHtml(t('contestScreen.objective'))} <span class="muted small">${escHtml(t('contestScreen.objectiveMdOptional'))}</span></label>
         <div class="md-editor-wrap">
           <textarea name="objective" placeholder="${escHtml(t('contestScreen.objectivePlaceholder'))}"></textarea>
@@ -5713,6 +5716,7 @@
           custom_fields: serializeCustomFieldsEditor(),
           qso_layout: serializeQSOLayout(),
           adif_mapping: serializeADIFMappingEditor(),
+          cabrillo_mapping: serializeCabrilloMappingEditor(),
           log_columns: carried.log_columns,
           freq_unit: carried.freq_unit,
           stash_expiry_minutes: carried.stash_expiry_minutes,
@@ -5738,6 +5742,7 @@
     attachCustomFieldsEditorListeners();
     attachLayoutEditorListeners('');
     attachADIFMappingListeners([]);
+    attachCabrilloMappingListeners([]);
     const taC = document.querySelector('#modal-card textarea[name=objective]');
     const previewC = $('modal-md-preview');
     if (taC && previewC) {
@@ -5768,6 +5773,7 @@
           custom_fields: serializeCustomFieldsEditor(),
           qso_layout: serializeQSOLayout(),
           adif_mapping: serializeADIFMappingEditor(),
+          cabrillo_mapping: serializeCabrilloMappingEditor(),
           log_columns: carried.log_columns,
           freq_unit: carried.freq_unit,
           stash_expiry_minutes: carried.stash_expiry_minutes,
@@ -5902,6 +5908,8 @@
         ${buildLogColumnsEditorHTML(c.log_columns || '', existingFields)}
         <label style="margin-top:14px">${escHtml(t('contestScreen.adifMapping'))} <span class="muted small">${escHtml(t('contestScreen.adifMappingHint'))}</span></label>
         ${buildADIFMappingEditorHTML(c.adif_mapping || '', existingFields, readOnly)}
+        <label style="margin-top:14px">${escHtml(t('contestScreen.cabrilloMapping'))} <span class="muted small">${escHtml(t('contestScreen.cabrilloMappingHint'))}</span></label>
+        ${buildCabrilloMappingEditorHTML(c.cabrillo_mapping || '', existingFields, readOnly)}
         <div class="modal-err error"></div>
         ${actionsHtml}
       </form>
@@ -5921,6 +5929,7 @@
           custom_fields: serializeCustomFieldsEditor(),
           qso_layout: serializeQSOLayout(),
           adif_mapping: serializeADIFMappingEditor(),
+          cabrillo_mapping: serializeCabrilloMappingEditor(),
           log_columns: serializeLogColumnsEditor(),
           nr_padded: form.nr_padded.checked,
           stash_expiry_minutes: Math.max(1, parseInt(form.stash_expiry_minutes?.value || '60', 10) || 60),
@@ -5952,6 +5961,7 @@
       initLogColDragDrop();
     }
     attachADIFMappingListeners(existingFields);
+    attachCabrilloMappingListeners(existingFields);
     // Live markdown preview (always shown, read-only preview still renders)
     const ta = document.querySelector('#modal-card textarea[name=objective]');
     const preview = $('modal-md-preview');
@@ -6940,17 +6950,31 @@
       </div>`;
   }
 
-  // Custom fields are listed too, read-only: their ADIF tag is decided by the
-  // field's own name, so there is nothing to choose here — but an operator
-  // asking "what does my export actually look like" should see them.
-  function adifCustomRowsHTML(customFields) {
-    return (customFields || []).map(cf => `
-        <div class="adif-map-row derived">
+  // Custom fields get the same dropdown as the built-in fields. Their default
+  // is derived from the field's own name, which is often not what the operator
+  // means — a column called "Region" would land on ADIF's REGION (the WAE/CQ
+  // region) when they wanted STATE — so being able to re-point one without
+  // renaming the field is the whole point.
+  function adifCustomRowsHTML(customFields, mapping, readOnly) {
+    return (customFields || []).map(cf => {
+      const key = ADIF_CF_PREFIX + cf.name;
+      const current = Object.prototype.hasOwnProperty.call(mapping || {}, key) ? mapping[key] : undefined;
+      const src = { key, def: adifTagForCustomField(cf.name) };
+      const control = readOnly
+        ? `<span class="adif-map-fixed">${escHtml(current === undefined ? src.def : (current || t('contestScreen.adifMapOff')))}</span>`
+        : `<select class="adif-map-target" data-src="${escHtml(key)}">${adifTargetOptions(src, current)}</select>`;
+      return `
+        <div class="adif-map-row" data-src="${escHtml(key)}">
           <span class="adif-map-source">${escHtml(cf.label || cf.name)}</span>
           <span class="adif-map-arrow">&rarr;</span>
-          <span class="adif-map-control"><span class="adif-map-fixed">${escHtml(adifTagForCustomField(cf.name))}</span></span>
-        </div>`).join('');
+          <span class="adif-map-control">${control}</span>
+        </div>`;
+    }).join('');
   }
+
+  // Namespaces a custom field inside the mapping blob, matching
+  // adifCustomKeyPrefix in internal/server/adif_mapping.go.
+  const ADIF_CF_PREFIX = 'cf:';
 
   // Mirrors adifFieldName + adif.Exportable in the Go exporter: a custom field
   // named after a standard ADIF tag lands on that tag, anything else on
@@ -6965,36 +6989,73 @@
   function buildADIFMappingEditorHTML(mappingJSON, customFields, readOnly) {
     const mapping = parseADIFMapping(mappingJSON);
     const rows = ADIF_SOURCE_FIELDS.map(src => adifMappingRowHTML(src, mapping, readOnly)).join('');
-    const custom = adifCustomRowsHTML(customFields);
-    const customBlock = custom
-      ? `<div class="adif-map-subhead">${escHtml(t('contestScreen.adifMapCustomHead'))}</div>${custom}`
-      : '';
     const reset = readOnly ? '' :
       `<button type="button" class="ghost" id="adif-map-reset">${escHtml(t('contestScreen.resetDefaults'))}</button>`;
     return `
-      <div class="adif-map-editor" id="adif-map-editor">
+      <div class="adif-map-editor" id="adif-map-editor" data-readonly="${readOnly ? '1' : '0'}">
         <div class="adif-map-intro muted small">${escHtml(t('contestScreen.adifMapIntro'))}</div>
         ${rows}
-        ${customBlock}
+        <div id="adif-map-custom">${adifCustomBlockHTML(customFields, mapping, readOnly)}</div>
         <div class="adif-map-warn error small" id="adif-map-warn"></div>
         <div class="adif-map-actions">${reset}</div>
       </div>`;
   }
 
+  function adifCustomBlockHTML(customFields, mapping, readOnly) {
+    const custom = adifCustomRowsHTML(customFields, mapping, readOnly);
+    return custom
+      ? `<div class="adif-map-subhead">${escHtml(t('contestScreen.adifMapCustomHead'))}</div>${custom}`
+      : '';
+  }
+
+  // The custom fields the mapping editors describe. Read live from the
+  // custom-fields editor when one is on screen — all three contest dialogs
+  // render both editors, and a field added in this session has to appear in
+  // the mapping straight away.
+  function _mappingCustomFields(fallback) {
+    return document.getElementById('cf-editor') ? _readCustomFieldsFromEditor() : (fallback || []);
+  }
+
+  // Re-renders just the custom-field rows after the custom-fields editor
+  // changed, carrying over any selections the operator has already made. A
+  // full rebuild would discard them mid-edit.
+  function refreshADIFMappingCustomRows() {
+    const host = document.getElementById('adif-map-custom');
+    const editor = document.getElementById('adif-map-editor');
+    if (!host || !editor) return;
+    const readOnly = editor.dataset.readonly === '1';
+    const mapping = {};
+    host.querySelectorAll('.adif-map-target').forEach(sel => {
+      if (sel.value === '') return;
+      mapping[sel.dataset.src] = sel.value === ADIF_MAP_OFF ? '' : sel.value;
+    });
+    host.innerHTML = adifCustomBlockHTML(_mappingCustomFields(), mapping, readOnly);
+  }
+
   function attachADIFMappingListeners(customFields) {
     const editor = document.getElementById('adif-map-editor');
     if (!editor) return;
+    const recheck = () => checkADIFMappingCollisions(_mappingCustomFields(customFields));
     editor.addEventListener('change', e => {
       if (!e.target?.classList?.contains('adif-map-target')) return;
       refreshADIFMappingRow(e.target.closest('.adif-map-row'));
-      checkADIFMappingCollisions(customFields);
+      recheck();
     });
     document.getElementById('adif-map-reset')?.addEventListener('click', () => {
       editor.querySelectorAll('.adif-map-target').forEach(sel => { sel.value = ''; });
       editor.querySelectorAll('.adif-map-row').forEach(refreshADIFMappingRow);
-      checkADIFMappingCollisions(customFields);
+      recheck();
     });
-    checkADIFMappingCollisions(customFields);
+    // Adding, removing or renaming a custom field has to show up here too.
+    // Deferred so the cf editor's own click handler has finished adding or
+    // removing its row before we read the list back.
+    const cfEd = document.getElementById('cf-editor');
+    if (cfEd) {
+      const sync = () => setTimeout(() => { refreshADIFMappingCustomRows(); recheck(); }, 0);
+      cfEd.addEventListener('input', sync);
+      cfEd.addEventListener('click', sync);
+    }
+    recheck();
   }
 
   // Keeps the "+ SIG" / "+ SUBMODE" hint honest as the operator changes a row.
@@ -7039,7 +7100,10 @@
       byTag.get(tag).push(label);
     };
     for (const src of ADIF_SOURCE_FIELDS) add(adifEffectiveTag(src), adifSourceLabel(src.key));
-    for (const cf of (customFields || [])) add(adifTagForCustomField(cf.name), cf.label || cf.name);
+    for (const cf of (customFields || [])) {
+      add(adifEffectiveTag({ key: ADIF_CF_PREFIX + cf.name, def: adifTagForCustomField(cf.name) }),
+          cf.label || cf.name);
+    }
     const clashes = [...byTag.entries()].filter(([, names]) => names.length > 1);
     warn.textContent = clashes.length
       ? clashes.map(([tag, names]) => t('contestScreen.adifMapCollision', { tag, fields: names.join(', ') })).join(' ')
@@ -7058,6 +7122,210 @@
       out[key] = sel.value === ADIF_MAP_OFF ? '' : sel.value;  // off, or a tag
     });
     return Object.keys(out).length ? JSON.stringify(out) : '';
+  }
+
+  // ----- Cabrillo exchange mapping editor -----
+  // Cabrillo's QSO line is positional, not tagged. The format only fixes the
+  // spine — frequency, mode, date, time, and the two callsigns — and
+  // everything after each callsign is "the exchange", whose contents are
+  // decided by the contest's rules. So where the ADIF editor asks "which tag
+  // does this field land on", this one asks "which fields fill the exchange,
+  // in what order".
+  //
+  // Mirrors cabrilloExchangeFields / cabrilloDefault* in
+  // internal/server/cabrillo_mapping.go — keep in sync.
+  const CABRILLO_EXCHANGE_FIELDS = [
+    'rst_sent', 'rst_received', 'nr_sent', 'nr_received',
+    'itu', 'cq', 'dok', 'locator', 'my_locator',
+    'name', 'lighthouse', 'band', 'operator',
+  ];
+  const CABRILLO_DEFAULT = { sent: ['rst_sent', 'itu'], received: ['rst_received', 'cq'] };
+
+  function parseCabrilloMapping(json) {
+    if (!json) return null;
+    try {
+      const o = JSON.parse(json);
+      if (!o || typeof o !== 'object') return null;
+      if (!Array.isArray(o.sent) && !Array.isArray(o.received)) return null;
+      return {
+        sent: Array.isArray(o.sent) ? o.sent.filter(k => typeof k === 'string') : [],
+        received: Array.isArray(o.received) ? o.received.filter(k => typeof k === 'string') : [],
+      };
+    } catch { return null; }
+  }
+
+  // Label for an exchange field. Built-ins reuse the ADIF editor's label map;
+  // a custom field shows the label the operator gave it.
+  function cabrilloFieldLabel(key, customFields) {
+    const name = key.startsWith(ADIF_CF_PREFIX) ? key.slice(ADIF_CF_PREFIX.length) : null;
+    if (name !== null) {
+      const cf = (customFields || []).find(f => f.name === name);
+      return (cf && cf.label) ? cf.label : name;
+    }
+    return adifSourceLabel(key);
+  }
+
+  function cabrilloFieldOptions(selected, customFields) {
+    const keys = CABRILLO_EXCHANGE_FIELDS.concat(
+      (customFields || []).filter(cf => cf.name).map(cf => ADIF_CF_PREFIX + cf.name));
+    return keys.map(k =>
+      `<option value="${escHtml(k)}"${k === selected ? ' selected' : ''}>${escHtml(cabrilloFieldLabel(k, customFields))}</option>`
+    ).join('');
+  }
+
+  function cabrilloRowHTML(group, key, customFields, readOnly) {
+    if (readOnly) {
+      return `<div class="cbr-map-row" data-group="${group}">
+        <span class="cbr-map-fixed">${escHtml(cabrilloFieldLabel(key, customFields))}</span>
+      </div>`;
+    }
+    return `<div class="cbr-map-row" data-group="${group}">
+      <select class="cbr-map-field">${cabrilloFieldOptions(key, customFields)}</select>
+      <button type="button" class="ghost cbr-map-move" data-dir="-1" title="${escHtml(t('contestScreen.cbrMapMoveUp'))}">&uarr;</button>
+      <button type="button" class="ghost cbr-map-move" data-dir="1" title="${escHtml(t('contestScreen.cbrMapMoveDown'))}">&darr;</button>
+      <button type="button" class="ghost cbr-map-del" title="${escHtml(t('contestScreen.cbrMapRemove'))}">&#10005;</button>
+    </div>`;
+  }
+
+  function cabrilloGroupHTML(group, keys, customFields, readOnly) {
+    const titleKey = group === 'sent' ? 'contestScreen.cbrMapSent' : 'contestScreen.cbrMapReceived';
+    const rows = keys.length
+      ? keys.map(k => cabrilloRowHTML(group, k, customFields, readOnly)).join('')
+      : `<div class="cbr-map-empty muted small">${escHtml(t('contestScreen.cbrMapEmpty'))}</div>`;
+    const add = readOnly ? '' :
+      `<button type="button" class="ghost cbr-map-add" data-group="${group}">${escHtml(t('contestScreen.cbrMapAdd'))}</button>`;
+    return `
+      <div class="cbr-map-group" data-group="${group}">
+        <div class="cbr-map-group-title">${escHtml(t(titleKey))}</div>
+        <div class="cbr-map-rows">${rows}</div>
+        ${add}
+      </div>`;
+  }
+
+  function buildCabrilloMappingEditorHTML(mappingJSON, customFields, readOnly) {
+    const m = parseCabrilloMapping(mappingJSON) || CABRILLO_DEFAULT;
+    const reset = readOnly ? '' :
+      `<button type="button" class="ghost" id="cbr-map-reset">${escHtml(t('contestScreen.resetDefaults'))}</button>`;
+    return `
+      <div class="cbr-map-editor" id="cbr-map-editor" data-readonly="${readOnly ? '1' : '0'}">
+        <div class="cbr-map-intro muted small">${escHtml(t('contestScreen.cbrMapIntro'))}</div>
+        <div class="cbr-map-preview" id="cbr-map-preview"></div>
+        ${cabrilloGroupHTML('sent', m.sent, customFields, readOnly)}
+        ${cabrilloGroupHTML('received', m.received, customFields, readOnly)}
+        <div class="cbr-map-actions">${reset}</div>
+      </div>`;
+  }
+
+  function cabrilloGroupKeys(group) {
+    const wrap = document.querySelector(`#cbr-map-editor .cbr-map-group[data-group="${group}"]`);
+    if (!wrap) return [];
+    return [...wrap.querySelectorAll('.cbr-map-row')].map(r =>
+      r.querySelector('.cbr-map-field')?.value ?? r.dataset.key).filter(Boolean);
+  }
+
+  // A sample QSO line built from the current selection. Cabrillo's whole
+  // difficulty is that the columns are positional and unlabelled, so showing
+  // the shape of the line is worth more than any amount of prose.
+  function renderCabrilloPreview(customFields) {
+    const el = document.getElementById('cbr-map-preview');
+    if (!el) return;
+    const slot = keys => keys.map(k => '<' + cabrilloFieldLabel(k, customFields) + '>').join(' ');
+    // Date and time are separate columns in the real line, so the preview
+    // shows them separately too — the point of it is column-for-column
+    // fidelity.
+    const parts = ['QSO:', '<' + t('qso.frequency') + '>', '<' + t('qso.mode') + '>',
+      '<' + t('contestScreen.cbrMapDate') + '>', '<' + t('contestScreen.cbrMapTime') + '>',
+      '<' + t('contestScreen.stationCall') + '>'];
+    const sent = slot(cabrilloGroupKeys('sent'));
+    if (sent) parts.push(sent);
+    parts.push('<' + t('qso.callsign') + '>');
+    const rcvd = slot(cabrilloGroupKeys('received'));
+    if (rcvd) parts.push(rcvd);
+    el.textContent = parts.join(' ');
+  }
+
+  function attachCabrilloMappingListeners(customFields) {
+    const editor = document.getElementById('cbr-map-editor');
+    if (!editor) return;
+    const fields = () => _mappingCustomFields(customFields);
+    const redraw = () => renderCabrilloPreview(fields());
+
+    editor.addEventListener('click', e => {
+      const add = e.target.closest('.cbr-map-add');
+      if (add) {
+        const rows = editor.querySelector(`.cbr-map-group[data-group="${add.dataset.group}"] .cbr-map-rows`);
+        rows.querySelector('.cbr-map-empty')?.remove();
+        rows.insertAdjacentHTML('beforeend',
+          cabrilloRowHTML(add.dataset.group, CABRILLO_EXCHANGE_FIELDS[0], fields(), false));
+        redraw();
+        return;
+      }
+      const del = e.target.closest('.cbr-map-del');
+      if (del) {
+        const row = del.closest('.cbr-map-row');
+        const rows = row.parentElement;
+        row.remove();
+        if (!rows.querySelector('.cbr-map-row')) {
+          rows.innerHTML = `<div class="cbr-map-empty muted small">${escHtml(t('contestScreen.cbrMapEmpty'))}</div>`;
+        }
+        redraw();
+        return;
+      }
+      const move = e.target.closest('.cbr-map-move');
+      if (move) {
+        const row = move.closest('.cbr-map-row');
+        const sibling = move.dataset.dir === '-1' ? row.previousElementSibling : row.nextElementSibling;
+        if (sibling?.classList.contains('cbr-map-row')) {
+          if (move.dataset.dir === '-1') sibling.before(row); else sibling.after(row);
+        }
+        redraw();
+      }
+    });
+    editor.addEventListener('change', e => {
+      if (e.target?.classList?.contains('cbr-map-field')) redraw();
+    });
+    document.getElementById('cbr-map-reset')?.addEventListener('click', () => {
+      const ro = editor.dataset.readonly === '1';
+      for (const g of ['sent', 'received']) {
+        const wrap = editor.querySelector(`.cbr-map-group[data-group="${g}"] .cbr-map-rows`);
+        wrap.innerHTML = CABRILLO_DEFAULT[g].map(k => cabrilloRowHTML(g, k, fields(), ro)).join('');
+      }
+      redraw();
+    });
+    // A custom field removed or renamed in the custom-fields editor must not
+    // stay selectable here — the server drops unknown keys, and a stale option
+    // would let the operator build an exchange that silently loses a column.
+    const cfEd = document.getElementById('cf-editor');
+    if (cfEd) {
+      const sync = () => setTimeout(() => {
+        const list = fields();
+        const valid = new Set(CABRILLO_EXCHANGE_FIELDS.concat(
+          list.filter(cf => cf.name).map(cf => ADIF_CF_PREFIX + cf.name)));
+        editor.querySelectorAll('.cbr-map-row').forEach(row => {
+          const sel = row.querySelector('.cbr-map-field');
+          if (!sel) return;
+          const keep = valid.has(sel.value) ? sel.value : CABRILLO_EXCHANGE_FIELDS[0];
+          sel.innerHTML = cabrilloFieldOptions(keep, list);
+          sel.value = keep;
+        });
+        redraw();
+      }, 0);
+      cfEd.addEventListener('input', sync);
+      cfEd.addEventListener('click', sync);
+    }
+    redraw();
+  }
+
+  // Returns '' when the layout still matches the built-in default, so an
+  // untouched contest stores nothing and keeps following the default if a
+  // later Noctalum changes it.
+  function serializeCabrilloMappingEditor() {
+    if (!document.getElementById('cbr-map-editor')) return '';
+    const out = { sent: cabrilloGroupKeys('sent'), received: cabrilloGroupKeys('received') };
+    const same = g => out[g].length === CABRILLO_DEFAULT[g].length
+      && out[g].every((k, i) => k === CABRILLO_DEFAULT[g][i]);
+    if (same('sent') && same('received')) return '';
+    return JSON.stringify(out);
   }
 
   // ----- New QSO mask layout -----
@@ -8344,6 +8612,8 @@
         ${buildLogColumnsEditorHTML(t0.log_columns || '', fields)}
         <label style="margin-top:14px">${escHtml(t('contestScreen.adifMapping'))} <span class="muted small">${escHtml(t('contestScreen.adifMappingHint'))}</span></label>
         ${buildADIFMappingEditorHTML(t0.adif_mapping || '', fields, readOnly)}
+        <label style="margin-top:14px">${escHtml(t('contestScreen.cabrilloMapping'))} <span class="muted small">${escHtml(t('contestScreen.cabrilloMappingHint'))}</span></label>
+        ${buildCabrilloMappingEditorHTML(t0.cabrillo_mapping || '', fields, readOnly)}
         <div class="modal-err error"></div>
         <div class="modal-actions">
           <button type="button" class="ghost cancel-btn">${escHtml(readOnly ? t('common.close') : t('common.cancel'))}</button>
@@ -8359,6 +8629,7 @@
         custom_fields: serializeCustomFieldsEditor(),
         qso_layout: serializeQSOLayout(),
         adif_mapping: serializeADIFMappingEditor(),
+        cabrillo_mapping: serializeCabrilloMappingEditor(),
         log_columns: serializeLogColumnsEditor(),
         nr_padded: form.nr_padded.checked,
         freq_unit: form.freq_unit?.value || 'kHz',

@@ -3145,6 +3145,83 @@ button.cf-picker-item:focus-visible {
   margin-top: 8px;
 }
 
+/* Cabrillo exchange editor — two ordered lists, because the format's columns
+   are positional and unlabelled. */
+.cbr-map-editor {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  background: var(--bg-elev-2);
+  margin-bottom: 6px;
+}
+.cbr-map-intro {
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+/* The sample QSO line. Monospace and horizontally scrollable: it is long by
+   nature and must not force the dialog to scroll sideways. */
+.cbr-map-preview {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 6px 8px;
+  margin-bottom: 10px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.cbr-map-group + .cbr-map-group {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.cbr-map-group-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.cbr-map-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cbr-map-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.modal-card .cbr-map-row select {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 3px;
+}
+.cbr-map-row button {
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+.cbr-map-fixed {
+  font-size: 12px;
+  color: var(--text);
+}
+.cbr-map-empty {
+  padding: 2px 0;
+}
+.cbr-map-add {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.cbr-map-actions {
+  margin-top: 10px;
+}
+
 /* "Save as template" row inside the create-contest dialog. The name input
    only appears after the button is pressed, so the row stays a single quiet
    line until the operator actually wants it. */
