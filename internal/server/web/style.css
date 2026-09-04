@@ -2921,13 +2921,151 @@ body.mobile-mode .mobile-bottom-nav { display: flex; }
   border-color: var(--accent);
   color: var(--accent);
 }
-.cf-add-btn {
+.cf-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 6px;
+}
+.cf-add-btn,
+.cf-browse-btn {
   font-size: 12px;
 }
 .cf-adif-hint {
   margin-top: 8px;
   line-height: 1.4;
+}
+
+/* ADIF field picker — the full spec catalogue, expanded inline inside the
+   custom-fields editor. It cannot be a modal: the editor already lives in
+   one, and the app has a single modal root. */
+.cf-picker {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+.cf-picker-intro {
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+.cf-picker-search {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 5px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.cf-picker-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+.modal-card label.cf-picker-toggle {
+  /* Block-level flex, not inline-flex: the dialog centres inline content, and
+     a centred checkbox reads as unrelated to the list it filters. */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  user-select: none;
+}
+/* `.modal-card input` stretches every field to 100% — a checkbox must opt out
+   or it fills the row and reads as centred. */
+.modal-card .cf-picker-toggle input {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0;
+}
+.cf-picker-toggle input {
+  accent-color: var(--accent);
+  margin: 0;
+  cursor: pointer;
+}
+/* Capped so the picker never pushes the dialog's Save button off screen —
+   181 fields is a lot of list. */
+.cf-picker-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-elev);
+}
+.cf-picker-group-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 5px 8px;
+  background: var(--bg-elev-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.cf-picker-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+}
+button.cf-picker-item {
+  cursor: pointer;
+}
+button.cf-picker-item:hover,
+button.cf-picker-item:focus-visible {
+  background: var(--accent-dim);
+  outline: none;
+}
+.cf-picker-tag {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--accent);
+}
+.cf-picker-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-muted);
+}
+.cf-picker-why {
+  flex: 0 1 auto;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+}
+.cf-picker-item.unavailable,
+.cf-picker-item.added {
+  opacity: 0.55;
+}
+.cf-picker-item.added .cf-picker-why {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+.cf-picker-empty {
+  padding: 12px 8px;
+  text-align: center;
+}
+.cf-picker-count {
+  margin-top: 6px;
 }
 
 /* "Save as template" row inside the create-contest dialog. The name input

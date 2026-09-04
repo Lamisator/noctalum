@@ -6605,44 +6605,84 @@
       return arr.filter(f => f && f.name);
     } catch { return []; }
   }
-  // Curated suggestions for the "Field name" input in the custom-fields
-  // editor. Kept intentionally focused on tags contest / DX / SOTA / POTA
-  // operators reach for most often — the full ADIF tag universe would drown
-  // the datalist. Matching entries in export.go's adifStandardFields set
-  // makes the ADIF export emit them as standard tags instead of
-  // APP_NOCTALUM_<name>.
-  const ADIF_FIELD_SUGGESTIONS = [
-    'ADDRESS', 'AGE', 'ANT_AZ', 'ANT_EL', 'ARRL_SECT',
-    'CHECK', 'CLASS', 'CNTY', 'COMMENT', 'COUNTRY',
-    'DISTANCE', 'DXCC', 'EMAIL',
-    'IOTA', 'IOTA_ISLAND_ID',
-    'MY_ANTENNA', 'MY_CITY', 'MY_COUNTRY', 'MY_CQ_ZONE', 'MY_DXCC',
-    'MY_ITU_ZONE', 'MY_IOTA', 'MY_LAT', 'MY_LON', 'MY_NAME',
-    'MY_POTA_REF', 'MY_RIG', 'MY_SOTA_REF', 'MY_STATE', 'MY_WWFF_REF',
-    'POTA_REF', 'PRECEDENCE',
-    'QSLMSG', 'QSL_VIA', 'QTH',
-    'RIG', 'SAT_MODE', 'SAT_NAME', 'SFI', 'SOTA_REF',
-    'STATE', 'TEN_TEN', 'TX_PWR',
-    'VE_PROV', 'WWFF_REF',
-  ];
+  // ----- ADIF field catalogue -----
+  // The full ADIF QSO-field set, generated from the published specification
+  // into adif-fields.js (see cmd/gen-adif-fields). Every field the spec
+  // defines is offered here; `status` says why some of them cannot simply be
+  // added:
+  //   ''           the operator may add it to the contest
+  //   'builtin'    Noctalum already logs it in a dedicated field (Call, Band,
+  //                DOK, …), so adding it again would duplicate the ADIF tag
+  //   'intl'       UTF-8 sibling of another field; the exporter switches to it
+  //                on its own when a value needs it
+  //   'deprecated' import-only per the spec — exporting it produces a file
+  //                strict validators reject
+  const ADIF_FIELDS = window.ADIF_FIELDS || [];
+  const ADIF_GROUPS = window.ADIF_GROUPS || [];
+  const ADIF_BY_NAME = new Map(ADIF_FIELDS.map(f => [f.name, f]));
+  const ADIF_ADDABLE = ADIF_FIELDS.filter(f => !f.status);
+
+  function adifFieldLabel(name) {
+    // Falls back to the bare tag for a name the operator invented themselves.
+    const key = 'adifField.' + name;
+    const label = t(key);
+    return label === key ? name : label;
+  }
+
+  // Why a catalogue entry cannot be added, as a sentence for the picker.
+  function adifUnavailableReason(f) {
+    switch (f.status) {
+      case 'builtin': return t('contestScreen.cfPickerWhyBuiltin');
+      case 'intl': {
+        const base = f.name.replace(/_INTL$/, '');
+        return t('contestScreen.cfPickerWhyIntl', { base });
+      }
+      case 'deprecated':
+        return f.replaces
+          ? t('contestScreen.cfPickerWhyDeprecated', { base: f.replaces })
+          : t('contestScreen.cfPickerWhyDeprecatedNoAlt');
+      default: return '';
+    }
+  }
+
   function buildCustomFieldsEditorHTML(fields) {
     const rows = (fields || []).map((f, i) => customFieldRowHTML(f, i)).join('');
-    // <datalist> is emitted once per editor; each cf-name input references
-    // it via list=. Browsers show it as a dropdown of typeahead
-    // suggestions but still accept free-text (so non-standard names keep
-    // working).
-    const opts = ADIF_FIELD_SUGGESTIONS.map(n => `<option value="${n}"></option>`).join('');
+    // <datalist> is emitted once per editor; each cf-name input references it
+    // via list=. Browsers show it as typeahead but still accept free text, so
+    // operators can keep inventing their own names. Only addable fields are
+    // listed — suggesting a tag that would end up in the APP_ namespace is
+    // worse than not suggesting it.
+    const opts = ADIF_ADDABLE.map(f =>
+      `<option value="${escHtml(f.name)}">${escHtml(adifFieldLabel(f.name))}</option>`).join('');
     return `
       <div class="cf-editor" id="cf-editor">
         <datalist id="cf-adif-suggestions">${opts}</datalist>
         <div class="cf-editor-rows">${rows}</div>
-        <button type="button" class="ghost cf-add-btn" id="cf-add-btn">${escHtml(t('contestScreen.cfAdd'))}</button>
+        <div class="cf-editor-actions">
+          <button type="button" class="ghost cf-add-btn" id="cf-add-btn">${escHtml(t('contestScreen.cfAdd'))}</button>
+          <button type="button" class="ghost cf-browse-btn" id="cf-browse-btn">${escHtml(t('contestScreen.cfBrowse'))}</button>
+        </div>
+        <div class="cf-picker hidden" id="cf-picker">
+          <div class="cf-picker-intro muted small">${escHtml(t('contestScreen.cfPickerIntro', { v: window.ADIF_SPEC_VERSION || '' }))}</div>
+          <input type="search" class="cf-picker-search" id="cf-picker-search" placeholder="${escHtml(t('contestScreen.cfPickerSearch'))}" />
+          <label class="cf-picker-toggle">
+            <input type="checkbox" id="cf-picker-showall" />
+            <span>${escHtml(t('contestScreen.cfPickerShowUnavailable'))}</span>
+          </label>
+          <div class="cf-picker-list" id="cf-picker-list"></div>
+          <div class="cf-picker-count muted small" id="cf-picker-count"></div>
+        </div>
         <div class="cf-adif-hint muted small">${escHtml(t('contestScreen.cfAdifHint'))}</div>
       </div>`;
   }
+
+  // Input kinds offered per field. `select` needs the options box; date/time
+  // and textarea map onto the matching native controls in the QSO mask.
+  const CF_TYPES = ['text', 'number', 'select', 'date', 'time', 'textarea'];
+
   function customFieldRowHTML(f, i) {
-    const types = ['text', 'number', 'select'];
-    const tOpt = types.map(tp => `<option value="${tp}"${f.type === tp ? ' selected' : ''}>${tp}</option>`).join('');
+    const type = CF_TYPES.includes(f.type) ? f.type : 'text';
+    const tOpt = CF_TYPES.map(tp => `<option value="${tp}"${type === tp ? ' selected' : ''}>${tp}</option>`).join('');
     return `
       <div class="cf-row" data-i="${i}">
         <div class="cf-row-fields">
@@ -6660,22 +6700,123 @@
         </div>
       </div>`;
   }
+
+  // Row pre-filled from a catalogue entry: the operator gets the spec's label,
+  // the right input control, and — for the closed enumerations — the legal
+  // values, so they never have to look the tag up in the ADIF document.
+  function customFieldRowFromADIF(f, i) {
+    return customFieldRowHTML({
+      name: f.name,
+      label: adifFieldLabel(f.name),
+      type: f.input,
+      options: f.options || [],
+    }, i);
+  }
+
   function attachCustomFieldsEditorListeners() {
     const editor = document.getElementById('cf-editor');
     if (!editor) return;
-    const addBtn = document.getElementById('cf-add-btn');
-    if (addBtn) addBtn.addEventListener('click', () => {
-      const rows = editor.querySelector('.cf-editor-rows');
-      const idx = rows.querySelectorAll('.cf-row').length;
-      rows.insertAdjacentHTML('beforeend', customFieldRowHTML({}, idx));
+    const rowsEl = editor.querySelector('.cf-editor-rows');
+    const appendRow = (html) => {
+      rowsEl.insertAdjacentHTML('beforeend', html);
+      return rowsEl.lastElementChild;
+    };
+
+    document.getElementById('cf-add-btn')?.addEventListener('click', () => {
+      appendRow(customFieldRowHTML({}, rowsEl.querySelectorAll('.cf-row').length));
     });
-    editor.addEventListener('click', (e) => {
-      if (e.target && e.target.classList.contains('cf-del')) {
-        const row = e.target.closest('.cf-row');
-        if (row) row.remove();
+
+    const picker = document.getElementById('cf-picker');
+    const browseBtn = document.getElementById('cf-browse-btn');
+    browseBtn?.addEventListener('click', () => {
+      const open = picker.classList.toggle('hidden') === false;
+      browseBtn.textContent = t(open ? 'contestScreen.cfBrowseHide' : 'contestScreen.cfBrowse');
+      if (open) {
+        renderADIFPicker();
+        document.getElementById('cf-picker-search')?.focus();
       }
     });
+    document.getElementById('cf-picker-search')?.addEventListener('input', renderADIFPicker);
+    document.getElementById('cf-picker-showall')?.addEventListener('change', renderADIFPicker);
+
+    editor.addEventListener('click', (e) => {
+      if (e.target && e.target.classList.contains('cf-del')) {
+        e.target.closest('.cf-row')?.remove();
+        renderADIFPicker();
+        return;
+      }
+      const pick = e.target.closest?.('.cf-picker-item[data-adif]');
+      if (pick) {
+        const f = ADIF_BY_NAME.get(pick.dataset.adif);
+        if (f) {
+          const row = appendRow(customFieldRowFromADIF(f, rowsEl.querySelectorAll('.cf-row').length));
+          renderADIFPicker();
+          row?.scrollIntoView({ block: 'nearest' });
+        }
+      }
+    });
+
+    // Typing (or datalist-picking) a known ADIF tag fills in the rest of the
+    // row, but only where the operator has left it untouched — re-typing a
+    // name must never overwrite a label they wrote themselves.
+    editor.addEventListener('change', (e) => {
+      const nameInput = e.target;
+      if (!nameInput?.classList?.contains('cf-name')) return;
+      const f = ADIF_BY_NAME.get(nameInput.value.trim().toUpperCase());
+      if (!f || f.status) return;
+      const row = nameInput.closest('.cf-row');
+      const labelEl = row.querySelector('.cf-label');
+      const typeEl = row.querySelector('.cf-type');
+      const optsEl = row.querySelector('.cf-options');
+      if (!labelEl.value.trim()) labelEl.value = adifFieldLabel(f.name);
+      if (typeEl.value === 'text') typeEl.value = f.input;
+      if (!optsEl.value.trim() && f.options) optsEl.value = f.options.join(',');
+      renderADIFPicker();
+    });
   }
+
+  function renderADIFPicker() {
+    const list = document.getElementById('cf-picker-list');
+    if (!list || document.getElementById('cf-picker')?.classList.contains('hidden')) return;
+    const query = (document.getElementById('cf-picker-search')?.value || '').trim().toLowerCase();
+    const showAll = !!document.getElementById('cf-picker-showall')?.checked;
+    // Names already on a row are shown as "added" rather than hidden, so the
+    // picker stays a stable map of the spec instead of shrinking as you work.
+    const taken = new Set(_readCustomFieldsFromEditor().map(f => f.name.toUpperCase()));
+
+    const matches = ADIF_FIELDS.filter(f => {
+      if (f.status && !showAll) return false;
+      if (!query) return true;
+      return f.name.toLowerCase().includes(query) || adifFieldLabel(f.name).toLowerCase().includes(query);
+    });
+
+    if (!matches.length) {
+      list.innerHTML = `<div class="cf-picker-empty muted small">${escHtml(t('contestScreen.cfPickerNoMatch', { q: query }))}</div>`;
+    } else {
+      list.innerHTML = ADIF_GROUPS.map(g => {
+        const inGroup = matches.filter(f => f.group === g);
+        if (!inGroup.length) return '';
+        const items = inGroup.map(f => {
+          const label = escHtml(adifFieldLabel(f.name));
+          const tag = `<span class="cf-picker-tag">${escHtml(f.name)}</span><span class="cf-picker-label">${label}</span>`;
+          if (f.status) {
+            return `<div class="cf-picker-item unavailable">${tag}<span class="cf-picker-why">${escHtml(adifUnavailableReason(f))}</span></div>`;
+          }
+          if (taken.has(f.name)) {
+            return `<div class="cf-picker-item added">${tag}<span class="cf-picker-why">${escHtml(t('contestScreen.cfPickerAdded'))}</span></div>`;
+          }
+          return `<button type="button" class="cf-picker-item" data-adif="${escHtml(f.name)}">${tag}</button>`;
+        }).join('');
+        return `<div class="cf-picker-group"><div class="cf-picker-group-title">${escHtml(t('adifGroup.' + g))}</div>${items}</div>`;
+      }).join('');
+    }
+    const count = document.getElementById('cf-picker-count');
+    if (count) {
+      const total = showAll ? ADIF_FIELDS.length : ADIF_ADDABLE.length;
+      count.textContent = t('contestScreen.cfPickerCount', { n: matches.length, total });
+    }
+  }
+
   // ----- New QSO mask layout -----
   // labelKey resolves through t() at render time so the editor matches the active language.
   const QSO_FIELD_DEFS = [
@@ -6813,14 +6954,21 @@
       const reqClass = f.required ? ' qso-cf-required' : '';
       const reqAttr = f.required ? ' required' : '';
       const inputId = 'qcf-' + cssIdSafe(f.name);
+      const attrs = `id="${inputId}" data-cf-name="${escHtml(f.name)}" data-cf-required="${f.required ? '1' : '0'}"${reqAttr}`;
       let inputHtml = '';
       if (f.type === 'select' && Array.isArray(f.options) && f.options.length) {
         const opts = f.options.map(o => `<option value="${escHtml(o)}">${escHtml(o)}</option>`).join('');
-        inputHtml = `<select id="${inputId}" data-cf-name="${escHtml(f.name)}" data-cf-required="${f.required ? '1' : '0'}"${reqAttr}><option value=""></option>${opts}</select>`;
-      } else if (f.type === 'number') {
-        inputHtml = `<input id="${inputId}" type="number" data-cf-name="${escHtml(f.name)}" data-cf-required="${f.required ? '1' : '0'}"${reqAttr} />`;
+        inputHtml = `<select ${attrs}><option value=""></option>${opts}</select>`;
+      } else if (f.type === 'textarea') {
+        // ADIF MultilineString fields (ADDRESS, QSLMSG, RIG, …). The export
+        // rewrites the line breaks to CR/LF, which is what the spec wants.
+        inputHtml = `<textarea ${attrs} rows="2"></textarea>`;
+      } else if (f.type === 'number' || f.type === 'date' || f.type === 'time') {
+        // date/time produce "2026-03-22" / "14:05"; internal/adif.Normalize
+        // converts them to the ADIF forms on export.
+        inputHtml = `<input ${attrs} type="${f.type}" />`;
       } else {
-        inputHtml = `<input id="${inputId}" type="text" data-cf-name="${escHtml(f.name)}" data-cf-required="${f.required ? '1' : '0'}"${reqAttr} />`;
+        inputHtml = `<input ${attrs} type="text" />`;
       }
       const label = document.createElement('label');
       label.className = 'qso-cf' + reqClass;

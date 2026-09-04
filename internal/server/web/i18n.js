@@ -293,6 +293,18 @@
         cfAdd: '+ Add field',
         cfRemoveTitle: 'Remove field',
         cfAdifHint: 'Tip: naming the field after a standard ADIF tag (e.g. STATE, POTA_REF, TX_PWR) makes it export as that tag — otherwise it is exported as APP_NOCTALUM_<name>.',
+        cfBrowse: 'Browse ADIF fields',
+        cfBrowseHide: 'Hide ADIF fields',
+        cfPickerSearch: 'Search ADIF fields…',
+        cfPickerIntro: 'Every field in the ADIF {v} specification. Pick one to add it to this contest — its label, input type and permitted values are filled in for you.',
+        cfPickerNoMatch: 'No ADIF field matches “{q}”.',
+        cfPickerAdded: 'added',
+        cfPickerShowUnavailable: 'Also show fields you cannot add',
+        cfPickerWhyBuiltin: 'Noctalum already logs this in a built-in field.',
+        cfPickerWhyIntl: 'UTF-8 variant of {base} — written automatically when the value needs it.',
+        cfPickerWhyDeprecated: 'Import-only in the ADIF spec — use {base} instead.',
+        cfPickerWhyDeprecatedNoAlt: 'Import-only in the ADIF spec.',
+        cfPickerCount: '{n} of {total} fields',
       },
       topbar: {
         loggedInAs: 'Logged in as',
@@ -966,6 +978,18 @@
         recommended: 'Recommended',
         appImage: 'AppImage',
       },
+      // Section headings for the ADIF field picker in contest settings.
+      // Keys match ADIF_GROUPS in adif-fields.js.
+      adifGroup: {
+        qso: 'The QSO itself',
+        contacted: 'Contacted station',
+        mystation: 'Your own station',
+        contest: 'Contest exchange',
+        refs: 'Programmes & references',
+        prop: 'Propagation & conditions',
+        qsl: 'QSL & confirmations',
+        uploads: 'Online logbook uploads',
+      },
       dok: {
         title: 'DOK Database',
         export: 'Export CSV',
@@ -1260,6 +1284,18 @@
         cfRequired: 'Pflichtfeld',
         cfAdd: '+ Feld hinzufügen',
         cfAdifHint: 'Tipp: Benennst du das Feld nach einem Standard-ADIF-Tag (z. B. STATE, POTA_REF, TX_PWR), wird es genau als dieses Tag exportiert — sonst als APP_NOCTALUM_<name>.',
+        cfBrowse: 'ADIF-Felder durchsuchen',
+        cfBrowseHide: 'ADIF-Felder ausblenden',
+        cfPickerSearch: 'ADIF-Felder durchsuchen…',
+        cfPickerIntro: 'Alle Felder der ADIF-{v}-Spezifikation. Wähle eines aus, um es diesem Contest hinzuzufügen — Beschriftung, Eingabetyp und erlaubte Werte werden für dich ausgefüllt.',
+        cfPickerNoMatch: 'Kein ADIF-Feld passt zu „{q}“.',
+        cfPickerAdded: 'hinzugefügt',
+        cfPickerShowUnavailable: 'Auch Felder anzeigen, die du nicht hinzufügen kannst',
+        cfPickerWhyBuiltin: 'Noctalum führt das bereits als eingebautes Feld.',
+        cfPickerWhyIntl: 'UTF-8-Variante von {base} — wird automatisch geschrieben, wenn der Wert es braucht.',
+        cfPickerWhyDeprecated: 'Laut ADIF-Spezifikation nur zum Import — nimm stattdessen {base}.',
+        cfPickerWhyDeprecatedNoAlt: 'Laut ADIF-Spezifikation nur zum Import.',
+        cfPickerCount: '{n} von {total} Feldern',
         cfRemoveTitle: 'Feld entfernen',
       },
       topbar: {
@@ -1942,6 +1978,16 @@
         checkingAvailability: 'Verfügbarkeit wird geprüft…',
         stillWaiting: 'Noch am Warten… ({n} s)',
       },
+      adifGroup: {
+        qso: 'Das QSO selbst',
+        contacted: 'Gegenstation',
+        mystation: 'Deine eigene Station',
+        contest: 'Contest-Austausch',
+        refs: 'Programme & Referenzen',
+        prop: 'Ausbreitung & Bedingungen',
+        qsl: 'QSL & Bestätigungen',
+        uploads: 'Uploads zu Online-Logbüchern',
+      },
       dok: {
         title: 'DOK-Datenbank',
         export: 'CSV exportieren',
@@ -1959,6 +2005,17 @@
       },
     },
   };
+
+  // The ADIF QSO-field labels are generated straight from the published spec
+  // (see cmd/gen-adif-fields), so they live in adif-fields.js rather than being
+  // typed out here — 181 tags in two languages is not something to maintain by
+  // hand. Merging them in as `adifField.<TAG>` keeps them reachable through the
+  // ordinary t() path, and keeps the English fallback working: a tag the
+  // generator has an EN label but no DE label for resolves to English rather
+  // than showing the raw key.
+  for (const [code, labels] of Object.entries(window.ADIF_FIELD_LABELS || {})) {
+    if (MESSAGES[code]) MESSAGES[code].adifField = labels;
+  }
 
   let currentLang = DEFAULT_LANG;
   const listeners = new Set();
