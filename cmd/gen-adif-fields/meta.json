@@ -1,0 +1,1088 @@
+{
+  "ADDRESS": {
+    "de": "Adresse",
+    "en": "Address",
+    "group": "contacted",
+    "status": ""
+  },
+  "ADDRESS_INTL": {
+    "de": "Adresse (UTF-8)",
+    "en": "Address (UTF-8)",
+    "group": "contacted",
+    "status": "intl"
+  },
+  "AGE": {
+    "de": "Alter des Operators",
+    "en": "Operator age",
+    "group": "contacted",
+    "status": ""
+  },
+  "ALTITUDE": {
+    "de": "Höhe über NN (m)",
+    "en": "Altitude (m)",
+    "group": "contacted",
+    "status": ""
+  },
+  "ANT_AZ": {
+    "de": "Antennen-Azimut (°)",
+    "en": "Antenna azimuth (°)",
+    "group": "prop",
+    "status": ""
+  },
+  "ANT_EL": {
+    "de": "Antennen-Elevation (°)",
+    "en": "Antenna elevation (°)",
+    "group": "prop",
+    "status": ""
+  },
+  "ANT_PATH": {
+    "de": "Signalweg",
+    "en": "Signal path",
+    "group": "prop",
+    "status": ""
+  },
+  "ARRL_SECT": {
+    "de": "ARRL-Sektion",
+    "en": "ARRL section",
+    "group": "contest",
+    "status": ""
+  },
+  "AWARD_GRANTED": {
+    "de": "Verliehene Diplome",
+    "en": "Awards granted",
+    "group": "refs",
+    "status": ""
+  },
+  "AWARD_SUBMITTED": {
+    "de": "Eingereichte Diplome",
+    "en": "Awards submitted",
+    "group": "refs",
+    "status": ""
+  },
+  "A_INDEX": {
+    "de": "A-Index",
+    "en": "A index",
+    "group": "prop",
+    "status": ""
+  },
+  "BAND": {
+    "de": "Band",
+    "en": "Band",
+    "group": "qso",
+    "status": "builtin"
+  },
+  "BAND_RX": {
+    "de": "Empfangsband (Split)",
+    "en": "Receive band (split)",
+    "group": "qso",
+    "status": ""
+  },
+  "CALL": {
+    "de": "Rufzeichen",
+    "en": "Callsign",
+    "group": "qso",
+    "status": "builtin"
+  },
+  "CHECK": {
+    "de": "Check",
+    "en": "Check",
+    "group": "contest",
+    "status": ""
+  },
+  "CLASS": {
+    "de": "Klasse",
+    "en": "Class",
+    "group": "contest",
+    "status": ""
+  },
+  "CLUBLOG_QSO_UPLOAD_DATE": {
+    "de": "Zu Club Log hochgeladen am",
+    "en": "Club Log uploaded on",
+    "group": "uploads",
+    "status": ""
+  },
+  "CLUBLOG_QSO_UPLOAD_STATUS": {
+    "de": "Club-Log-Upload-Status",
+    "en": "Club Log upload status",
+    "group": "uploads",
+    "status": ""
+  },
+  "CNTY": {
+    "de": "Landkreis / Verwaltungseinheit",
+    "en": "County / subdivision",
+    "group": "contacted",
+    "status": ""
+  },
+  "CNTY_ALT": {
+    "de": "Alternative Landkreis-Codes",
+    "en": "County alt codes",
+    "group": "contacted",
+    "status": ""
+  },
+  "COMMENT": {
+    "de": "QSL-Kommentar",
+    "en": "QSL comment",
+    "group": "qsl",
+    "status": ""
+  },
+  "COMMENT_INTL": {
+    "de": "Kommentar (UTF-8)",
+    "en": "Comment (UTF-8)",
+    "group": "qso",
+    "status": "intl"
+  },
+  "CONT": {
+    "de": "Kontinent",
+    "en": "Continent",
+    "group": "contacted",
+    "status": ""
+  },
+  "CONTACTED_OP": {
+    "de": "Operator der Gegenstation",
+    "en": "Operator at the other end",
+    "group": "contacted",
+    "status": ""
+  },
+  "CONTEST_ID": {
+    "de": "Contest-Kennung",
+    "en": "Contest ID",
+    "group": "contest",
+    "status": "builtin"
+  },
+  "COUNTRY": {
+    "de": "DXCC-Gebietsname",
+    "en": "DXCC entity name",
+    "group": "contacted",
+    "status": ""
+  },
+  "COUNTRY_INTL": {
+    "de": "DXCC-Gebietsname (UTF-8)",
+    "en": "DXCC entity name (UTF-8)",
+    "group": "contacted",
+    "status": "intl"
+  },
+  "CQZ": {
+    "de": "CQ-Zone",
+    "en": "CQ zone",
+    "group": "contacted",
+    "status": "builtin"
+  },
+  "CREDIT_GRANTED": {
+    "de": "Gewährte Diplom-Credits",
+    "en": "Award credits granted",
+    "group": "qsl",
+    "status": ""
+  },
+  "CREDIT_SUBMITTED": {
+    "de": "Eingereichte Diplom-Credits",
+    "en": "Award credits submitted",
+    "group": "qsl",
+    "status": ""
+  },
+  "DARC_DOK": {
+    "de": "DARC-DOK",
+    "en": "DARC DOK",
+    "group": "contacted",
+    "status": "builtin"
+  },
+  "DCL_QSLRDATE": {
+    "de": "DCL-QSL empfangen am",
+    "en": "DCL QSL received on",
+    "group": "qsl",
+    "status": ""
+  },
+  "DCL_QSLSDATE": {
+    "de": "DCL-QSL gesendet am",
+    "en": "DCL QSL sent on",
+    "group": "qsl",
+    "status": ""
+  },
+  "DCL_QSL_RCVD": {
+    "de": "DCL-QSL empfangen",
+    "en": "DCL QSL received",
+    "group": "qsl",
+    "status": ""
+  },
+  "DCL_QSL_SENT": {
+    "de": "DCL-QSL gesendet",
+    "en": "DCL QSL sent",
+    "group": "qsl",
+    "status": ""
+  },
+  "DISTANCE": {
+    "de": "Entfernung (km)",
+    "en": "Distance (km)",
+    "group": "qso",
+    "status": ""
+  },
+  "DXCC": {
+    "de": "DXCC-Gebietscode",
+    "en": "DXCC entity code",
+    "group": "contacted",
+    "status": ""
+  },
+  "EMAIL": {
+    "de": "E-Mail-Adresse",
+    "en": "Email address",
+    "group": "contacted",
+    "status": ""
+  },
+  "EQSL_AG": {
+    "de": "eQSL Authenticity Guaranteed",
+    "en": "eQSL authenticity guaranteed",
+    "group": "qsl",
+    "status": ""
+  },
+  "EQSL_QSLRDATE": {
+    "de": "eQSL empfangen am",
+    "en": "eQSL received on",
+    "group": "qsl",
+    "status": ""
+  },
+  "EQSL_QSLSDATE": {
+    "de": "eQSL gesendet am",
+    "en": "eQSL sent on",
+    "group": "qsl",
+    "status": ""
+  },
+  "EQSL_QSL_RCVD": {
+    "de": "eQSL empfangen",
+    "en": "eQSL received",
+    "group": "qsl",
+    "status": ""
+  },
+  "EQSL_QSL_SENT": {
+    "de": "eQSL gesendet",
+    "en": "eQSL sent",
+    "group": "qsl",
+    "status": ""
+  },
+  "EQ_CALL": {
+    "de": "Rufzeichen des Stationsinhabers",
+    "en": "Station owner's callsign",
+    "group": "contacted",
+    "status": ""
+  },
+  "FISTS": {
+    "de": "FISTS-Mitgliedsnummer",
+    "en": "FISTS member number",
+    "group": "refs",
+    "status": ""
+  },
+  "FISTS_CC": {
+    "de": "FISTS-Century-Certificate-Nummer",
+    "en": "FISTS Century Certificate number",
+    "group": "refs",
+    "status": ""
+  },
+  "FORCE_INIT": {
+    "de": "EME-Initial",
+    "en": "EME initial",
+    "group": "prop",
+    "status": ""
+  },
+  "FREQ": {
+    "de": "Frequenz (MHz)",
+    "en": "Frequency (MHz)",
+    "group": "qso",
+    "status": "builtin"
+  },
+  "FREQ_RX": {
+    "de": "Empfangsfrequenz (MHz, Split)",
+    "en": "Receive frequency (MHz, split)",
+    "group": "qso",
+    "status": ""
+  },
+  "GRIDSQUARE": {
+    "de": "Locator",
+    "en": "Locator",
+    "group": "contacted",
+    "status": "builtin"
+  },
+  "GRIDSQUARE_EXT": {
+    "de": "Locator-Erweiterung (10 Zeichen)",
+    "en": "Locator extension (10 char)",
+    "group": "contacted",
+    "status": ""
+  },
+  "GUEST_OP": {
+    "de": "Gast-Operator",
+    "en": "Guest operator",
+    "group": "mystation",
+    "status": "deprecated"
+  },
+  "HAMLOGEU_QSO_UPLOAD_DATE": {
+    "de": "Zu HAMLOG.EU hochgeladen am",
+    "en": "HAMLOG.EU uploaded on",
+    "group": "uploads",
+    "status": ""
+  },
+  "HAMLOGEU_QSO_UPLOAD_STATUS": {
+    "de": "HAMLOG.EU-Upload-Status",
+    "en": "HAMLOG.EU upload status",
+    "group": "uploads",
+    "status": ""
+  },
+  "HAMQTH_QSO_UPLOAD_DATE": {
+    "de": "Zu HamQTH hochgeladen am",
+    "en": "HamQTH uploaded on",
+    "group": "uploads",
+    "status": ""
+  },
+  "HAMQTH_QSO_UPLOAD_STATUS": {
+    "de": "HamQTH-Upload-Status",
+    "en": "HamQTH upload status",
+    "group": "uploads",
+    "status": ""
+  },
+  "HRDLOG_QSO_UPLOAD_DATE": {
+    "de": "Zu HRDLog hochgeladen am",
+    "en": "HRDLog uploaded on",
+    "group": "uploads",
+    "status": ""
+  },
+  "HRDLOG_QSO_UPLOAD_STATUS": {
+    "de": "HRDLog-Upload-Status",
+    "en": "HRDLog upload status",
+    "group": "uploads",
+    "status": ""
+  },
+  "IOTA": {
+    "de": "IOTA-Referenz",
+    "en": "IOTA reference",
+    "group": "refs",
+    "status": ""
+  },
+  "IOTA_ISLAND_ID": {
+    "de": "IOTA-Insel-ID",
+    "en": "IOTA island ID",
+    "group": "refs",
+    "status": ""
+  },
+  "ITUZ": {
+    "de": "ITU-Zone",
+    "en": "ITU zone",
+    "group": "contacted",
+    "status": "builtin"
+  },
+  "K_INDEX": {
+    "de": "K-Index",
+    "en": "K index",
+    "group": "prop",
+    "status": ""
+  },
+  "LAT": {
+    "de": "Breitengrad",
+    "en": "Latitude",
+    "group": "contacted",
+    "status": ""
+  },
+  "LON": {
+    "de": "Längengrad",
+    "en": "Longitude",
+    "group": "contacted",
+    "status": ""
+  },
+  "LOTW_QSLRDATE": {
+    "de": "LoTW-QSL empfangen am",
+    "en": "LoTW QSL received on",
+    "group": "qsl",
+    "status": ""
+  },
+  "LOTW_QSLSDATE": {
+    "de": "LoTW-QSL gesendet am",
+    "en": "LoTW QSL sent on",
+    "group": "qsl",
+    "status": ""
+  },
+  "LOTW_QSL_RCVD": {
+    "de": "LoTW-QSL empfangen",
+    "en": "LoTW QSL received",
+    "group": "qsl",
+    "status": ""
+  },
+  "LOTW_QSL_SENT": {
+    "de": "LoTW-QSL gesendet",
+    "en": "LoTW QSL sent",
+    "group": "qsl",
+    "status": ""
+  },
+  "MAX_BURSTS": {
+    "de": "Längster Meteor-Burst (s)",
+    "en": "Longest meteor burst (s)",
+    "group": "prop",
+    "status": ""
+  },
+  "MODE": {
+    "de": "Sendeart",
+    "en": "Mode",
+    "group": "qso",
+    "status": "builtin"
+  },
+  "MORSE_KEY_INFO": {
+    "de": "Details zur Morsetaste",
+    "en": "Morse key details",
+    "group": "contacted",
+    "status": ""
+  },
+  "MORSE_KEY_TYPE": {
+    "de": "Typ der Morsetaste",
+    "en": "Morse key type",
+    "group": "contacted",
+    "status": ""
+  },
+  "MS_SHOWER": {
+    "de": "Meteorstrom",
+    "en": "Meteor shower",
+    "group": "prop",
+    "status": ""
+  },
+  "MY_ALTITUDE": {
+    "de": "Eigene Höhe über NN (m)",
+    "en": "My altitude (m)",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_ANTENNA": {
+    "de": "Eigene Antenne",
+    "en": "My antenna",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_ANTENNA_INTL": {
+    "de": "Eigene Antenne (UTF-8)",
+    "en": "My antenna (UTF-8)",
+    "group": "mystation",
+    "status": "intl"
+  },
+  "MY_ARRL_SECT": {
+    "de": "Eigene ARRL-Sektion",
+    "en": "My ARRL section",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_CITY": {
+    "de": "Eigener Ort",
+    "en": "My city",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_CITY_INTL": {
+    "de": "Eigener Ort (UTF-8)",
+    "en": "My city (UTF-8)",
+    "group": "mystation",
+    "status": "intl"
+  },
+  "MY_CNTY": {
+    "de": "Eigener Landkreis / Verwaltungseinheit",
+    "en": "My county / subdivision",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_CNTY_ALT": {
+    "de": "Eigene alternative Landkreis-Codes",
+    "en": "My county alt codes",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_COUNTRY": {
+    "de": "Eigener DXCC-Gebietsname",
+    "en": "My DXCC entity name",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_COUNTRY_INTL": {
+    "de": "Eigener DXCC-Gebietsname (UTF-8)",
+    "en": "My DXCC entity name (UTF-8)",
+    "group": "mystation",
+    "status": "intl"
+  },
+  "MY_CQ_ZONE": {
+    "de": "Eigene CQ-Zone",
+    "en": "My CQ zone",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_DARC_DOK": {
+    "de": "Eigener DARC-DOK",
+    "en": "My DARC DOK",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_DXCC": {
+    "de": "Eigener DXCC-Gebietscode",
+    "en": "My DXCC entity code",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_FISTS": {
+    "de": "Eigene FISTS-Mitgliedsnummer",
+    "en": "My FISTS member number",
+    "group": "refs",
+    "status": ""
+  },
+  "MY_GRIDSQUARE": {
+    "de": "Eigener Locator",
+    "en": "My locator",
+    "group": "mystation",
+    "status": "builtin"
+  },
+  "MY_GRIDSQUARE_EXT": {
+    "de": "Eigene Locator-Erweiterung (10 Zeichen)",
+    "en": "My locator extension (10 char)",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_IOTA": {
+    "de": "Eigene IOTA-Referenz",
+    "en": "My IOTA reference",
+    "group": "refs",
+    "status": ""
+  },
+  "MY_IOTA_ISLAND_ID": {
+    "de": "Eigene IOTA-Insel-ID",
+    "en": "My IOTA island ID",
+    "group": "refs",
+    "status": ""
+  },
+  "MY_ITU_ZONE": {
+    "de": "Eigene ITU-Zone",
+    "en": "My ITU zone",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_LAT": {
+    "de": "Eigener Breitengrad",
+    "en": "My latitude",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_LON": {
+    "de": "Eigener Längengrad",
+    "en": "My longitude",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_MORSE_KEY_INFO": {
+    "de": "Details zur eigenen Morsetaste",
+    "en": "My Morse key details",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_MORSE_KEY_TYPE": {
+    "de": "Typ der eigenen Morsetaste",
+    "en": "My Morse key type",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_NAME": {
+    "de": "Eigener Name",
+    "en": "My name",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_NAME_INTL": {
+    "de": "Eigener Name (UTF-8)",
+    "en": "My name (UTF-8)",
+    "group": "mystation",
+    "status": "intl"
+  },
+  "MY_POSTAL_CODE": {
+    "de": "Eigene Postleitzahl",
+    "en": "My postal code",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_POSTAL_CODE_INTL": {
+    "de": "Eigene Postleitzahl (UTF-8)",
+    "en": "My postal code (UTF-8)",
+    "group": "mystation",
+    "status": "intl"
+  },
+  "MY_POTA_REF": {
+    "de": "Eigene POTA-Referenz",
+    "en": "My POTA reference",
+    "group": "refs",
+    "status": ""
+  },
+  "MY_RIG": {
+    "de": "Eigene Ausrüstung",
+    "en": "My equipment",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_RIG_INTL": {
+    "de": "Eigene Ausrüstung (UTF-8)",
+    "en": "My equipment (UTF-8)",
+    "group": "mystation",
+    "status": "intl"
+  },
+  "MY_SIG": {
+    "de": "Eigene Sonderaktivität",
+    "en": "My special activity",
+    "group": "refs",
+    "status": ""
+  },
+  "MY_SIG_INFO": {
+    "de": "Eigene Referenz der Sonderaktivität",
+    "en": "My special activity reference",
+    "group": "refs",
+    "status": ""
+  },
+  "MY_SIG_INFO_INTL": {
+    "de": "Eigene Referenz der Sonderaktivität (UTF-8)",
+    "en": "My special activity reference (UTF-8)",
+    "group": "refs",
+    "status": "intl"
+  },
+  "MY_SIG_INTL": {
+    "de": "Eigene Sonderaktivität (UTF-8)",
+    "en": "My special activity (UTF-8)",
+    "group": "refs",
+    "status": "intl"
+  },
+  "MY_SOTA_REF": {
+    "de": "Eigene SOTA-Referenz",
+    "en": "My SOTA reference",
+    "group": "refs",
+    "status": ""
+  },
+  "MY_STATE": {
+    "de": "Eigenes Bundesland / Verwaltungseinheit",
+    "en": "My state / primary subdivision",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_STREET": {
+    "de": "Eigene Straße",
+    "en": "My street",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_STREET_INTL": {
+    "de": "Eigene Straße (UTF-8)",
+    "en": "My street (UTF-8)",
+    "group": "mystation",
+    "status": "intl"
+  },
+  "MY_USACA_COUNTIES": {
+    "de": "Eigene USA-CA-Countys (Grenzlage)",
+    "en": "My USA-CA counties (border)",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_VUCC_GRIDS": {
+    "de": "Eigene VUCC-Felder",
+    "en": "My VUCC grids",
+    "group": "mystation",
+    "status": ""
+  },
+  "MY_WWFF_REF": {
+    "de": "Eigene WWFF-Referenz",
+    "en": "My WWFF reference",
+    "group": "refs",
+    "status": ""
+  },
+  "NAME": {
+    "de": "Name des Operators",
+    "en": "Operator name",
+    "group": "contacted",
+    "status": "builtin"
+  },
+  "NAME_INTL": {
+    "de": "Name des Operators (UTF-8)",
+    "en": "Operator name (UTF-8)",
+    "group": "contacted",
+    "status": "intl"
+  },
+  "NOTES": {
+    "de": "Notizen",
+    "en": "Notes",
+    "group": "qso",
+    "status": "builtin"
+  },
+  "NOTES_INTL": {
+    "de": "Notizen (UTF-8)",
+    "en": "Notes (UTF-8)",
+    "group": "qso",
+    "status": "intl"
+  },
+  "NR_BURSTS": {
+    "de": "Gehörte Meteor-Bursts",
+    "en": "Meteor bursts heard",
+    "group": "prop",
+    "status": ""
+  },
+  "NR_PINGS": {
+    "de": "Gehörte Meteor-Pings",
+    "en": "Meteor pings heard",
+    "group": "prop",
+    "status": ""
+  },
+  "OPERATOR": {
+    "de": "Rufzeichen des Operators",
+    "en": "Operator callsign",
+    "group": "mystation",
+    "status": "builtin"
+  },
+  "OWNER_CALLSIGN": {
+    "de": "Rufzeichen des Stationsinhabers",
+    "en": "Station owner's callsign",
+    "group": "mystation",
+    "status": ""
+  },
+  "PFX": {
+    "de": "WPX-Präfix",
+    "en": "WPX prefix",
+    "group": "contacted",
+    "status": ""
+  },
+  "POTA_REF": {
+    "de": "POTA-Referenz",
+    "en": "POTA reference",
+    "group": "refs",
+    "status": ""
+  },
+  "PRECEDENCE": {
+    "de": "Precedence",
+    "en": "Precedence",
+    "group": "contest",
+    "status": ""
+  },
+  "PROP_MODE": {
+    "de": "Ausbreitungsart",
+    "en": "Propagation mode",
+    "group": "prop",
+    "status": ""
+  },
+  "PUBLIC_KEY": {
+    "de": "Öffentlicher Schlüssel",
+    "en": "Public key",
+    "group": "contacted",
+    "status": ""
+  },
+  "QRZCOM_QSO_DOWNLOAD_DATE": {
+    "de": "Von QRZ.com heruntergeladen am",
+    "en": "QRZ.com downloaded on",
+    "group": "uploads",
+    "status": ""
+  },
+  "QRZCOM_QSO_DOWNLOAD_STATUS": {
+    "de": "QRZ.com-Download-Status",
+    "en": "QRZ.com download status",
+    "group": "uploads",
+    "status": ""
+  },
+  "QRZCOM_QSO_UPLOAD_DATE": {
+    "de": "Zu QRZ.com hochgeladen am",
+    "en": "QRZ.com uploaded on",
+    "group": "uploads",
+    "status": ""
+  },
+  "QRZCOM_QSO_UPLOAD_STATUS": {
+    "de": "QRZ.com-Upload-Status",
+    "en": "QRZ.com upload status",
+    "group": "uploads",
+    "status": ""
+  },
+  "QSLMSG": {
+    "de": "QSL-Nachricht",
+    "en": "QSL message",
+    "group": "qsl",
+    "status": ""
+  },
+  "QSLMSG_INTL": {
+    "de": "QSL-Nachricht (UTF-8)",
+    "en": "QSL message (UTF-8)",
+    "group": "qsl",
+    "status": "intl"
+  },
+  "QSLMSG_RCVD": {
+    "de": "Empfangene QSL-Nachricht",
+    "en": "QSL message received",
+    "group": "qsl",
+    "status": ""
+  },
+  "QSLRDATE": {
+    "de": "QSL empfangen am",
+    "en": "QSL received on",
+    "group": "qsl",
+    "status": ""
+  },
+  "QSLSDATE": {
+    "de": "QSL gesendet am",
+    "en": "QSL sent on",
+    "group": "qsl",
+    "status": ""
+  },
+  "QSL_RCVD": {
+    "de": "QSL empfangen",
+    "en": "QSL received",
+    "group": "qsl",
+    "status": ""
+  },
+  "QSL_RCVD_VIA": {
+    "de": "QSL empfangen über",
+    "en": "QSL received via",
+    "group": "qsl",
+    "status": ""
+  },
+  "QSL_SENT": {
+    "de": "QSL gesendet",
+    "en": "QSL sent",
+    "group": "qsl",
+    "status": ""
+  },
+  "QSL_SENT_VIA": {
+    "de": "QSL gesendet über",
+    "en": "QSL sent via",
+    "group": "qsl",
+    "status": ""
+  },
+  "QSL_VIA": {
+    "de": "QSL-Weg",
+    "en": "QSL route",
+    "group": "qsl",
+    "status": ""
+  },
+  "QSO_COMPLETE": {
+    "de": "QSO vollständig",
+    "en": "QSO complete",
+    "group": "qso",
+    "status": ""
+  },
+  "QSO_DATE": {
+    "de": "QSO-Datum",
+    "en": "QSO date",
+    "group": "qso",
+    "status": "builtin"
+  },
+  "QSO_DATE_OFF": {
+    "de": "Enddatum",
+    "en": "End date",
+    "group": "qso",
+    "status": ""
+  },
+  "QSO_RANDOM": {
+    "de": "Zufälliges QSO",
+    "en": "Random QSO",
+    "group": "qso",
+    "status": ""
+  },
+  "QTH": {
+    "de": "QTH (Ort)",
+    "en": "QTH (city)",
+    "group": "contacted",
+    "status": ""
+  },
+  "QTH_INTL": {
+    "de": "QTH (UTF-8)",
+    "en": "QTH (UTF-8)",
+    "group": "contacted",
+    "status": "intl"
+  },
+  "REGION": {
+    "de": "WAE-/CQ-Region",
+    "en": "WAE / CQ region",
+    "group": "contacted",
+    "status": ""
+  },
+  "RIG": {
+    "de": "Ausrüstung",
+    "en": "Equipment",
+    "group": "contacted",
+    "status": ""
+  },
+  "RIG_INTL": {
+    "de": "Ausrüstung (UTF-8)",
+    "en": "Equipment (UTF-8)",
+    "group": "contacted",
+    "status": "intl"
+  },
+  "RST_RCVD": {
+    "de": "RST empfangen",
+    "en": "RST received",
+    "group": "qso",
+    "status": "builtin"
+  },
+  "RST_SENT": {
+    "de": "RST gegeben",
+    "en": "RST sent",
+    "group": "qso",
+    "status": "builtin"
+  },
+  "RX_PWR": {
+    "de": "Leistung der Gegenstation (W)",
+    "en": "Power of the other station (W)",
+    "group": "contacted",
+    "status": ""
+  },
+  "SAT_MODE": {
+    "de": "Satelliten-Mode",
+    "en": "Satellite mode",
+    "group": "prop",
+    "status": ""
+  },
+  "SAT_NAME": {
+    "de": "Satellitenname",
+    "en": "Satellite name",
+    "group": "prop",
+    "status": ""
+  },
+  "SFI": {
+    "de": "Solarer Fluss-Index",
+    "en": "Solar flux index",
+    "group": "prop",
+    "status": ""
+  },
+  "SIG": {
+    "de": "Sonderaktivität",
+    "en": "Special activity",
+    "group": "refs",
+    "status": "builtin"
+  },
+  "SIG_INFO": {
+    "de": "Referenz der Sonderaktivität",
+    "en": "Special activity reference",
+    "group": "refs",
+    "status": "builtin"
+  },
+  "SIG_INFO_INTL": {
+    "de": "Referenz der Sonderaktivität (UTF-8)",
+    "en": "Special activity reference (UTF-8)",
+    "group": "refs",
+    "status": "intl"
+  },
+  "SIG_INTL": {
+    "de": "Sonderaktivität (UTF-8)",
+    "en": "Special activity (UTF-8)",
+    "group": "refs",
+    "status": "intl"
+  },
+  "SILENT_KEY": {
+    "de": "Silent Key",
+    "en": "Silent key",
+    "group": "contacted",
+    "status": ""
+  },
+  "SKCC": {
+    "de": "SKCC-Mitgliedsnummer",
+    "en": "SKCC member number",
+    "group": "refs",
+    "status": ""
+  },
+  "SOTA_REF": {
+    "de": "SOTA-Referenz",
+    "en": "SOTA reference",
+    "group": "refs",
+    "status": ""
+  },
+  "SRX": {
+    "de": "Laufende Nr. empfangen",
+    "en": "Serial number received",
+    "group": "contest",
+    "status": "builtin"
+  },
+  "SRX_STRING": {
+    "de": "Empfangener Austausch",
+    "en": "Exchange received",
+    "group": "contest",
+    "status": ""
+  },
+  "STATE": {
+    "de": "Bundesland / Verwaltungseinheit",
+    "en": "State / primary subdivision",
+    "group": "contacted",
+    "status": ""
+  },
+  "STATION_CALLSIGN": {
+    "de": "Stationsrufzeichen",
+    "en": "Station callsign",
+    "group": "mystation",
+    "status": "builtin"
+  },
+  "STX": {
+    "de": "Laufende Nr. gegeben",
+    "en": "Serial number sent",
+    "group": "contest",
+    "status": "builtin"
+  },
+  "STX_STRING": {
+    "de": "Gegebener Austausch",
+    "en": "Exchange sent",
+    "group": "contest",
+    "status": ""
+  },
+  "SUBMODE": {
+    "de": "Untersendeart",
+    "en": "Submode",
+    "group": "qso",
+    "status": "builtin"
+  },
+  "SWL": {
+    "de": "SWL-Bericht",
+    "en": "SWL report",
+    "group": "contacted",
+    "status": ""
+  },
+  "TEN_TEN": {
+    "de": "Ten-Ten-Nummer",
+    "en": "Ten-Ten number",
+    "group": "refs",
+    "status": ""
+  },
+  "TIME_OFF": {
+    "de": "Endzeit",
+    "en": "End time",
+    "group": "qso",
+    "status": ""
+  },
+  "TIME_ON": {
+    "de": "Startzeit",
+    "en": "Start time",
+    "group": "qso",
+    "status": "builtin"
+  },
+  "TX_PWR": {
+    "de": "Eigene Sendeleistung (W)",
+    "en": "My transmit power (W)",
+    "group": "mystation",
+    "status": ""
+  },
+  "UKSMG": {
+    "de": "UKSMG-Mitgliedsnummer",
+    "en": "UKSMG member number",
+    "group": "refs",
+    "status": ""
+  },
+  "USACA_COUNTIES": {
+    "de": "USA-CA-Countys (Grenzlage)",
+    "en": "USA-CA counties (border)",
+    "group": "refs",
+    "status": ""
+  },
+  "VE_PROV": {
+    "de": "Kanadische Provinz",
+    "en": "Canadian province",
+    "group": "contacted",
+    "status": "deprecated"
+  },
+  "VUCC_GRIDS": {
+    "de": "VUCC-Felder",
+    "en": "VUCC grids",
+    "group": "refs",
+    "status": ""
+  },
+  "WEB": {
+    "de": "Webseite",
+    "en": "Website",
+    "group": "contacted",
+    "status": ""
+  },
+  "WWFF_REF": {
+    "de": "WWFF-Referenz",
+    "en": "WWFF reference",
+    "group": "refs",
+    "status": ""
+  }
+}
