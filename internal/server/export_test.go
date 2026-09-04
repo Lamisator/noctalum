@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/noctalum/noctalum/internal/adif"
 	"github.com/noctalum/noctalum/internal/store"
 )
 
@@ -300,8 +301,14 @@ func TestExportADIFHeaderVersion(t *testing.T) {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "<ADIF_VER:5>3.1.5") {
-		t.Errorf("ADIF_VER must be 3.1.5 to match our byte-length IntlString emission: %q", out)
+	// The declared version must be the one the field catalogue came from —
+	// we emit tags that only exist from that release onwards — and never
+	// below 3.1.5, where IntlString lengths became byte counts.
+	if !strings.Contains(out, "<ADIF_VER:"+strconv.Itoa(len(adif.SpecVersion))+">"+adif.SpecVersion) {
+		t.Errorf("ADIF_VER must be %s (the catalogue's spec release): %q", adif.SpecVersion, out)
+	}
+	if adif.SpecVersion < "3.1.5" {
+		t.Errorf("catalogue spec version %s predates byte-length IntlString semantics", adif.SpecVersion)
 	}
 }
 

@@ -46,12 +46,17 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 	if _, err := io.WriteString(w, header); err != nil {
 		return err
 	}
-	// ADIF 3.1.5 is the first spec version that defines IntlString /
+	// Declare the spec release the field catalogue was generated from. It has
+	// to be at least 3.1.5, the first version that defines IntlString /
 	// IntlMultilineString lengths as *bytes* (UTF-8) rather than characters —
-	// which is what `len(value)` gives us for the _INTL fields below.
-	// Declaring 3.1.4 while emitting byte lengths would violate that
-	// version's length rule and could confuse strict importers.
-	writeField(w, "ADIF_VER", "3.1.5")
+	// which is what `len(value)` gives us for the _INTL fields below. It also
+	// has to be recent enough to cover every tag we may emit: custom fields
+	// now reach the whole catalogue, including fields introduced in 3.1.6 and
+	// 3.1.7 (BAND_RX, ALTITUDE, MORSE_KEY_*, the DCL_* set, …), and declaring
+	// an older version while using them is exactly what strict validators
+	// reject. Tracking adif.SpecVersion keeps the two in step through the next
+	// spec bump on its own.
+	writeField(w, "ADIF_VER", adif.SpecVersion)
 	writeField(w, "PROGRAMID", programID)
 	writeField(w, "PROGRAMVERSION", programVersion)
 	writeField(w, "CREATED_TIMESTAMP", time.Now().UTC().Format("20060102 150405"))
