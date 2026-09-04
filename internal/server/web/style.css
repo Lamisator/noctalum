@@ -3068,6 +3068,83 @@ button.cf-picker-item:focus-visible {
   margin-top: 6px;
 }
 
+/* ADIF export mapping editor — one row per Noctalum data field, showing (and
+   for most of them, letting you change) the ADIF tag it exports as. */
+.adif-map-editor {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  background: var(--bg-elev-2);
+  margin-bottom: 6px;
+}
+.adif-map-intro {
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+.adif-map-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) auto minmax(0, 2fr);
+  gap: 8px;
+  align-items: center;
+  padding: 3px 0;
+  min-width: 0;
+}
+.adif-map-source {
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.adif-map-arrow {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.adif-map-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* `.modal-card select` stretches to 100%; inside the grid cell that would
+   crowd out the companion-tag hint next to it. */
+.modal-card .adif-map-control select {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 3px;
+}
+.adif-map-fixed,
+.adif-map-also {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.adif-map-fixed {
+  color: var(--accent);
+}
+.adif-map-row.fixed .adif-map-source,
+.adif-map-row.derived .adif-map-source {
+  color: var(--text-muted);
+}
+.adif-map-subhead {
+  margin: 10px 0 2px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.adif-map-warn:not(:empty) {
+  margin-top: 8px;
+  line-height: 1.4;
+}
+.adif-map-actions {
+  margin-top: 8px;
+}
+
 /* "Save as template" row inside the create-contest dialog. The name input
    only appears after the button is pressed, so the row stays a single quiet
    line until the operator actually wants it. */

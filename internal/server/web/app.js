@@ -5612,6 +5612,13 @@
     }
     const nrPadded = document.querySelector('#modal-card input[name=nr_padded]');
     if (nrPadded) nrPadded.checked = tpl.nr_padded !== false;
+    // The mapping editor is rebuilt rather than patched: its rows depend on
+    // the custom fields, which the template just replaced.
+    const mapEd = document.getElementById('adif-map-editor');
+    if (mapEd) {
+      mapEd.outerHTML = buildADIFMappingEditorHTML(tpl.adif_mapping || '', fields, false);
+      attachADIFMappingListeners(fields);
+    }
     return {
       log_columns: tpl.log_columns || '',
       freq_unit: tpl.freq_unit || 'kHz',
@@ -5676,6 +5683,8 @@
         ${buildCustomFieldsEditorHTML([])}
         <label style="margin-top:10px">${escHtml(t('contestScreen.layoutEditor'))} <span class="muted small">${escHtml(t('contestScreen.layoutHint'))}</span></label>
         ${buildLayoutEditorHTML()}
+        <label style="margin-top:10px">${escHtml(t('contestScreen.adifMapping'))} <span class="muted small">${escHtml(t('contestScreen.adifMappingHint'))}</span></label>
+        ${buildADIFMappingEditorHTML('', [], false)}
         <label style="margin-top:10px">${escHtml(t('contestScreen.objective'))} <span class="muted small">${escHtml(t('contestScreen.objectiveMdOptional'))}</span></label>
         <div class="md-editor-wrap">
           <textarea name="objective" placeholder="${escHtml(t('contestScreen.objectivePlaceholder'))}"></textarea>
@@ -5703,6 +5712,7 @@
           private: forcePrivate || !!(form.private && form.private.checked),
           custom_fields: serializeCustomFieldsEditor(),
           qso_layout: serializeQSOLayout(),
+          adif_mapping: serializeADIFMappingEditor(),
           log_columns: carried.log_columns,
           freq_unit: carried.freq_unit,
           stash_expiry_minutes: carried.stash_expiry_minutes,
@@ -5727,6 +5737,7 @@
     attachContestDatesListeners();
     attachCustomFieldsEditorListeners();
     attachLayoutEditorListeners('');
+    attachADIFMappingListeners([]);
     const taC = document.querySelector('#modal-card textarea[name=objective]');
     const previewC = $('modal-md-preview');
     if (taC && previewC) {
@@ -5756,6 +5767,7 @@
           objective: document.querySelector('#modal-card textarea[name=objective]')?.value || '',
           custom_fields: serializeCustomFieldsEditor(),
           qso_layout: serializeQSOLayout(),
+          adif_mapping: serializeADIFMappingEditor(),
           log_columns: carried.log_columns,
           freq_unit: carried.freq_unit,
           stash_expiry_minutes: carried.stash_expiry_minutes,
@@ -5888,6 +5900,8 @@
         <label style="margin-top:14px">${escHtml(t('contestScreen.logColumns'))}</label>
         <p class="muted small" style="margin:2px 0 0">${escHtml(t('contestScreen.logColumnsHint'))}</p>
         ${buildLogColumnsEditorHTML(c.log_columns || '', existingFields)}
+        <label style="margin-top:14px">${escHtml(t('contestScreen.adifMapping'))} <span class="muted small">${escHtml(t('contestScreen.adifMappingHint'))}</span></label>
+        ${buildADIFMappingEditorHTML(c.adif_mapping || '', existingFields, readOnly)}
         <div class="modal-err error"></div>
         ${actionsHtml}
       </form>
@@ -5906,6 +5920,7 @@
           objective: form.objective.value,
           custom_fields: serializeCustomFieldsEditor(),
           qso_layout: serializeQSOLayout(),
+          adif_mapping: serializeADIFMappingEditor(),
           log_columns: serializeLogColumnsEditor(),
           nr_padded: form.nr_padded.checked,
           stash_expiry_minutes: Math.max(1, parseInt(form.stash_expiry_minutes?.value || '60', 10) || 60),
@@ -5936,6 +5951,7 @@
       attachLayoutEditorListeners(c.qso_layout || '');
       initLogColDragDrop();
     }
+    attachADIFMappingListeners(existingFields);
     // Live markdown preview (always shown, read-only preview still renders)
     const ta = document.querySelector('#modal-card textarea[name=objective]');
     const preview = $('modal-md-preview');
@@ -6815,6 +6831,233 @@
       const total = showAll ? ADIF_FIELDS.length : ADIF_ADDABLE.length;
       count.textContent = t('contestScreen.cfPickerCount', { n: matches.length, total });
     }
+  }
+
+  // ----- ADIF export mapping editor -----
+  // Which ADIF tag each Noctalum data field lands on. The list and the default
+  // tags mirror adifSourceFields in internal/server/adif_mapping.go — keep in
+  // sync; the server is authoritative and ignores anything it does not know.
+  //
+  // `fixed` marks a field whose mapping cannot be changed because it does not
+  // correspond to a single tag (the QSO timestamp feeds QSO_DATE + TIME_ON).
+  // An empty `def` means the field is not exported until the operator maps it.
+  const ADIF_SOURCE_FIELDS = [
+    { key: 'callsign',     def: 'CALL' },
+    { key: 'name',         def: 'NAME' },
+    { key: 'time',         def: 'QSO_DATE', fixed: true, also: 'TIME_ON' },
+    { key: 'band',         def: 'BAND' },
+    { key: 'freq',         def: 'FREQ' },
+    { key: 'mode',         def: 'MODE',     also: 'SUBMODE' },
+    { key: 'rst_sent',     def: 'RST_SENT' },
+    { key: 'rst_received', def: 'RST_RCVD' },
+    { key: 'nr_sent',      def: 'STX' },
+    { key: 'nr_received',  def: 'SRX' },
+    { key: 'dok',          def: 'DARC_DOK' },
+    { key: 'locator',      def: 'GRIDSQUARE' },
+    { key: 'itu',          def: 'ITUZ' },
+    { key: 'cq',           def: 'CQZ' },
+    { key: 'lighthouse',   def: 'SIG_INFO', also: 'SIG' },
+    { key: 'operator',     def: 'OPERATOR' },
+    { key: 'station_call', def: 'STATION_CALLSIGN' },
+    { key: 'my_locator',   def: 'MY_GRIDSQUARE' },
+    { key: 'contest_name', def: 'CONTEST_ID' },
+    { key: 'notes',        def: 'NOTES' },
+    { key: 'distance',     def: '' },
+  ];
+  // Sentinel for "export nothing for this field". It has to be distinct from
+  // the empty string, which means "leave it on its default" — the same
+  // distinction the stored blob makes on the server. Hyphens keep it out of
+  // the ADIF tag namespace, so it can never collide with a real target.
+  const ADIF_MAP_OFF = '--off--';
+
+  function parseADIFMapping(json) {
+    if (!json) return {};
+    try {
+      const o = JSON.parse(json);
+      return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+    } catch { return {}; }
+  }
+
+  // Label for the left-hand column. The source keys are the same ones the log
+  // column and QSO mask editors use, so the existing translations cover them.
+  const ADIF_SOURCE_LABEL_KEYS = {
+    callsign: 'qso.callsign', name: 'qso.name', time: 'qso.utcTime',
+    band: 'qso.band', freq: 'qso.frequency', mode: 'qso.mode',
+    rst_sent: 'qso.rstSent', rst_received: 'qso.rstReceived',
+    nr_sent: 'qso.nrSent', nr_received: 'qso.nrReceived',
+    dok: 'qso.dok', locator: 'qso.locator', itu: 'qso.itu', cq: 'qso.cq',
+    lighthouse: 'qso.lighthouse', operator: 'contestScreen.adifMapOperator',
+    station_call: 'contestScreen.stationCall', my_locator: 'contestScreen.adifMapMyLocator',
+    contest_name: 'contestScreen.contestName', notes: 'qso.notes',
+    distance: 'contestScreen.adifMapDistance',
+  };
+  function adifSourceLabel(key) {
+    const k = ADIF_SOURCE_LABEL_KEYS[key];
+    return k ? t(k) : key;
+  }
+
+  // One <select> holding every tag a field may be pointed at, grouped the way
+  // the field picker groups them. Import-only fields are left out: exporting
+  // one produces a file strict validators reject, and the server refuses them
+  // anyway.
+  function adifTargetOptions(src, current) {
+    const opts = [];
+    const defLabel = src.def
+      ? t('contestScreen.adifMapDefaultIs', { tag: src.def })
+      : t('contestScreen.adifMapDefaultNone');
+    opts.push(`<option value=""${current === undefined ? ' selected' : ''}>${escHtml(defLabel)}</option>`);
+    opts.push(`<option value="${ADIF_MAP_OFF}"${current === '' ? ' selected' : ''}>${escHtml(t('contestScreen.adifMapOff'))}</option>`);
+    for (const g of ADIF_GROUPS) {
+      const inGroup = ADIF_FIELDS.filter(f => f.group === g && f.status !== 'deprecated');
+      if (!inGroup.length) continue;
+      const items = inGroup.map(f =>
+        `<option value="${escHtml(f.name)}"${current === f.name ? ' selected' : ''}>${escHtml(f.name)} — ${escHtml(adifFieldLabel(f.name))}</option>`
+      ).join('');
+      opts.push(`<optgroup label="${escHtml(t('adifGroup.' + g))}">${items}</optgroup>`);
+    }
+    return opts.join('');
+  }
+
+  function adifMappingRowHTML(src, mapping, readOnly) {
+    const current = Object.prototype.hasOwnProperty.call(mapping, src.key) ? mapping[src.key] : undefined;
+    const effective = current === undefined ? src.def : current;
+    const d = readOnly ? ' disabled' : '';
+    let control;
+    if (src.fixed) {
+      // Shown but not editable — "view" is half of what this editor is for.
+      control = `<span class="adif-map-fixed">${escHtml(src.def)}${src.also ? ' + ' + escHtml(src.also) : ''}</span>`;
+    } else {
+      control = `<select class="adif-map-target" data-src="${escHtml(src.key)}"${d}>${adifTargetOptions(src, current)}</select>`;
+    }
+    // The companion tag only rides along while the field sits on its default.
+    const companion = (src.also && !src.fixed && effective === src.def)
+      ? `<span class="adif-map-also">+ ${escHtml(src.also)}</span>` : '';
+    return `
+      <div class="adif-map-row${src.fixed ? ' fixed' : ''}" data-src="${escHtml(src.key)}">
+        <span class="adif-map-source">${escHtml(adifSourceLabel(src.key))}</span>
+        <span class="adif-map-arrow">&rarr;</span>
+        <span class="adif-map-control">${control}${companion}</span>
+      </div>`;
+  }
+
+  // Custom fields are listed too, read-only: their ADIF tag is decided by the
+  // field's own name, so there is nothing to choose here — but an operator
+  // asking "what does my export actually look like" should see them.
+  function adifCustomRowsHTML(customFields) {
+    return (customFields || []).map(cf => `
+        <div class="adif-map-row derived">
+          <span class="adif-map-source">${escHtml(cf.label || cf.name)}</span>
+          <span class="adif-map-arrow">&rarr;</span>
+          <span class="adif-map-control"><span class="adif-map-fixed">${escHtml(adifTagForCustomField(cf.name))}</span></span>
+        </div>`).join('');
+  }
+
+  // Mirrors adifFieldName + adif.Exportable in the Go exporter: a custom field
+  // named after a standard ADIF tag lands on that tag, anything else on
+  // APP_NOCTALUM_<NAME>.
+  function adifTagForCustomField(name) {
+    const tag = String(name || '').toUpperCase().replace(/[^A-Z0-9_]/g, '_') || 'FIELD';
+    const f = ADIF_BY_NAME.get(tag);
+    if (f && f.status !== 'builtin' && f.status !== 'deprecated') return tag;
+    return 'APP_NOCTALUM_' + tag;
+  }
+
+  function buildADIFMappingEditorHTML(mappingJSON, customFields, readOnly) {
+    const mapping = parseADIFMapping(mappingJSON);
+    const rows = ADIF_SOURCE_FIELDS.map(src => adifMappingRowHTML(src, mapping, readOnly)).join('');
+    const custom = adifCustomRowsHTML(customFields);
+    const customBlock = custom
+      ? `<div class="adif-map-subhead">${escHtml(t('contestScreen.adifMapCustomHead'))}</div>${custom}`
+      : '';
+    const reset = readOnly ? '' :
+      `<button type="button" class="ghost" id="adif-map-reset">${escHtml(t('contestScreen.resetDefaults'))}</button>`;
+    return `
+      <div class="adif-map-editor" id="adif-map-editor">
+        <div class="adif-map-intro muted small">${escHtml(t('contestScreen.adifMapIntro'))}</div>
+        ${rows}
+        ${customBlock}
+        <div class="adif-map-warn error small" id="adif-map-warn"></div>
+        <div class="adif-map-actions">${reset}</div>
+      </div>`;
+  }
+
+  function attachADIFMappingListeners(customFields) {
+    const editor = document.getElementById('adif-map-editor');
+    if (!editor) return;
+    editor.addEventListener('change', e => {
+      if (!e.target?.classList?.contains('adif-map-target')) return;
+      refreshADIFMappingRow(e.target.closest('.adif-map-row'));
+      checkADIFMappingCollisions(customFields);
+    });
+    document.getElementById('adif-map-reset')?.addEventListener('click', () => {
+      editor.querySelectorAll('.adif-map-target').forEach(sel => { sel.value = ''; });
+      editor.querySelectorAll('.adif-map-row').forEach(refreshADIFMappingRow);
+      checkADIFMappingCollisions(customFields);
+    });
+    checkADIFMappingCollisions(customFields);
+  }
+
+  // Keeps the "+ SIG" / "+ SUBMODE" hint honest as the operator changes a row.
+  function refreshADIFMappingRow(row) {
+    if (!row) return;
+    const src = ADIF_SOURCE_FIELDS.find(f => f.key === row.dataset.src);
+    const sel = row.querySelector('.adif-map-target');
+    if (!src || !src.also || !sel) return;
+    const onDefault = sel.value === '';
+    let also = row.querySelector('.adif-map-also');
+    if (onDefault && !also) {
+      also = document.createElement('span');
+      also.className = 'adif-map-also';
+      also.textContent = '+ ' + src.also;
+      row.querySelector('.adif-map-control').appendChild(also);
+    } else if (!onDefault && also) {
+      also.remove();
+    }
+  }
+
+  // Reads the tag a row currently resolves to, following the same three-way
+  // rule the stored blob uses: default / switched off / an explicit tag.
+  function adifEffectiveTag(src) {
+    if (src.fixed) return src.def;
+    const sel = document.querySelector(`.adif-map-target[data-src="${src.key}"]`);
+    if (!sel) return src.def;
+    if (sel.value === '') return src.def;
+    return sel.value === ADIF_MAP_OFF ? '' : sel.value;
+  }
+
+  // ADIF forbids a field name appearing twice in one record, so two Noctalum
+  // fields pointed at the same tag means the later one is silently dropped on
+  // export. Say so here rather than letting the operator find out from a
+  // missing column in their log check.
+  function checkADIFMappingCollisions(customFields) {
+    const warn = document.getElementById('adif-map-warn');
+    if (!warn) return;
+    const byTag = new Map();
+    const add = (tag, label) => {
+      if (!tag) return;
+      if (!byTag.has(tag)) byTag.set(tag, []);
+      byTag.get(tag).push(label);
+    };
+    for (const src of ADIF_SOURCE_FIELDS) add(adifEffectiveTag(src), adifSourceLabel(src.key));
+    for (const cf of (customFields || [])) add(adifTagForCustomField(cf.name), cf.label || cf.name);
+    const clashes = [...byTag.entries()].filter(([, names]) => names.length > 1);
+    warn.textContent = clashes.length
+      ? clashes.map(([tag, names]) => t('contestScreen.adifMapCollision', { tag, fields: names.join(', ') })).join(' ')
+      : '';
+  }
+
+  // Serialises overrides only — a field left on its default contributes no
+  // key, so a later Noctalum that changes a default still applies it here.
+  function serializeADIFMappingEditor() {
+    const editor = document.getElementById('adif-map-editor');
+    if (!editor) return '';
+    const out = {};
+    editor.querySelectorAll('.adif-map-target').forEach(sel => {
+      const key = sel.dataset.src;
+      if (sel.value === '') return;                            // default
+      out[key] = sel.value === ADIF_MAP_OFF ? '' : sel.value;  // off, or a tag
+    });
+    return Object.keys(out).length ? JSON.stringify(out) : '';
   }
 
   // ----- New QSO mask layout -----
@@ -8099,6 +8342,8 @@
         <label style="margin-top:14px">${escHtml(t('contestScreen.logColumns'))}</label>
         <p class="muted small" style="margin:2px 0 0">${escHtml(t('contestScreen.logColumnsHint'))}</p>
         ${buildLogColumnsEditorHTML(t0.log_columns || '', fields)}
+        <label style="margin-top:14px">${escHtml(t('contestScreen.adifMapping'))} <span class="muted small">${escHtml(t('contestScreen.adifMappingHint'))}</span></label>
+        ${buildADIFMappingEditorHTML(t0.adif_mapping || '', fields, readOnly)}
         <div class="modal-err error"></div>
         <div class="modal-actions">
           <button type="button" class="ghost cancel-btn">${escHtml(readOnly ? t('common.close') : t('common.cancel'))}</button>
@@ -8113,6 +8358,7 @@
         objective: form.objective.value,
         custom_fields: serializeCustomFieldsEditor(),
         qso_layout: serializeQSOLayout(),
+        adif_mapping: serializeADIFMappingEditor(),
         log_columns: serializeLogColumnsEditor(),
         nr_padded: form.nr_padded.checked,
         freq_unit: form.freq_unit?.value || 'kHz',
@@ -8132,6 +8378,7 @@
     attachCustomFieldsEditorListeners();
     attachLayoutEditorListeners(t0.qso_layout || '');
     initLogColDragDrop();
+    attachADIFMappingListeners(fields);
     const ta = document.querySelector('#modal-card textarea[name=objective]');
     const preview = $('modal-md-preview');
     if (ta && preview) {
