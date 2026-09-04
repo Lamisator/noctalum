@@ -1721,6 +1721,12 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			"default_band":            s.settings.DefaultBand,
 			"chat_sound":              s.settings.ChatSound,
 			"public_feature_requests": s.settings.PublicFeatureRequests,
+			// Ungated on purpose: every operator sees the maps, so every
+			// operator's browser has to be able to sign its tile requests.
+			// The key is public by construction — it rides in the tile URLs
+			// the browser fetches — so gating it on settings.write would
+			// only break the map for non-admins, not protect anything.
+			"map_tiles_api_key": s.settings.MapTilesAPIKey,
 		}
 		if HasPermission(sess.Permissions, PermSettingsWrite) {
 			out["helper_token"] = s.settings.HelperToken
@@ -1780,6 +1786,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			OIDCButtonLabel       *string `json:"oidc_button_label"`
 			OIDCCallsignClaim     *string `json:"oidc_callsign_claim"`
 			OIDCAutoCreate        *bool   `json:"oidc_auto_create"`
+			MapTilesAPIKey        *string `json:"map_tiles_api_key"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1874,6 +1881,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		if in.OIDCAutoCreate != nil {
 			ns.OIDCAutoCreate = *in.OIDCAutoCreate
 		}
+		// Unlike the QRZ/OIDC secrets, a blank value here is taken at face
+		// value so an operator can actually remove a revoked CARTO key.
+		if in.MapTilesAPIKey != nil {
+			ns.MapTilesAPIKey = strings.TrimSpace(*in.MapTilesAPIKey)
+		}
 		if err := s.store.SaveSettings(ns); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1944,6 +1956,13 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.OIDCAutoCreate != nil {
 			appendDetail("oidc_auto_create", strconv.FormatBool(*in.OIDCAutoCreate))
+		}
+		if in.MapTilesAPIKey != nil {
+			if ns.MapTilesAPIKey == "" {
+				appendDetail("map_tiles_api_key", "cleared")
+			} else {
+				appendDetail("map_tiles_api_key", "updated")
+			}
 		}
 		// Retention is edited in the same "Global Settings" form but
 		// gated on backups.manage rather than settings.write — spell

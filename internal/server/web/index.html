@@ -296,6 +296,15 @@
         </label>
       </fieldset>
       <fieldset style="margin-top:16px">
+        <legend data-i18n="globalSettings.mapTilesTitle">Map tiles</legend>
+        <p class="muted small" data-i18n-html="globalSettings.mapTilesHint">The world map, the contest map and the PDF map export draw their background from CARTO. Since August 2026 CARTO stamps an &quot;API KEY REQUIRED&quot; watermark across every tile requested without a key. A key is free for up to 5 million tiles per month &mdash; request one at <a href="https://carto.com/basemaps/apikey/" target="_blank" rel="noopener">carto.com/basemaps/apikey</a>.</p>
+        <label style="margin-top:6px"><span data-i18n="globalSettings.mapTilesKey">CARTO Basemaps API key</span>
+          <input id="gs-map-tiles-key" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. v1.abcdef0123456789" style="max-width:340px" />
+        </label>
+        <p class="muted small" style="margin-top:6px" data-i18n="globalSettings.mapTilesKeyHint">Leave empty to run without a key &mdash; the maps still work, but every tile carries the watermark. Clearing a stored key removes it.</p>
+        <span id="gs-map-tiles-status" class="muted small" style="display:block;margin-top:4px"></span>
+      </fieldset>
+      <fieldset style="margin-top:16px">
         <legend data-i18n="globalSettings.oidcTitle">Single sign-on (OIDC)</legend>
         <p class="muted small" data-i18n="globalSettings.oidcHint">When enabled, the login screen shows an extra button that redirects the operator to an external identity provider (e.g. Zitadel, Keycloak). Register the redirect URL below with the IdP.</p>
         <label style="display:flex;align-items:center;gap:8px;margin-top:6px">

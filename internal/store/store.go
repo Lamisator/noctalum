@@ -73,6 +73,15 @@ type Settings struct {
 	OIDCButtonLabel   string `json:"oidc_button_label"`   // e.g. "Sign in with Zitadel"
 	OIDCCallsignClaim string `json:"oidc_callsign_claim"` // ID-token claim name to seed the callsign; default preferred_username
 	OIDCAutoCreate    bool   `json:"oidc_auto_create"`    // provision unknown users on first successful SSO login
+
+	// MapTilesAPIKey is the CARTO Basemaps key appended to every
+	// basemaps.cartocdn.com tile request as "?key=". CARTO started
+	// enforcing keys in August 2026 — without one the tiles still come
+	// back HTTP 200 but carry an "API KEY REQUIRED" watermark. A key is
+	// free (5M tile requests/month) and is not really a secret: it
+	// travels in the tile URLs the browser fetches, so it is served to
+	// every logged-in user rather than gated on settings.write.
+	MapTilesAPIKey string `json:"map_tiles_api_key"`
 }
 
 // DummyRig is a simulated transceiver configuration persisted in the database.
@@ -863,6 +872,8 @@ func (s *Store) LoadSettings() (Settings, error) {
 			out.OIDCCallsignClaim = v
 		case "oidc_auto_create":
 			out.OIDCAutoCreate = v == "1" || v == "true"
+		case "map_tiles_api_key":
+			out.MapTilesAPIKey = v
 		}
 	}
 	return out, rows.Err()
@@ -918,6 +929,10 @@ func (s *Store) SaveSettings(set Settings) error {
 		oidcAuto = "1"
 	}
 	pairs = append(pairs, [2]string{"oidc_auto_create", oidcAuto})
+	// Always persisted (not gated on non-empty like the QRZ/OIDC secrets)
+	// so clearing the input is a real "drop the key" action — an operator
+	// who rotates or revokes a CARTO key must be able to remove it.
+	pairs = append(pairs, [2]string{"map_tiles_api_key", set.MapTilesAPIKey})
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err

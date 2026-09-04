@@ -600,6 +600,51 @@
   let contestGlobeLastVisItems = [];
   let contestGlobeLastQthProj = null;
 
+  // ----- basemap tiles -----
+  // CARTO began enforcing API keys on basemaps.cartocdn.com in August 2026.
+  // Keyless requests are not rejected — they still return HTTP 200 with a
+  // valid PNG — but the image carries an "API KEY REQUIRED" watermark burned
+  // diagonally across it, so the failure is invisible to error handling and
+  // shows up only as an unreadable map. The key is an operator-managed global
+  // setting (Global Settings → Map tiles); CARTO issues one free for up to
+  // 5M tile requests/month.
+  let mapTilesApiKey = '';
+  // Every tile layer we create is registered here so setMapTilesApiKey() can
+  // rewrite its URL in place. That decouples map construction from settings
+  // loading (a map built before /api/settings answers still picks the key up)
+  // and lets an admin save a new key without reloading the page.
+  const mapTileLayers = new Set();
+
+  function cartoTileURL(style) {
+    const base = `https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png`;
+    return mapTilesApiKey ? `${base}?key=${encodeURIComponent(mapTilesApiKey)}` : base;
+  }
+
+  function addCartoTiles(map, style, opts = {}) {
+    const layer = L.tileLayer(cartoTileURL(style), {
+      attribution: '© <a href="https://www.openstreetmap.org/">OSM</a> © <a href="https://carto.com/">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 18,
+      ...opts,
+    });
+    layer._noctalumTileStyle = style;
+    mapTileLayers.add(layer);
+    // Leaflet keeps no back-reference from a removed layer, so drop ours on
+    // removal — otherwise the throwaway layer the PDF export builds would
+    // pin its whole map in memory for the life of the session.
+    layer.on('remove', () => mapTileLayers.delete(layer));
+    return layer.addTo(map);
+  }
+
+  function setMapTilesApiKey(key) {
+    const v = (key || '').trim();
+    if (v === mapTilesApiKey) return;
+    mapTilesApiKey = v;
+    for (const layer of mapTileLayers) {
+      try { layer.setUrl(cartoTileURL(layer._noctalumTileStyle)); } catch {}
+    }
+  }
+
   function initLeafletMap() {
     const el = $('map-canvas');
     if (!el || leafletMap || typeof L === 'undefined') return;
@@ -609,11 +654,7 @@
         attributionControl: true,
         scrollWheelZoom: true,
       }).setView([20, 0], 1);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/">OSM</a> © <a href="https://carto.com/">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 18,
-      }).addTo(leafletMap);
+      addCartoTiles(leafletMap, 'dark_all');
     } catch (e) {
       leafletMap = null;
       console.warn('Leaflet init failed:', e);
@@ -884,6 +925,12 @@
         if ($('gs-backup-retention')) $('gs-backup-retention').value = bkRet;
         currentSound = s.chat_sound || '';
         $('gs-public-feature-requests').checked = !!s.public_feature_requests;
+        // The map key is returned to every caller (all operators need it to
+        // render tiles), so unlike the OIDC block below it needs no guard.
+        const mapKey = s.map_tiles_api_key || '';
+        $('gs-map-tiles-key').value = mapKey;
+        $('gs-map-tiles-status').textContent =
+          mapKey ? t('globalSettings.mapTilesConfigured') : t('globalSettings.mapTilesNotConfigured');
         if ('qrz_username' in s) {
           _gsQrzLoadedUser = s.qrz_username || '';
           $('gs-qrz-user').value = _gsQrzLoadedUser;
@@ -997,6 +1044,7 @@
       cluster_retention_days: parseInt($('gs-cluster-retention').value) || 7,
       chat_sound: $('gs-chat-sound').value,
       public_feature_requests: $('gs-public-feature-requests').checked,
+      map_tiles_api_key: $('gs-map-tiles-key').value.trim(),
     };
     // Only include the backup retention field when the input exists
     // (perm-required fieldset hides it for non-backup-managers).
@@ -1038,7 +1086,14 @@
     if (settings) {
       settings.chat_sound = body.chat_sound;
       settings.public_feature_requests = body.public_feature_requests;
+      settings.map_tiles_api_key = body.map_tiles_api_key;
     }
+    // Re-sign the tiles of any live map immediately, so the admin sees the
+    // watermark clear (or come back) without reloading the page.
+    setMapTilesApiKey(body.map_tiles_api_key);
+    $('gs-map-tiles-status').textContent = body.map_tiles_api_key
+      ? t('globalSettings.mapTilesConfigured')
+      : t('globalSettings.mapTilesNotConfigured');
   });
 
   $('gs-oidc-redirect-copy')?.addEventListener('click', () => {
@@ -2122,11 +2177,7 @@
       // dark pixels on a printed log page. The result is a clean outline map
       // that still shows continents and country borders but does not bleed
       // toner across every populated area like light_all did.
-      const tl = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
-        subdomains: 'abcd',
-        maxZoom: 18,
-        crossOrigin: 'anonymous',
-      }).addTo(tmpMap);
+      const tl = addCartoTiles(tmpMap, 'light_nolabels', { crossOrigin: 'anonymous' });
 
       // Great-circle paths (drawn first so markers sit on top).
       if (myPos) {
@@ -2441,11 +2492,7 @@
     try {
       contestMap = L.map(el, { zoomControl: true, attributionControl: true, scrollWheelZoom: true })
         .setView([20, 10], 2);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/">OSM</a> © <a href="https://carto.com/">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 18,
-      }).addTo(contestMap);
+      addCartoTiles(contestMap, 'dark_all');
     } catch (e) { contestMap = null; }
   }
 
@@ -4790,6 +4837,8 @@
     const res = await api('/api/settings');
     if (!res.ok) return;
     settings = await res.json();
+    // Push the CARTO key into any already-built map as well as future ones.
+    setMapTilesApiKey(settings.map_tiles_api_key);
     fillSelect($('s-mode'), MODES, settings.default_mode || 'SSB');
     fillSelect($('s-band'), BANDS, settings.default_band || '20m', fmtBand);
     $('s-token').value = me?.helper_token || '';
