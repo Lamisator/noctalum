@@ -3975,10 +3975,14 @@ func (s *Server) handleExportADIF(w http.ResponseWriter, r *http.Request) {
 		ProgramID:      programID,
 		ProgramVersion: programVersion,
 		MyGridsquare:   sess.ContestQTH(),
+		// The session carries the same flag the log table renders with, so a
+		// failed contest fetch below still exports what the operator sees.
+		NrPadded: sess.ContestNrPadded(),
 	}
 	if c, err := s.store.GetContest(contestID); err == nil {
 		opts.CustomFieldsJSON = c.CustomFields
 		opts.MappingJSON = c.ADIFMapping
+		opts.NrPadded = c.NrPadded
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: ADIF")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -4124,7 +4128,7 @@ func (s *Server) handleExportPDF(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: PDF")
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", attachmentDisposition(exportFilename(contestName, contestCall, "pdf")))
-	if err := ExportPDF(w, qsos, cols, contestName, contestCall, sess.ContestQTH(), logoPNG, programVersion, freqUnit, mapImagePNG, mapPageTitle); err != nil {
+	if err := ExportPDF(w, qsos, cols, contestName, contestCall, sess.ContestQTH(), logoPNG, programVersion, freqUnit, c.NrPadded, mapImagePNG, mapPageTitle); err != nil {
 		log.Printf("PDF export error: %v", err)
 	}
 }

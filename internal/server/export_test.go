@@ -52,6 +52,83 @@ func TestExportADIFEmitsSTXSRX(t *testing.T) {
 	}
 }
 
+// The contest's "pad serial numbers to 3 digits" setting reached the log
+// table and the New-QSO preview but not the exports, so an operator who logged
+// and sent 001/042 got 1/42 in the ADIF file. Verify STX/SRX carry the padded
+// form when the setting is on.
+func TestExportADIFPadsSerials(t *testing.T) {
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, ADIFExportOptions{
+		ProgramID: "Noctalum", ProgramVersion: "test", NrPadded: true,
+	}); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "<STX:3>017") {
+		t.Errorf("STX not zero-padded: %q", out)
+	}
+	if !strings.Contains(out, "<SRX:3>023") {
+		t.Errorf("SRX not zero-padded: %q", out)
+	}
+}
+
+// Padding must not invent a serial for QSOs that never had one.
+func TestExportADIFPaddingKeepsZeroOmitted(t *testing.T) {
+	q := sampleQSO()
+	q.NrSent = 0
+	q.NrReceived = 0
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{
+		ProgramID: "Noctalum", ProgramVersion: "test", NrPadded: true,
+	}); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	if out := buf.String(); strings.Contains(out, "<STX:") || strings.Contains(out, "<SRX:") {
+		t.Errorf("padding emitted 000 for a QSO without a serial: %q", out)
+	}
+}
+
+func TestFormatSerial(t *testing.T) {
+	for _, tc := range []struct {
+		n      int
+		padded bool
+		want   string
+	}{
+		{0, true, ""},
+		{0, false, ""},
+		{-1, true, ""},
+		{1, true, "001"},
+		{1, false, "1"},
+		{42, true, "042"},
+		{999, true, "999"},
+		{1000, true, "1000"}, // past 999 the natural width wins
+		{1000, false, "1000"},
+	} {
+		if got := formatSerial(tc.n, tc.padded); got != tc.want {
+			t.Errorf("formatSerial(%d, %v) = %q, want %q", tc.n, tc.padded, got, tc.want)
+		}
+	}
+}
+
+// The PDF renders the same serials as the on-screen log, so it honours the
+// same setting.
+func TestQSOColValuePDFPadsSerials(t *testing.T) {
+	q := sampleQSO()
+	if got := qsoColValuePDF(q, "nr_sent", nil, "kHz", "", true); got != "017" {
+		t.Errorf("padded nr_sent = %q, want \"017\"", got)
+	}
+	if got := qsoColValuePDF(q, "nr_received", nil, "kHz", "", true); got != "023" {
+		t.Errorf("padded nr_received = %q, want \"023\"", got)
+	}
+	if got := qsoColValuePDF(q, "nr_sent", nil, "kHz", "", false); got != "17" {
+		t.Errorf("unpadded nr_sent = %q, want \"17\"", got)
+	}
+	q.NrSent = 0
+	if got := qsoColValuePDF(q, "nr_sent", nil, "kHz", "", true); got != "" {
+		t.Errorf("nr_sent without a serial = %q, want empty", got)
+	}
+}
+
 func TestExportADIFOmitsSTXSRXWhenZero(t *testing.T) {
 	q := sampleQSO()
 	q.NrSent = 0

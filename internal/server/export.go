@@ -55,6 +55,28 @@ type ADIFExportOptions struct {
 	// each Noctalum data field lands on, for the fields whose mapping the
 	// operator changed. Empty means "everything at its default".
 	MappingJSON string
+	// NrPadded mirrors the contest's "pad serial numbers to 3 digits"
+	// setting, so STX/SRX carry the same 001/042 form the operator sees in
+	// the log and sends on the air.
+	NrPadded bool
+}
+
+// formatSerial renders a contest serial number the way the contest's
+// "pad serial numbers to 3 digits" setting says it should look: 001, 042, 117
+// when padding is on, 1, 42, 117 when it is off. Serials past 999 keep their
+// natural width either way.
+//
+// A serial of 0 means "this QSO has no sequence number" — non-contest QSOs and
+// ADIF imports that arrived without one — and always renders empty so a bare 0
+// never leaks into an export.
+func formatSerial(n int, padded bool) string {
+	if n <= 0 {
+		return ""
+	}
+	if padded {
+		return fmt.Sprintf("%03d", n)
+	}
+	return strconv.Itoa(n)
 }
 
 // ExportADIF writes the QSO list to w in ADIF 3.x format.
@@ -130,7 +152,7 @@ func ExportADIF(w io.Writer, qsos []store.QSO, opts ADIFExportOptions) error {
 			if tag == "" {
 				continue // no default, or switched off by the operator
 			}
-			value := adifSourceValue(src.Key, q, opts.MyGridsquare)
+			value := adifSourceValue(src.Key, q, opts.MyGridsquare, opts.NrPadded)
 			switch src.Key {
 			case "contest_name":
 				if notesPrefix != "" {

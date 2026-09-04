@@ -182,8 +182,9 @@ func adifMappableTarget(tag string) bool {
 
 // adifSourceValue returns the exportable value of one Noctalum source field,
 // or "" when this QSO has nothing to say for it. myGridsquare is the contest
-// QTH — the logging station's own locator.
-func adifSourceValue(key string, q store.QSO, myGridsquare string) string {
+// QTH — the logging station's own locator. nrPadded is the contest's serial
+// padding setting and only affects the two serial fields.
+func adifSourceValue(key string, q store.QSO, myGridsquare string, nrPadded bool) string {
 	switch key {
 	case "callsign":
 		return q.Callsign
@@ -204,17 +205,14 @@ func adifSourceValue(key string, q store.QSO, myGridsquare string) string {
 	case "rst_received":
 		return q.RSTReceived
 	case "nr_sent":
-		// Omit when unset so 0 doesn't leak into non-contest QSOs that were
-		// imported without a sequence.
-		if q.NrSent <= 0 {
-			return ""
-		}
-		return strconv.Itoa(q.NrSent)
+		// formatSerial omits an unset serial so 0 doesn't leak into
+		// non-contest QSOs that were imported without a sequence, and applies
+		// the contest's zero-padding. ADIF's Integer type is "a sequence of
+		// Digits", so leading zeros are conforming; importers that parse STX
+		// into an int simply drop them again.
+		return formatSerial(q.NrSent, nrPadded)
 	case "nr_received":
-		if q.NrReceived <= 0 {
-			return ""
-		}
-		return strconv.Itoa(q.NrReceived)
+		return formatSerial(q.NrReceived, nrPadded)
 	case "dok":
 		return strings.ToUpper(q.DOK)
 	case "locator":

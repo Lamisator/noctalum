@@ -37,11 +37,12 @@ const pdfDefaultColWidth = 18.0
 
 // ExportPDF writes a styled PDF report of the contest log to w.
 //
-// cols is the ordered list of columns to render. logoPNG, when non-nil, is
-// rendered as the small logo on the top-left of the header. mapImagePNG, when
-// non-nil, appends an extra page with a 2D map of all QSOs; mapPageTitle is
-// the heading shown on that page.
-func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, stationCall, qth string, logoPNG []byte, programVersion, freqUnit string, mapImagePNG []byte, mapPageTitle string) error {
+// cols is the ordered list of columns to render. nrPadded mirrors the
+// contest's serial-number padding setting so the printed log reads the same as
+// the on-screen one. logoPNG, when non-nil, is rendered as the small logo on
+// the top-left of the header. mapImagePNG, when non-nil, appends an extra page
+// with a 2D map of all QSOs; mapPageTitle is the heading shown on that page.
+func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, stationCall, qth string, logoPNG []byte, programVersion, freqUnit string, nrPadded bool, mapImagePNG []byte, mapPageTitle string) error {
 	pdf := gofpdf.New("L", "mm", "A4", "")
 	pdf.SetMargins(10, 10, 10)
 	pdf.SetAutoPageBreak(true, 14)
@@ -171,7 +172,7 @@ func ExportPDF(w io.Writer, qsos []store.QSO, cols []LogColumn, contestName, sta
 		cellLines := make([][]string, len(cols))
 		maxLines := 1
 		for j, c := range cols {
-			translated := s(qsoColValuePDF(q, c.Key, extras, freqUnit, qth))
+			translated := s(qsoColValuePDF(q, c.Key, extras, freqUnit, qth, nrPadded))
 			if translated == "" {
 				cellLines[j] = []string{""}
 				continue
@@ -276,18 +277,12 @@ func alignFor(key string) string {
 	return "L"
 }
 
-func qsoColValuePDF(q store.QSO, key string, extras map[string]string, freqUnit, stationQTH string) string {
+func qsoColValuePDF(q store.QSO, key string, extras map[string]string, freqUnit, stationQTH string, nrPadded bool) string {
 	switch key {
 	case "nr_sent":
-		if q.NrSent > 0 {
-			return fmt.Sprintf("%d", q.NrSent)
-		}
-		return ""
+		return formatSerial(q.NrSent, nrPadded)
 	case "nr_received":
-		if q.NrReceived > 0 {
-			return fmt.Sprintf("%d", q.NrReceived)
-		}
-		return ""
+		return formatSerial(q.NrReceived, nrPadded)
 	case "time":
 		return q.Time.UTC().Format("2006-01-02 15:04:05")
 	case "callsign":
