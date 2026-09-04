@@ -390,3 +390,111 @@ func TestExportCSVIncludesNRColumns(t *testing.T) {
 		t.Errorf("CSV row missing NR values (17,23): %q", row)
 	}
 }
+
+// ADIF fields the catalogue only learned about in 3.1.6 / 3.1.7 (BAND_RX,
+// ALTITUDE, CONT, MORSE_KEY_TYPE, the DCL/HAMLOG.EU/HamQTH upload fields)
+// used to be missing from the hand-maintained standard-tag set, so they were
+// exported as APP_NOCTALUM_* and no award tracker or logbook saw them.
+func TestExportADIFRecentSpecFieldsUseStandardTags(t *testing.T) {
+	q := sampleQSO()
+	q.Extras = `{"BAND_RX":"20m","ALTITUDE":"1500","CONT":"EU","MORSE_KEY_TYPE":"BUG"}`
+	cfJSON := `[{"name":"BAND_RX"},{"name":"ALTITUDE"},{"name":"CONT"},{"name":"MORSE_KEY_TYPE"}]`
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", cfJSON, ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"<BAND_RX:3>20m", "<ALTITUDE:4>1500", "<CONT:2>EU", "<MORSE_KEY_TYPE:3>BUG"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %s in export: %q", want, out)
+		}
+	}
+	if strings.Contains(out, "APP_NOCTALUM_") {
+		t.Errorf("spec fields must not fall back to the APP_ namespace: %q", out)
+	}
+}
+
+// Date and time fields come out of the entry mask in the form the native
+// browser control produces (2026-03-22 / 14:05); ADIF wants YYYYMMDD and
+// HHMMSS. Booleans normalise to Y/N whatever the operator typed.
+func TestExportADIFNormalisesDateTimeAndBooleanFields(t *testing.T) {
+	q := sampleQSO()
+	q.Extras = `{"QSLSDATE":"2026-03-22","TIME_OFF":"14:05","SILENT_KEY":"yes","QSLRDATE":"not a date"}`
+	cfJSON := `[{"name":"QSLSDATE"},{"name":"TIME_OFF"},{"name":"SILENT_KEY"},{"name":"QSLRDATE"}]`
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", cfJSON, ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"<QSLSDATE:8>20260322", "<TIME_OFF:6>140500", "<SILENT_KEY:1>Y"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %s in export: %q", want, out)
+		}
+	}
+	// An unparseable date is dropped rather than emitted — a malformed Date
+	// value gets the whole record rejected by strict importers.
+	if strings.Contains(out, "QSLRDATE") {
+		t.Errorf("unparseable date must be dropped, not emitted: %q", out)
+	}
+}
+
+// ADIF String fields are ASCII-only; the spec's _INTL sibling is where UTF-8
+// belongs. A custom field carrying umlauts must switch to the sibling tag.
+func TestExportADIFCustomFieldUsesIntlSiblingForUTF8(t *testing.T) {
+	q := sampleQSO()
+	q.Extras = `{"QTH":"München","MY_CITY":"Berlin"}`
+	cfJSON := `[{"name":"QTH"},{"name":"MY_CITY"}]`
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", cfJSON, ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	// "München" is 8 bytes in UTF-8 — ADIF 3.1.5+ counts IntlString lengths
+	// in bytes, which is what writeField emits.
+	if !strings.Contains(out, "<QTH_INTL:8>München") {
+		t.Errorf("non-ASCII QTH must go into QTH_INTL: %q", out)
+	}
+	if strings.Contains(out, "<QTH:") {
+		t.Errorf("ASCII-only QTH tag must not carry a UTF-8 value: %q", out)
+	}
+	// Pure ASCII stays on the plain tag.
+	if !strings.Contains(out, "<MY_CITY:6>Berlin") {
+		t.Errorf("ASCII value should stay on the plain tag: %q", out)
+	}
+}
+
+// A custom field named after a tag the exporter already writes from a
+// dedicated QSO column must never produce a second Data Specifier — ADIF
+// forbids a field name appearing twice in one record. Such names fall back to
+// the APP_ namespace instead, where importers ignore rather than reject them.
+func TestExportADIFCustomFieldCannotDuplicateBuiltinTag(t *testing.T) {
+	q := sampleQSO()
+	q.Callsign = "DM2LAP"
+	q.Extras = `{"CALL":"WRONG","DARC_DOK":"Z99","GUEST_OP":"DL1ABC"}`
+	cfJSON := `[{"name":"CALL"},{"name":"DARC_DOK"},{"name":"GUEST_OP"}]`
+	var buf bytes.Buffer
+	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", cfJSON, ""); err != nil {
+		t.Fatalf("ExportADIF: %v", err)
+	}
+	out := buf.String()
+	if strings.Count(out, "<CALL:") != 1 {
+		t.Errorf("CALL must appear exactly once per record: %q", out)
+	}
+	if !strings.Contains(out, "<APP_NOCTALUM_CALL:5>WRONG") {
+		t.Errorf("a custom field colliding with a built-in tag belongs in the APP_ namespace: %q", out)
+	}
+	if strings.Count(out, "<DARC_DOK:") != 1 {
+		t.Errorf("DARC_DOK must appear exactly once per record: %q", out)
+	}
+	if !strings.Contains(out, "<APP_NOCTALUM_DARC_DOK:3>Z99") {
+		t.Errorf("the colliding DARC_DOK value belongs in the APP_ namespace: %q", out)
+	}
+	// GUEST_OP is import-only per the spec — exporting it would produce a
+	// file strict validators reject.
+	if strings.Contains(out, "<GUEST_OP:") {
+		t.Errorf("deprecated import-only field must not be exported as a standard tag: %q", out)
+	}
+	if !strings.Contains(out, "APP_NOCTALUM_GUEST_OP") {
+		t.Errorf("deprecated field should fall back to the APP_ namespace: %q", out)
+	}
+}

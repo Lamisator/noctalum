@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/noctalum/noctalum/internal/adif"
 	"github.com/noctalum/noctalum/internal/store"
 )
 
@@ -165,6 +166,14 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 			}
 		}
 		if len(customFields) > 0 {
+			// ADIF forbids the same field appearing twice in one record.
+			// Everything above is emitted from a dedicated QSO column, so
+			// seed the guard with those tags and let it also catch two
+			// custom fields that normalise onto the same name.
+			emitted := map[string]bool{}
+			for _, tag := range builtinADIFTags {
+				emitted[tag] = true
+			}
 			extras := parseExtras(q.Extras)
 			for _, cf := range customFields {
 				if cf.Name == "" {
@@ -174,17 +183,37 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 				if val == "" {
 					continue
 				}
-				// If the operator named their custom field after a
-				// standard ADIF tag (e.g. "STATE", "POTA_REF"), emit
-				// it under that standard tag so award trackers can
-				// consume it directly. Anything not in the standard
-				// enum falls back to APP_<PROGRAMID>_<NAME> — that's
-				// the ADIF-defined escape hatch for application-
-				// specific data.
+				// If the operator named their custom field after a standard
+				// ADIF tag (e.g. "STATE", "POTA_REF"), emit it under that
+				// standard tag so award trackers can consume it directly.
+				// Anything the ADIF catalogue doesn't recognise — plus the
+				// tags we already write ourselves and the spec's import-only
+				// fields — falls back to APP_<PROGRAMID>_<NAME>, the
+				// ADIF-defined escape hatch for application-specific data.
 				tag := adifFieldName(cf.Name)
-				if _, std := adifStandardFields[tag]; !std {
+				if f, ok := adif.Exportable(tag); ok {
+					// The entry mask hands back what its control produced:
+					// "2026-03-22" from a date picker, "14:05" from a time
+					// picker. ADIF wants 20260322 / 140500.
+					val = adif.Normalize(f, val)
+					if val == "" {
+						continue
+					}
+					if f.Type == "MultilineString" || f.Type == "IntlMultilineString" {
+						val = normaliseCRLF(val)
+					}
+					// ADIF String fields are ASCII-only; the spec's _INTL
+					// sibling is the UTF-8 home for values that aren't.
+					if f.Intl != "" && hasNonASCII(val) {
+						tag = f.Intl
+					}
+				} else {
 					tag = appPrefix + tag
 				}
+				if emitted[tag] {
+					continue
+				}
+				emitted[tag] = true
 				writeField(w, tag, val)
 			}
 		}
@@ -330,125 +359,19 @@ func adifContestID(name string) (string, bool) {
 	return id, ok
 }
 
-// adifStandardFields is the set of ADIF 3.1.5 QSO field names we recognise
-// when deciding whether a custom field should be emitted as a standard tag
-// or wrapped in APP_<PROGRAMID>_. Keys are the canonical upper-case tag
-// names (matching what adifFieldName produces from operator input).
-//
-// The set is intentionally broad — it covers every field an operator is
-// realistically likely to add via the custom-fields editor. Fields we
-// already emit ourselves from dedicated QSO columns (CALL, NAME, MODE,
-// BAND, FREQ, RST_*, GRIDSQUARE, ITUZ, CQZ, STX, SRX, OPERATOR,
-// STATION_CALLSIGN, MY_GRIDSQUARE, SIG, SIG_INFO, DARC_DOK, CONTEST_ID,
-// NOTES, NAME_INTL, NOTES_INTL) are deliberately *excluded*: if a user
-// tries to re-declare one of those, letting it slip through the standard
-// path would double-emit the tag with a bogus (and probably empty) value.
-// Keeping them out forces the collision back into the APP_ namespace where
-// it is at worst ignored by importers.
-var adifStandardFields = map[string]struct{}{
-	"ADDRESS": {}, "ADDRESS_INTL": {}, "AGE": {},
-	"A_INDEX":   {},
-	"ANT_AZ":    {},
-	"ANT_EL":    {},
-	"ANT_PATH":  {},
-	"ARRL_SECT": {},
-	"AWARD_GRANTED": {}, "AWARD_SUBMITTED": {},
-	"CHECK":            {},
-	"CLASS":            {},
-	"CLUBLOG_QSO_UPLOAD_DATE":   {},
-	"CLUBLOG_QSO_UPLOAD_STATUS": {},
-	"CNTY":                      {},
-	"COMMENT":                   {}, "COMMENT_INTL": {},
-	"CONTACTED_OP": {},
-	"COUNTRY":      {}, "COUNTRY_INTL": {},
-	"CREDIT_GRANTED": {}, "CREDIT_SUBMITTED": {},
-	"DISTANCE":  {},
-	"DXCC":      {},
-	"EMAIL":     {},
-	"EQ_CALL":   {},
-	"EQSL_QSLRDATE": {}, "EQSL_QSLSDATE": {},
-	"EQSL_QSL_RCVD": {}, "EQSL_QSL_SENT": {},
-	"FISTS": {}, "FISTS_CC": {},
-	"FORCE_INIT": {},
-	"FREQ_RX":    {},
-	"GRIDSQUARE_EXT": {},
-	"GUEST_OP":       {},
-	"HRDLOG_QSO_UPLOAD_DATE":   {},
-	"HRDLOG_QSO_UPLOAD_STATUS": {},
-	"IOTA":                     {}, "IOTA_ISLAND_ID": {},
-	"K_INDEX":     {},
-	"LAT":         {},
-	"LON":         {},
-	"LOTW_QSLRDATE": {}, "LOTW_QSLSDATE": {},
-	"LOTW_QSL_RCVD": {}, "LOTW_QSL_SENT": {},
-	"MAX_BURSTS": {},
-	"MS_SHOWER":  {},
-	"MY_ANTENNA": {}, "MY_ANTENNA_INTL": {},
-	"MY_ARRL_SECT": {},
-	"MY_CITY":      {}, "MY_CITY_INTL": {},
-	"MY_CNTY":    {},
-	"MY_COUNTRY": {}, "MY_COUNTRY_INTL": {},
-	"MY_CQ_ZONE": {},
-	"MY_DXCC":    {},
-	"MY_FISTS":   {},
-	"MY_IOTA":    {}, "MY_IOTA_ISLAND_ID": {},
-	"MY_ITU_ZONE": {},
-	"MY_LAT":      {},
-	"MY_LON":      {},
-	"MY_NAME":     {}, "MY_NAME_INTL": {},
-	"MY_POSTAL_CODE": {}, "MY_POSTAL_CODE_INTL": {},
-	"MY_POTA_REF":    {},
-	"MY_RIG":         {}, "MY_RIG_INTL": {},
-	"MY_SIG": {}, "MY_SIG_INFO": {}, "MY_SIG_INFO_INTL": {}, "MY_SIG_INTL": {},
-	"MY_SOTA_REF": {},
-	"MY_STATE":    {},
-	"MY_STREET":   {}, "MY_STREET_INTL": {},
-	"MY_USACA_COUNTIES": {},
-	"MY_VUCC_GRIDS":     {},
-	"MY_WWFF_REF":       {},
-	"NR_BURSTS":         {},
-	"NR_PINGS":          {},
-	"OWNER_CALLSIGN":    {},
-	"PFX":               {},
-	"POTA_REF":          {},
-	"PRECEDENCE":        {},
-	"PROP_MODE":         {},
-	"PUBLIC_KEY":        {},
-	"QRZCOM_QSO_UPLOAD_DATE":   {},
-	"QRZCOM_QSO_UPLOAD_STATUS": {},
-	"QSLMSG":                   {}, "QSLMSG_INTL": {},
-	"QSLRDATE":  {},
-	"QSLSDATE":  {},
-	"QSL_RCVD":  {}, "QSL_RCVD_VIA": {},
-	"QSL_SENT":  {}, "QSL_SENT_VIA": {},
-	"QSL_VIA":   {},
-	"QSO_COMPLETE": {},
-	"QSO_RANDOM":   {},
-	"QTH":          {}, "QTH_INTL": {},
-	"REGION": {},
-	"RIG":    {}, "RIG_INTL": {},
-	"RX_PWR":       {},
-	"SAT_MODE":     {},
-	"SAT_NAME":     {},
-	"SFI":          {},
-	"SILENT_KEY":   {},
-	"SKCC":         {},
-	"SOTA_REF":     {},
-	"SRX_STRING":   {},
-	"STATE":        {},
-	"STATION_CALLSIGN_INTL": {},
-	"STX_STRING":    {},
-	"SUBMODE":       {},
-	"SWL":           {},
-	"TEN_TEN":       {},
-	"TIME_OFF":      {},
-	"TX_PWR":        {},
-	"UKSMG":         {},
-	"USACA_COUNTIES": {},
-	"VE_PROV":        {},
-	"VUCC_GRIDS":     {},
-	"WEB":            {},
-	"WWFF_REF":       {},
+// builtinADIFTags lists the tags ExportADIF writes from dedicated QSO columns
+// above. It seeds the per-record duplicate guard: ADIF forbids a field name
+// appearing in more than one Data Specifier within a record, so a custom field
+// that lands on one of these names must be dropped rather than emitted a
+// second time. The catalogue marks the same tags "builtin", which is what
+// keeps them out of the contest-settings field picker in the first place —
+// this list is the belt to that pair of braces, covering contests whose
+// custom_fields were saved before the picker existed.
+var builtinADIFTags = []string{
+	"CALL", "NAME", "NAME_INTL", "QSO_DATE", "TIME_ON", "BAND", "FREQ",
+	"MODE", "SUBMODE", "RST_SENT", "RST_RCVD", "STX", "SRX", "DARC_DOK",
+	"GRIDSQUARE", "ITUZ", "CQZ", "SIG", "SIG_INFO", "OPERATOR",
+	"STATION_CALLSIGN", "MY_GRIDSQUARE", "CONTEST_ID", "NOTES", "NOTES_INTL",
 }
 
 // adifModeSubmode maps our internal mode string to the (MODE, SUBMODE) pair
