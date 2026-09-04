@@ -21,15 +21,15 @@ type logColDef struct {
 
 // Mirrors LOG_COL_DEFS in internal/server/web/app.js — keep in sync.
 var builtinLogColumns = []logColDef{
-	{"nr_sent", "Nr", "Nr", true},
+	{"nr_sent", "Nr. sent", "Nr. geg.", true},
 	{"time", "Time UTC", "Zeit UTC", true},
 	{"callsign", "Call", "Rufzeichen", true},
 	{"band", "Band", "Band", true},
 	{"freq", "Freq (MHz)", "Freq (MHz)", true},
 	{"mode", "Mode", "Mode", true},
-	{"rst_sent", "Sent", "Gegeben", true},
-	{"rst_received", "Rcv", "Empfangen", true},
-	{"nr_received", "Nr rcvd", "Nr empf.", false},
+	{"rst_sent", "RST sent", "RST geg.", true},
+	{"rst_received", "RST rcvd", "RST empf.", true},
+	{"nr_received", "Nr. rcvd", "Nr. empf.", false},
 	{"name", "Name", "Name", false},
 	{"locator", "Loc", "Loc", true},
 	{"distance", "km", "km", false},

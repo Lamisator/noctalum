@@ -14,15 +14,15 @@ import (
 
 // natural column widths in mm; values picked to fit the typical content.
 var pdfColWidth = map[string]float64{
-	"nr_sent":      10,
-	"nr_received":  12,
+	"nr_sent":      14,
+	"nr_received":  15,
 	"time":         28,
 	"callsign":     22,
 	"band":         12,
 	"freq":         16,
 	"mode":         12,
-	"rst_sent":     11,
-	"rst_received": 11,
+	"rst_sent":     15,
+	"rst_received": 15,
 	"name":         22,
 	"locator":      14,
 	"distance":     14,

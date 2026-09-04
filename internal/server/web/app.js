@@ -4593,14 +4593,14 @@
 
   // ----- log column definitions & helpers -----
   const LOG_COL_DEFS = [
-    { key: 'nr_sent',      labelKey: 'qso.colNr',      sortKey: 'nr_sent',      defaultOn: true  },
+    { key: 'nr_sent',      labelKey: 'qso.nrSent',     sortKey: 'nr_sent',      defaultOn: true  },
     { key: 'time',         labelKey: 'qso.colTimeUTC',  sortKey: 'time',         defaultOn: true  },
     { key: 'callsign',     labelKey: 'qso.colCall',     sortKey: 'callsign',     defaultOn: true  },
     { key: 'band',         labelKey: 'qso.colBand',     sortKey: 'band',         defaultOn: true  },
     { key: 'freq',         labelKey: 'qso.colFreq',     sortKey: 'freq_hz',      defaultOn: true  },
     { key: 'mode',         labelKey: 'qso.colMode',     sortKey: 'mode',         defaultOn: true  },
-    { key: 'rst_sent',     labelKey: 'qso.colSent',     sortKey: 'rst_sent',     defaultOn: true  },
-    { key: 'rst_received', labelKey: 'qso.colRcv',      sortKey: 'rst_received', defaultOn: true  },
+    { key: 'rst_sent',     labelKey: 'qso.rstSent',     sortKey: 'rst_sent',     defaultOn: true  },
+    { key: 'rst_received', labelKey: 'qso.rstReceived', sortKey: 'rst_received', defaultOn: true  },
     { key: 'nr_received',  labelKey: 'qso.nrReceived',  sortKey: 'nr_received',  defaultOn: false },
     { key: 'name',         labelKey: 'qso.name',        sortKey: 'name',         defaultOn: false },
     { key: 'locator',      labelKey: 'qso.colLoc',      sortKey: 'locator',      defaultOn: true  },
