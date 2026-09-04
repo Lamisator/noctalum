@@ -2879,6 +2879,10 @@ body.mobile-mode .mobile-bottom-nav { display: flex; }
   font-size: 12px;
   padding: 2px 8px;
 }
+/* `.modal-card label` forces display:block on every label in a dialog, and the
+   custom-fields editor renders inside one — match that specificity so the
+   Required pill stays a pill instead of stacking its box above its caption. */
+.modal-card label.cf-req,
 .cf-req {
   display: inline-flex;
   align-items: center;
@@ -2893,11 +2897,19 @@ body.mobile-mode .mobile-bottom-nav { display: flex; }
   letter-spacing: 0.04em;
   cursor: pointer;
   user-select: none;
+  margin: 0;
   transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
 .cf-req:hover {
   border-color: var(--accent);
   color: var(--text);
+}
+.modal-card .cf-req .cf-required {
+  /* `.modal-card input` stretches every field to 100%; a checkbox must opt
+     out or it fills the pill. */
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0;
 }
 .cf-req .cf-required {
   accent-color: var(--accent);
