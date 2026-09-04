@@ -57,14 +57,14 @@ var webFS embed.FS
 
 // Server bundles every collaborating component.
 type Server struct {
-	store          *store.Store
-	sessions       *SessionStore
-	hub            *Hub
-	rigs           *RigRegistry
-	settings       store.Settings
-	upgrader       websocket.Upgrader
-	helperUpgrader websocket.Upgrader
-	qrz            *QRZClient
+	store                        *store.Store
+	sessions                     *SessionStore
+	hub                          *Hub
+	rigs                         *RigRegistry
+	settings                     store.Settings
+	upgrader                     websocket.Upgrader
+	helperUpgrader               websocket.Upgrader
+	qrz                          *QRZClient
 	downloadsDir                 string
 	soundsDir                    string
 	callsignProofsDir            string
@@ -1023,20 +1023,20 @@ func (s *Server) handleMeLastSeenVersion(w http.ResponseWriter, r *http.Request)
 func sessionInfo(sess *Session) map[string]any {
 	contestID, contestStatus, contestCall, contestName := sess.ContestInfo()
 	return map[string]any{
-		"username":           sess.Username,
-		"callsign":           sess.Callsign,
-		"user_id":            sess.UserID,
-		"permissions":        sess.Permissions,
-		"selected_rig":       sess.SelectedRig(),
-		"csrf_token":         sess.CSRFToken,
-		"contest_id":         contestID,
-		"contest_status":     contestStatus,
-		"contest_call":       contestCall,
-		"contest_name":       contestName,
-		"contest_qth":        sess.ContestQTH(),
-		"contest_bands":      sess.ContestBands(),
-		"contest_objective":  sess.ContestObjective(),
-		"contest_station_id": sess.ContestStationID(),
+		"username":              sess.Username,
+		"callsign":              sess.Callsign,
+		"user_id":               sess.UserID,
+		"permissions":           sess.Permissions,
+		"selected_rig":          sess.SelectedRig(),
+		"csrf_token":            sess.CSRFToken,
+		"contest_id":            contestID,
+		"contest_status":        contestStatus,
+		"contest_call":          contestCall,
+		"contest_name":          contestName,
+		"contest_qth":           sess.ContestQTH(),
+		"contest_bands":         sess.ContestBands(),
+		"contest_objective":     sess.ContestObjective(),
+		"contest_station_id":    sess.ContestStationID(),
 		"contest_private":       sess.ContestPrivate(),
 		"contest_visibility":    sess.ContestVisibility(),
 		"contest_owner_user_id": sess.ContestOwnerID(),
@@ -2233,6 +2233,7 @@ func (s *Server) autoCloseExpiredContests() {
 			"custom_fields":        c.CustomFields,
 			"qso_layout":           c.QSOLayout,
 			"log_columns":          c.LogColumns,
+			"adif_mapping":         c.ADIFMapping,
 			"nr_padded":            c.NrPadded,
 			"stash_expiry_minutes": c.StashExpiryMinutes,
 			"freq_unit":            c.FreqUnit,
@@ -2899,6 +2900,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			CustomFields       string   `json:"custom_fields"`
 			QSOLayout          string   `json:"qso_layout"`
 			LogColumns         string   `json:"log_columns"`
+			ADIFMapping        string   `json:"adif_mapping"`
 			NrPadded           *bool    `json:"nr_padded"`
 			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
 			FreqUnit           string   `json:"freq_unit"`
@@ -2968,7 +2970,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		if visibility == store.VisibilityPrivate {
 			ownerID = sess.UserID
 		}
-		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, visibility, ownerID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedCreate, stashExpiryCreate, in.FreqUnit, startDateCreate, endDateCreate)
+		c, err := s.store.CreateContest(in.Name, in.StationCall, qth, in.Bands, in.Objective, in.StationID, visibility, ownerID, in.CustomFields, in.QSOLayout, in.LogColumns, in.ADIFMapping, nrPaddedCreate, stashExpiryCreate, in.FreqUnit, startDateCreate, endDateCreate)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -3432,7 +3434,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			s.audit(r, store.AuditInfo, AuditContestUpdate, sess.Username, c.Name,
 				fmt.Sprintf("access_restricted: %v", in.Restricted))
 			s.hub.Broadcast(Event{Type: "contest_updated", Payload: map[string]any{
-				"id":               id,
+				"id":                id,
 				"access_restricted": in.Restricted,
 			}})
 			w.WriteHeader(http.StatusNoContent)
@@ -3726,6 +3728,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			CustomFields       string   `json:"custom_fields"`
 			QSOLayout          string   `json:"qso_layout"`
 			LogColumns         string   `json:"log_columns"`
+			ADIFMapping        string   `json:"adif_mapping"`
 			NrPadded           *bool    `json:"nr_padded"`
 			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
 			FreqUnit           string   `json:"freq_unit"`
@@ -3785,7 +3788,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		if putFreqUnit == "" {
 			putFreqUnit = "kHz"
 		}
-		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, nrPaddedPut, stashExpiryPut, putFreqUnit, startDatePut, endDatePut); err != nil {
+		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, in.ADIFMapping, nrPaddedPut, stashExpiryPut, putFreqUnit, startDatePut, endDatePut); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -3807,6 +3810,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			"custom_fields":        in.CustomFields,
 			"qso_layout":           in.QSOLayout,
 			"log_columns":          in.LogColumns,
+			"adif_mapping":         in.ADIFMapping,
 			"nr_padded":            nrPaddedPut,
 			"stash_expiry_minutes": stashExpiryPut,
 			"freq_unit":            putFreqUnit,
@@ -3944,14 +3948,19 @@ func (s *Server) handleExportADIF(w http.ResponseWriter, r *http.Request) {
 	// Custom fields are best-effort: a contest fetch failure must not block the
 	// core export, but when available the per-QSO extras get round-tripped as
 	// APP_NOCTALUM_* fields.
-	customFieldsJSON := ""
+	opts := ADIFExportOptions{
+		ProgramID:      programID,
+		ProgramVersion: programVersion,
+		MyGridsquare:   sess.ContestQTH(),
+	}
 	if c, err := s.store.GetContest(contestID); err == nil {
-		customFieldsJSON = c.CustomFields
+		opts.CustomFieldsJSON = c.CustomFields
+		opts.MappingJSON = c.ADIFMapping
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: ADIF")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", attachmentDisposition(exportFilename(contestName, contestCall, "adi")))
-	if err := ExportADIF(w, qsos, programID, programVersion, customFieldsJSON, sess.ContestQTH()); err != nil {
+	if err := ExportADIF(w, qsos, opts); err != nil {
 		log.Printf("ADIF export error: %v", err)
 	}
 }

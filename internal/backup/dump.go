@@ -15,13 +15,13 @@ import (
 //
 // Format is a single transaction:
 //
-//   BEGIN;
-//   TRUNCATE t1, t2, … RESTART IDENTITY CASCADE;   -- order-free (CASCADE)
-//   INSERT INTO parent (…) VALUES (…);             -- topologically sorted:
-//   INSERT INTO child  (…) VALUES (…);             -- parents before children
-//   …
-//   SELECT setval(pg_get_serial_sequence('t', 'id'), COALESCE(MAX(id), 1));
-//   COMMIT;
+//	BEGIN;
+//	TRUNCATE t1, t2, … RESTART IDENTITY CASCADE;   -- order-free (CASCADE)
+//	INSERT INTO parent (…) VALUES (…);             -- topologically sorted:
+//	INSERT INTO child  (…) VALUES (…);             -- parents before children
+//	…
+//	SELECT setval(pg_get_serial_sequence('t', 'id'), COALESCE(MAX(id), 1));
+//	COMMIT;
 //
 // Restore with: `zcat noctalum-*.sql.gz | psql <dsn>`. The target DB
 // must already have the schema (the app's own migrate() creates it on

@@ -35,14 +35,36 @@ func adifFieldName(name string) string {
 	return out
 }
 
-// ExportADIF writes the QSO list to w in ADIF 3.x format. customFieldsJSON, when
-// non-empty, lists the contest's per-QSO custom fields; their values are
-// emitted as application-defined fields (APP_<PROGRAMID>_<NAME>) so the data
-// round-trips through ADIF-aware tools without colliding with standard tags.
-// myGridsquare, when non-empty, is emitted as MY_GRIDSQUARE on every record —
-// award trackers rely on it to compute worked-grids/DXCC-from-here credits.
-func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, customFieldsJSON, myGridsquare string) error {
-	header := fmt.Sprintf("ADIF export from %s %s\n", programID, programVersion)
+// ADIFExportOptions carries everything ExportADIF needs beyond the QSOs
+// themselves. It is a struct rather than a parameter list because every member
+// is a string: positional arguments of the same type are the kind of thing
+// that silently swaps places during a refactor.
+type ADIFExportOptions struct {
+	// ProgramID / ProgramVersion go into the file header and give the
+	// APP_<PROGRAMID>_ prefix its name.
+	ProgramID      string
+	ProgramVersion string
+	// CustomFieldsJSON lists the contest's per-QSO custom fields. Values
+	// land on their own ADIF tag when the name is one the spec defines, and
+	// on APP_<PROGRAMID>_<NAME> otherwise.
+	CustomFieldsJSON string
+	// MyGridsquare is the contest QTH — the logging station's own Maidenhead
+	// locator, exported as MY_GRIDSQUARE unless the mapping says otherwise.
+	MyGridsquare string
+	// MappingJSON holds the contest's ADIF mapping overrides: which ADIF tag
+	// each Noctalum data field lands on, for the fields whose mapping the
+	// operator changed. Empty means "everything at its default".
+	MappingJSON string
+}
+
+// ExportADIF writes the QSO list to w in ADIF 3.x format.
+//
+// Which ADIF tag each Noctalum data field lands on is decided by
+// adifSourceFields and the contest's mapping overrides — see
+// internal/server/adif_mapping.go. With no overrides the output is exactly
+// what Noctalum has always written.
+func ExportADIF(w io.Writer, qsos []store.QSO, opts ADIFExportOptions) error {
+	header := fmt.Sprintf("ADIF export from %s %s\n", opts.ProgramID, opts.ProgramVersion)
 	if _, err := io.WriteString(w, header); err != nil {
 		return err
 	}
@@ -57,128 +79,85 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 	// reject. Tracking adif.SpecVersion keeps the two in step through the next
 	// spec bump on its own.
 	writeField(w, "ADIF_VER", adif.SpecVersion)
-	writeField(w, "PROGRAMID", programID)
-	writeField(w, "PROGRAMVERSION", programVersion)
+	writeField(w, "PROGRAMID", opts.ProgramID)
+	writeField(w, "PROGRAMVERSION", opts.ProgramVersion)
 	writeField(w, "CREATED_TIMESTAMP", time.Now().UTC().Format("20060102 150405"))
 	if _, err := io.WriteString(w, "<EOH>\n\n"); err != nil {
 		return err
 	}
-	customFields := parseCustomFieldDefs(customFieldsJSON)
-	appPrefix := "APP_" + strings.ToUpper(adifFieldName(programID)) + "_"
+	customFields := parseCustomFieldDefs(opts.CustomFieldsJSON)
+	appPrefix := "APP_" + strings.ToUpper(adifFieldName(opts.ProgramID)) + "_"
+	mapping := resolveADIFMapping(opts.MappingJSON)
+
 	for _, q := range qsos {
-		writeField(w, "CALL", q.Callsign)
-		if q.Name != "" {
-			// ADIF `NAME` is defined as ASCII-only String. Names with
-			// umlauts or accents (e.g. "Jörg", "José") violate that,
-			// but ADIF 3.1.x introduced `NAME_INTL` (IntlString / UTF-8)
-			// for exactly this case. Prefer the _INTL variant when any
-			// byte falls outside 7-bit ASCII so importers know to
-			// UTF-8-decode.
-			if hasNonASCII(q.Name) {
-				writeField(w, "NAME_INTL", q.Name)
-			} else {
-				writeField(w, "NAME", q.Name)
+		// ADIF forbids the same field name appearing in more than one Data
+		// Specifier within a record. One guard covers both halves of the
+		// record: two source fields re-mapped onto the same tag, and a custom
+		// field colliding with whatever a source field landed on.
+		emitted := map[string]bool{}
+		emit := func(tag, value string) {
+			if tag == "" || value == "" || emitted[tag] {
+				return
+			}
+			emitted[tag] = true
+			writeField(w, tag, value)
+		}
+
+		// The contest name falls back into NOTES when it isn't an ADIF
+		// CONTEST_ID enum value, so it has to be resolved before notes are
+		// written. Only while contest_name still sits on CONTEST_ID: once the
+		// operator points it at a tag of their own, that tag is where the
+		// name belongs and hijacking NOTES would be a surprise.
+		notesPrefix := ""
+		if mapping["contest_name"] == "CONTEST_ID" && q.ContestName != "" {
+			if _, ok := adifContestID(q.ContestName); !ok {
+				// Emitting an unknown name as CONTEST_ID gets the record
+				// rejected by strict importers, so it goes to NOTES where
+				// free text is legal (e.g. a local DARC OV activity).
+				notesPrefix = "Contest: " + q.ContestName
 			}
 		}
-		writeField(w, "QSO_DATE", q.Time.UTC().Format("20060102"))
-		writeField(w, "TIME_ON", q.Time.UTC().Format("150405"))
-		writeField(w, "BAND", strings.ToLower(q.Band))
-		if q.FreqHz > 0 {
-			mhz := float64(q.FreqHz) / 1_000_000.0
-			writeField(w, "FREQ", strconv.FormatFloat(mhz, 'f', 6, 64))
-		}
-		mode, submode := adifModeSubmode(q.Mode)
-		writeField(w, "MODE", mode)
-		if submode != "" {
-			writeField(w, "SUBMODE", submode)
-		}
-		writeField(w, "RST_SENT", q.RSTSent)
-		writeField(w, "RST_RCVD", q.RSTReceived)
-		// Contest exchange numbers: ADIF integer form is STX (sent) / SRX
-		// (received). Omit when unset so 0 doesn't leak into non-contest
-		// QSOs that were imported without a sequence.
-		if q.NrSent > 0 {
-			writeField(w, "STX", strconv.Itoa(q.NrSent))
-		}
-		if q.NrReceived > 0 {
-			writeField(w, "SRX", strconv.Itoa(q.NrReceived))
-		}
-		if q.DOK != "" {
-			writeField(w, "DARC_DOK", strings.ToUpper(q.DOK))
-		}
-		if q.Locator != "" {
-			// Uppercase to match MY_GRIDSQUARE and the LotW/eQSL/DXCC
-			// convention. Mixed-case locators are technically legal per
-			// spec but some award trackers normalise on upload — emit
-			// them upper already so re-imports round-trip cleanly.
-			writeField(w, "GRIDSQUARE", strings.ToUpper(q.Locator))
-		}
-		if q.ITUZone != "" {
-			writeField(w, "ITUZ", q.ITUZone)
-		}
-		if q.CQZone != "" {
-			writeField(w, "CQZ", q.CQZone)
-		}
-		if q.Lighthouse != "" {
-			// ADIF has no dedicated lighthouse field — the idiomatic mapping
-			// is SIG=<program> + SIG_INFO=<reference>. Bare <ARLHS> tags were
-			// invented by early loggers and get rejected by strict validators.
-			writeField(w, "SIG", "ARLHS")
-			writeField(w, "SIG_INFO", q.Lighthouse)
-		}
-		writeField(w, "OPERATOR", q.Operator)
-		writeField(w, "STATION_CALLSIGN", q.StationCall)
-		// MY_GRIDSQUARE is the exporting station's own Maidenhead
-		// locator. Award trackers (LotW, eQSL, VUCC) rely on it to
-		// credit worked-grids/DXCC-from-here — omitting it forces
-		// operators to hand-edit every export before submission.
-		if myGridsquare != "" {
-			writeField(w, "MY_GRIDSQUARE", strings.ToUpper(myGridsquare))
-		}
-		notes := q.Notes
-		if q.ContestName != "" {
-			if id, ok := adifContestID(q.ContestName); ok {
-				writeField(w, "CONTEST_ID", id)
-			} else {
-				// Contest name isn't in the ADIF enum (e.g. a local
-				// DARC OV activity like "WSA 2026"). Emitting it as
-				// CONTEST_ID gets the record rejected by strict
-				// importers, so prepend "Contest: <name>" to NOTES
-				// where free text is legal.
-				prefix := "Contest: " + q.ContestName
-				if notes == "" {
-					notes = prefix
-				} else {
-					// MultilineString / IntlMultilineString line breaks
-					// are CR/LF per ADIF 3.1.5 §Data Types — bare LF is
-					// technically non-conforming.
-					notes = prefix + "\r\n" + notes
+
+		for _, src := range adifSourceFields {
+			if src.Key == "time" {
+				// One value, two tags — not re-mappable, so it is written
+				// directly rather than through the mapping.
+				emit("QSO_DATE", q.Time.UTC().Format("20060102"))
+				emit("TIME_ON", q.Time.UTC().Format("150405"))
+				continue
+			}
+			tag := mapping[src.Key]
+			if tag == "" {
+				continue // no default, or switched off by the operator
+			}
+			value := adifSourceValue(src.Key, q, opts.MyGridsquare)
+			switch src.Key {
+			case "contest_name":
+				if notesPrefix != "" {
+					continue // written into NOTES below instead
+				}
+				if tag == "CONTEST_ID" {
+					value, _ = adifContestID(value)
+				}
+			case "notes":
+				if notesPrefix != "" {
+					if value == "" {
+						value = notesPrefix
+					} else {
+						value = notesPrefix + "\r\n" + value
+					}
 				}
 			}
-		}
-		if notes != "" {
-			// ADIF distinguishes COMMENT (QSO-relevant remarks) from NOTES
-			// (general operator notes). Our field is a free-form text box,
-			// so NOTES is the more accurate mapping and matches what
-			// LotW/eQSL importers expect. UTF-8 payloads (umlauts,
-			// non-Latin scripts) go into NOTES_INTL — the plain NOTES
-			// field is ASCII-only per spec.
-			notes = normaliseCRLF(notes)
-			if hasNonASCII(notes) {
-				writeField(w, "NOTES_INTL", notes)
-			} else {
-				writeField(w, "NOTES", notes)
+			if value == "" {
+				continue
 			}
+			if ctag, cval := adifCompanion(src.Key, tag, q); ctag != "" {
+				emit(ctag, cval)
+			}
+			emit(adifTagFor(tag, &value), value)
 		}
+
 		if len(customFields) > 0 {
-			// ADIF forbids the same field appearing twice in one record.
-			// Everything above is emitted from a dedicated QSO column, so
-			// seed the guard with those tags and let it also catch two
-			// custom fields that normalise onto the same name.
-			emitted := map[string]bool{}
-			for _, tag := range builtinADIFTags {
-				emitted[tag] = true
-			}
 			extras := parseExtras(q.Extras)
 			for _, cf := range customFields {
 				if cf.Name == "" {
@@ -192,34 +171,19 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 				// ADIF tag (e.g. "STATE", "POTA_REF"), emit it under that
 				// standard tag so award trackers can consume it directly.
 				// Anything the ADIF catalogue doesn't recognise — plus the
-				// tags we already write ourselves and the spec's import-only
-				// fields — falls back to APP_<PROGRAMID>_<NAME>, the
-				// ADIF-defined escape hatch for application-specific data.
+				// tags we write from a dedicated QSO column and the spec's
+				// import-only fields — falls back to APP_<PROGRAMID>_<NAME>,
+				// the ADIF-defined escape hatch for application-specific data.
 				tag := adifFieldName(cf.Name)
-				if f, ok := adif.Exportable(tag); ok {
-					// The entry mask hands back what its control produced:
-					// "2026-03-22" from a date picker, "14:05" from a time
-					// picker. ADIF wants 20260322 / 140500.
-					val = adif.Normalize(f, val)
+				if _, ok := adif.Exportable(tag); ok {
+					tag = adifTagFor(tag, &val)
 					if val == "" {
 						continue
-					}
-					if f.Type == "MultilineString" || f.Type == "IntlMultilineString" {
-						val = normaliseCRLF(val)
-					}
-					// ADIF String fields are ASCII-only; the spec's _INTL
-					// sibling is the UTF-8 home for values that aren't.
-					if f.Intl != "" && hasNonASCII(val) {
-						tag = f.Intl
 					}
 				} else {
 					tag = appPrefix + tag
 				}
-				if emitted[tag] {
-					continue
-				}
-				emitted[tag] = true
-				writeField(w, tag, val)
+				emit(tag, val)
 			}
 		}
 		if _, err := io.WriteString(w, "<EOR>\n\n"); err != nil {
@@ -227,6 +191,39 @@ func ExportADIF(w io.Writer, qsos []store.QSO, programID, programVersion, custom
 		}
 	}
 	return nil
+}
+
+// adifTagFor prepares a value for the tag it is about to be written under and
+// returns the tag actually to use. It normalises the value to the wire form
+// the field's ADIF data type requires (the entry mask's date and time controls
+// hand back "2026-03-22" and "14:05"; ADIF wants 20260322 and 140500), rewrites
+// multiline breaks to the CR/LF the spec demands, and switches to the field's
+// _INTL sibling when the value carries bytes an ASCII-only String field may not.
+//
+// value is a pointer because all three of those can rewrite it, and a caller
+// that skipped the rewrite would emit a malformed record.
+func adifTagFor(tag string, value *string) string {
+	f, ok := adif.Lookup(tag)
+	if !ok {
+		return tag
+	}
+	*value = adif.Normalize(f, *value)
+	if *value == "" {
+		return tag
+	}
+	if f.Type == "MultilineString" || f.Type == "IntlMultilineString" {
+		// MultilineString / IntlMultilineString line breaks are CR/LF per
+		// the ADIF Data Types section — bare LF is non-conforming and some
+		// strict validators reject the record.
+		*value = normaliseCRLF(*value)
+	}
+	// ADIF String fields are ASCII-only. Names and notes with umlauts or
+	// accents ("Jörg", "München") belong in the spec's IntlString "_INTL"
+	// sibling, which importers know to UTF-8-decode.
+	if f.Intl != "" && hasNonASCII(*value) {
+		return f.Intl
+	}
+	return tag
 }
 
 // hasNonASCII reports whether s contains any byte outside 7-bit ASCII.
@@ -362,21 +359,6 @@ func normaliseContestKey(s string) string {
 func adifContestID(name string) (string, bool) {
 	id, ok := adifContestIDs[normaliseContestKey(name)]
 	return id, ok
-}
-
-// builtinADIFTags lists the tags ExportADIF writes from dedicated QSO columns
-// above. It seeds the per-record duplicate guard: ADIF forbids a field name
-// appearing in more than one Data Specifier within a record, so a custom field
-// that lands on one of these names must be dropped rather than emitted a
-// second time. The catalogue marks the same tags "builtin", which is what
-// keeps them out of the contest-settings field picker in the first place —
-// this list is the belt to that pair of braces, covering contests whose
-// custom_fields were saved before the picker existed.
-var builtinADIFTags = []string{
-	"CALL", "NAME", "NAME_INTL", "QSO_DATE", "TIME_ON", "BAND", "FREQ",
-	"MODE", "SUBMODE", "RST_SENT", "RST_RCVD", "STX", "SRX", "DARC_DOK",
-	"GRIDSQUARE", "ITUZ", "CQZ", "SIG", "SIG_INFO", "OPERATOR",
-	"STATION_CALLSIGN", "MY_GRIDSQUARE", "CONTEST_ID", "NOTES", "NOTES_INTL",
 }
 
 // adifModeSubmode maps our internal mode string to the (MODE, SUBMODE) pair

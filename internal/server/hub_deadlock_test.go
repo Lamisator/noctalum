@@ -11,9 +11,9 @@ import (
 // TestConcurrentRigsAndOperators_NoDeadlock stresses the two call paths
 // that closed an AB-BA lock cycle in production on 2026-08-15:
 //
-//   * RigRegistry.AllForContest(rigUsage) held rigs.mu while invoking a
+//   - RigRegistry.AllForContest(rigUsage) held rigs.mu while invoking a
 //     callback that acquired hub.mu.
-//   * Hub.OperatorsForContest(cid, rigBand) held hub.mu while invoking a
+//   - Hub.OperatorsForContest(cid, rigBand) held hub.mu while invoking a
 //     callback that acquired rigs.mu.
 //
 // On the pre-fix code, running these two paths concurrently reliably

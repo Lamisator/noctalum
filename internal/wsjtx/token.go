@@ -40,9 +40,9 @@ func EncodeBridgeToken(tk BridgeToken) string {
 		C  int64  `json:"c"`
 		SC string `json:"sc,omitempty"`
 	}{
-		S: strings.TrimSpace(tk.Server),
-		T: strings.TrimSpace(tk.HelperToken),
-		C: tk.ContestID,
+		S:  strings.TrimSpace(tk.Server),
+		T:  strings.TrimSpace(tk.HelperToken),
+		C:  tk.ContestID,
 		SC: strings.TrimSpace(tk.StationCall),
 	}
 	b, _ := json.Marshal(payload)

@@ -52,8 +52,8 @@ func (s *Server) handleLoginRequestCreate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":         id,
-		"expires_at": expires.UTC().Format(time.RFC3339),
+		"id":          id,
+		"expires_at":  expires.UTC().Format(time.RFC3339),
 		"ttl_seconds": int(loginRequestTTL.Seconds()),
 	})
 }

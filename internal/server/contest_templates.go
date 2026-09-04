@@ -61,6 +61,7 @@ func decodeTemplate(r *http.Request) (*store.ContestTemplate, error) {
 		CustomFields       string   `json:"custom_fields"`
 		QSOLayout          string   `json:"qso_layout"`
 		LogColumns         string   `json:"log_columns"`
+		ADIFMapping        string   `json:"adif_mapping"`
 		NrPadded           *bool    `json:"nr_padded"`
 		FreqUnit           string   `json:"freq_unit"`
 		StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
@@ -77,6 +78,7 @@ func decodeTemplate(r *http.Request) (*store.ContestTemplate, error) {
 		CustomFields: in.CustomFields,
 		QSOLayout:    in.QSOLayout,
 		LogColumns:   in.LogColumns,
+		ADIFMapping:  in.ADIFMapping,
 		FreqUnit:     in.FreqUnit,
 		Shared:       in.Shared,
 		NrPadded:     true,
@@ -94,12 +96,12 @@ func decodeTemplate(r *http.Request) (*store.ContestTemplate, error) {
 	// frontend editors always produce well-formed arrays/objects, so a
 	// malformed value means a hand-rolled request that would otherwise sit
 	// in the table and break every create-contest dialog that loads it.
-	for _, blob := range []string{t.CustomFields, t.QSOLayout, t.LogColumns} {
+	for _, blob := range []string{t.CustomFields, t.QSOLayout, t.LogColumns, t.ADIFMapping} {
 		if blob == "" {
 			continue
 		}
 		if !json.Valid([]byte(blob)) {
-			return nil, errors.New("custom_fields, qso_layout and log_columns must be valid JSON")
+			return nil, errors.New("custom_fields, qso_layout, log_columns and adif_mapping must be valid JSON")
 		}
 	}
 	return t, nil

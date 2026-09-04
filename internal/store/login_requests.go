@@ -20,14 +20,14 @@ const (
 // It is created (unauthenticated) by the device that wants to log in and
 // approved (or denied) by an already-authenticated user on another device.
 type LoginRequest struct {
-	ID              string
-	RequesterIP     string
-	RequesterUA     string
-	Status          LoginRequestStatus
-	ApproverUserID  int64
-	CreatedAt       time.Time
-	ExpiresAt       time.Time
-	DecidedAt       *time.Time
+	ID             string
+	RequesterIP    string
+	RequesterUA    string
+	Status         LoginRequestStatus
+	ApproverUserID int64
+	CreatedAt      time.Time
+	ExpiresAt      time.Time
+	DecidedAt      *time.Time
 }
 
 func (s *Store) migrateLoginRequests() error {

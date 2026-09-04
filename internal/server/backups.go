@@ -201,9 +201,9 @@ func (s *Server) handleBackupRestore(w http.ResponseWriter, r *http.Request, nam
 	// starts. Once the systemd unit stops the container, the WS drops
 	// naturally and the overlay stays until reconnect.
 	s.hub.Broadcast(Event{Type: "restore_starting", Payload: map[string]any{
-		"backup_file":    name,
-		"safety_backup":  safety.Name,
-		"requested_by":   actor,
+		"backup_file":   name,
+		"safety_backup": safety.Name,
+		"requested_by":  actor,
 	}})
 
 	payload, _ := json.Marshal(map[string]string{
@@ -236,4 +236,3 @@ func (s *Server) handleBackupRestore(w http.ResponseWriter, r *http.Request, nam
 		"message":       "restore triggered; container will be stopped by the systemd unit shortly",
 	})
 }
-

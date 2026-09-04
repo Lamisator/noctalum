@@ -40,7 +40,7 @@ func sampleQSO() store.QSO {
 // numbers, and omitted for QSOs that don't.
 func TestExportADIFEmitsSTXSRX(t *testing.T) {
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -57,7 +57,7 @@ func TestExportADIFOmitsSTXSRXWhenZero(t *testing.T) {
 	q.NrSent = 0
 	q.NrReceived = 0
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -72,7 +72,7 @@ func TestExportADIFLighthouseUsesSIG(t *testing.T) {
 	q := sampleQSO()
 	q.Lighthouse = "DE-0042"
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -109,7 +109,7 @@ func TestExportADIFModeSubmodeSplit(t *testing.T) {
 		q := sampleQSO()
 		q.Mode = c.in
 		var buf bytes.Buffer
-		if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+		if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 			t.Fatalf("ExportADIF(%s): %v", c.in, err)
 		}
 		out := buf.String()
@@ -138,7 +138,7 @@ func TestExportADIFUsesNOTESNotCOMMENT(t *testing.T) {
 	q.Notes = "hello world"
 	q.ContestName = "" // don't let the contest-name fallback rewrite NOTES
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -169,7 +169,7 @@ func TestExportADIFContestIDEnumLookup(t *testing.T) {
 		q.ContestName = c.in
 		q.Notes = "" // start clean so we can assert NOTES isn't touched
 		var buf bytes.Buffer
-		if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+		if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 			t.Fatalf("ExportADIF(%q): %v", c.in, err)
 		}
 		out := buf.String()
@@ -187,7 +187,7 @@ func TestExportADIFUnknownContestFallsBackToNOTES(t *testing.T) {
 	q.ContestName = "WSA 2026" // local DARC OV activity — not in ADIF enum
 	q.Notes = ""
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -204,7 +204,7 @@ func TestExportADIFUnknownContestPreservesExistingNotes(t *testing.T) {
 	q.ContestName = "Local Fun Run"
 	q.Notes = "S9+20 into JN49"
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -219,7 +219,7 @@ func TestExportADIFUnknownContestPreservesExistingNotes(t *testing.T) {
 // worked-grids/DXCC-from-here. It was previously never emitted.
 func TestExportADIFEmitsMyGridsquare(t *testing.T) {
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, "Noctalum", "test", "", "jn49xx"); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test", MyGridsquare: "jn49xx"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -231,7 +231,7 @@ func TestExportADIFEmitsMyGridsquare(t *testing.T) {
 
 func TestExportADIFOmitsMyGridsquareWhenEmpty(t *testing.T) {
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	if strings.Contains(buf.String(), "<MY_GRIDSQUARE:") {
@@ -244,7 +244,7 @@ func TestExportADIFOmitsMyGridsquareWhenEmpty(t *testing.T) {
 func TestExportADIFNameIntlForUmlauts(t *testing.T) {
 	q := sampleQSO() // Name: "Jörg"
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -262,7 +262,7 @@ func TestExportADIFNamePlainForASCII(t *testing.T) {
 	q := sampleQSO()
 	q.Name = "Carsten"
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -280,7 +280,7 @@ func TestExportADIFNotesIntlForUmlauts(t *testing.T) {
 	q.ContestName = "" // avoid the "Contest:" prefix polluting the notes
 	q.Notes = "schöner Kontakt"
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -297,7 +297,7 @@ func TestExportADIFNotesIntlForUmlauts(t *testing.T) {
 // 3.1.5 onwards (earlier versions define the length as character count).
 func TestExportADIFHeaderVersion(t *testing.T) {
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{sampleQSO()}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -319,7 +319,7 @@ func TestExportADIFUppercasesGridsquare(t *testing.T) {
 	q := sampleQSO()
 	q.Locator = "jo52ab"
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -340,7 +340,7 @@ func TestExportADIFCustomFieldPromotedToStandardTag(t *testing.T) {
 	q.Extras = `{"State":"NY","MyClub":"OV L01"}`
 	cfJSON := `[{"name":"State","type":"text"},{"name":"MyClub","type":"text"}]`
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", cfJSON, ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test", CustomFieldsJSON: cfJSON}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -365,7 +365,7 @@ func TestExportADIFNotesLineEndingsAreCRLF(t *testing.T) {
 	q.ContestName = "" // don't let the contest fallback rewrite NOTES
 	q.Notes = "line one\nline two\rline three\r\nline four"
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", "", ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test"}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -407,7 +407,7 @@ func TestExportADIFRecentSpecFieldsUseStandardTags(t *testing.T) {
 	q.Extras = `{"BAND_RX":"20m","ALTITUDE":"1500","CONT":"EU","MORSE_KEY_TYPE":"BUG"}`
 	cfJSON := `[{"name":"BAND_RX"},{"name":"ALTITUDE"},{"name":"CONT"},{"name":"MORSE_KEY_TYPE"}]`
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", cfJSON, ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test", CustomFieldsJSON: cfJSON}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -429,7 +429,7 @@ func TestExportADIFNormalisesDateTimeAndBooleanFields(t *testing.T) {
 	q.Extras = `{"QSLSDATE":"2026-03-22","TIME_OFF":"14:05","SILENT_KEY":"yes","QSLRDATE":"not a date"}`
 	cfJSON := `[{"name":"QSLSDATE"},{"name":"TIME_OFF"},{"name":"SILENT_KEY"},{"name":"QSLRDATE"}]`
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", cfJSON, ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test", CustomFieldsJSON: cfJSON}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -452,7 +452,7 @@ func TestExportADIFCustomFieldUsesIntlSiblingForUTF8(t *testing.T) {
 	q.Extras = `{"QTH":"München","MY_CITY":"Berlin"}`
 	cfJSON := `[{"name":"QTH"},{"name":"MY_CITY"}]`
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", cfJSON, ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test", CustomFieldsJSON: cfJSON}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()
@@ -480,7 +480,7 @@ func TestExportADIFCustomFieldCannotDuplicateBuiltinTag(t *testing.T) {
 	q.Extras = `{"CALL":"WRONG","DARC_DOK":"Z99","GUEST_OP":"DL1ABC"}`
 	cfJSON := `[{"name":"CALL"},{"name":"DARC_DOK"},{"name":"GUEST_OP"}]`
 	var buf bytes.Buffer
-	if err := ExportADIF(&buf, []store.QSO{q}, "Noctalum", "test", cfJSON, ""); err != nil {
+	if err := ExportADIF(&buf, []store.QSO{q}, ADIFExportOptions{ProgramID: "Noctalum", ProgramVersion: "test", CustomFieldsJSON: cfJSON}); err != nil {
 		t.Fatalf("ExportADIF: %v", err)
 	}
 	out := buf.String()

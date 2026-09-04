@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/noctalum/noctalum/internal/store"
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/noctalum/noctalum/internal/store"
 )
 
 const (
@@ -48,9 +48,9 @@ func (u *wauthnUser) WebAuthnID() []byte {
 	binary.BigEndian.PutUint64(b, uint64(u.id))
 	return b
 }
-func (u *wauthnUser) WebAuthnName() string             { return u.uname }
-func (u *wauthnUser) WebAuthnDisplayName() string       { return u.cs }
-func (u *wauthnUser) WebAuthnIcon() string              { return "" }
+func (u *wauthnUser) WebAuthnName() string                       { return u.uname }
+func (u *wauthnUser) WebAuthnDisplayName() string                { return u.cs }
+func (u *wauthnUser) WebAuthnIcon() string                       { return "" }
 func (u *wauthnUser) WebAuthnCredentials() []webauthn.Credential { return u.creds }
 
 func wauthnUserFrom(u store.User, creds []webauthn.Credential) *wauthnUser {

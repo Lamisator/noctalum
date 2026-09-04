@@ -32,6 +32,7 @@ type SharePayload struct {
 	CustomFields       string   `json:"custom_fields"`
 	QSOLayout          string   `json:"qso_layout"`
 	LogColumns         string   `json:"log_columns"`
+	ADIFMapping        string   `json:"adif_mapping"`
 	Bands              []string `json:"bands"`
 	Objective          string   `json:"objective"`
 	NrPadded           bool     `json:"nr_padded"`
@@ -79,6 +80,7 @@ func BuildSharePayload(c *Contest) (string, error) {
 		CustomFields:       c.CustomFields,
 		QSOLayout:          c.QSOLayout,
 		LogColumns:         c.LogColumns,
+		ADIFMapping:        c.ADIFMapping,
 		Bands:              c.Bands,
 		Objective:          c.Objective,
 		NrPadded:           c.NrPadded,

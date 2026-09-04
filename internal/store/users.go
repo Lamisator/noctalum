@@ -15,18 +15,18 @@ import (
 
 // User is one account that can log in to the application.
 type User struct {
-	ID             int64      `json:"id"`
-	Username       string     `json:"username"`
-	Callsign       string     `json:"callsign"`
-	PasswordHash   string     `json:"-"`
-	HelperToken    string     `json:"-"` // per-user helper auth token, never sent to the browser in user lists
-	FailedAttempts int        `json:"failed_attempts"`
-	LockedUntil    *time.Time `json:"locked_until,omitempty"`
-	Disabled       bool       `json:"disabled"`
-	CreatedAt      time.Time  `json:"created_at"`
-	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
-	Language       string     `json:"language"`
-	LastSeenVersion string    `json:"last_seen_version"`
+	ID              int64      `json:"id"`
+	Username        string     `json:"username"`
+	Callsign        string     `json:"callsign"`
+	PasswordHash    string     `json:"-"`
+	HelperToken     string     `json:"-"` // per-user helper auth token, never sent to the browser in user lists
+	FailedAttempts  int        `json:"failed_attempts"`
+	LockedUntil     *time.Time `json:"locked_until,omitempty"`
+	Disabled        bool       `json:"disabled"`
+	CreatedAt       time.Time  `json:"created_at"`
+	LastActivityAt  *time.Time `json:"last_activity_at,omitempty"`
+	Language        string     `json:"language"`
+	LastSeenVersion string     `json:"last_seen_version"`
 	// TimeInputMode controls how the QSO entry form's optional date/time field
 	// interprets the value the operator types: "utc" (default — current
 	// behaviour, the typed value is treated as UTC and stored as-is) or

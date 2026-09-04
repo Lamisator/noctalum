@@ -82,13 +82,13 @@ func TestDecodeRejectsGarbage(t *testing.T) {
 // filter and the server-side check agree on what "same station" means.
 func TestBaseCallsign(t *testing.T) {
 	cases := map[string]string{
-		"DM2LAP":       "DM2LAP",
-		"DM2LAP/P":     "DM2LAP",
-		"F/DM2LAP":     "DM2LAP",
-		"F/DM2LAP/P":   "DM2LAP",
-		"":             "",
-		"dm2lap":       "DM2LAP",
-		"  DM2LAP  ":   "DM2LAP",
+		"DM2LAP":     "DM2LAP",
+		"DM2LAP/P":   "DM2LAP",
+		"F/DM2LAP":   "DM2LAP",
+		"F/DM2LAP/P": "DM2LAP",
+		"":           "",
+		"dm2lap":     "DM2LAP",
+		"  DM2LAP  ": "DM2LAP",
 	}
 	for in, want := range cases {
 		if got := BaseCallsign(in); got != want {

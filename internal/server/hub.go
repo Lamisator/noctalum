@@ -55,11 +55,11 @@ func (c *client) Operator() string {
 
 // Hub fans out events and tracks live connections.
 type Hub struct {
-	mu             sync.Mutex
-	clients        map[*client]struct{}
-	onInbound      inboundHandler
-	onBrowserGone  browserGoneHandler
-	onHelperGone   helperGoneHandler
+	mu            sync.Mutex
+	clients       map[*client]struct{}
+	onInbound     inboundHandler
+	onBrowserGone browserGoneHandler
+	onHelperGone  helperGoneHandler
 }
 
 // NewHub returns a ready hub.

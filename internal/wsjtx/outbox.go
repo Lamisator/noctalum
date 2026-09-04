@@ -20,8 +20,8 @@ import (
 // with a fresh session still forwards a stale outbox correctly, and a
 // leaked outbox file doesn't leak the operator's helper token.
 type OutboxItem struct {
-	ID       string          `json:"id"`
-	QueuedAt time.Time       `json:"queued_at"`
+	ID       string    `json:"id"`
+	QueuedAt time.Time `json:"queued_at"`
 	// Endpoint is a URL path (starts with "/"); the sender prepends
 	// the current server base.  Kept per-item so a mid-session mode
 	// switch doesn't reroute already-queued QSOs.

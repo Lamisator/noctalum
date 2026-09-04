@@ -12,9 +12,10 @@ import (
 // handleContestShares handles the /api/contests/{id}/shares sub-route.  This
 // is called from handleContestByID when sub starts with "shares".
 // Methods:
-//   GET    /api/contests/{id}/shares             — list shares for the contest
-//   POST   /api/contests/{id}/shares             — create a new share
-//   DELETE /api/contests/{id}/shares/{token}     — revoke a share
+//
+//	GET    /api/contests/{id}/shares             — list shares for the contest
+//	POST   /api/contests/{id}/shares             — create a new share
+//	DELETE /api/contests/{id}/shares/{token}     — revoke a share
 func (s *Server) handleContestShares(w http.ResponseWriter, r *http.Request, contestID int64, sub string) {
 	sess := sessionFor(s, r)
 	c, err := s.store.GetContest(contestID)
@@ -255,6 +256,7 @@ func (s *Server) handleImportShare(w http.ResponseWriter, r *http.Request) {
 		p.CustomFields,
 		p.QSOLayout,
 		p.LogColumns,
+		p.ADIFMapping,
 		p.NrPadded,
 		p.StashExpiryMinutes,
 		p.FreqUnit,
@@ -296,4 +298,3 @@ func countLayoutItems(s string) int {
 	}
 	return len(layout.Items)
 }
-

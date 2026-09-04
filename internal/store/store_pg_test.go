@@ -103,7 +103,7 @@ func TestPostgresSchemaAndRoundTrips(t *testing.T) {
 	}
 
 	// Contests + access + participants — both ON CONFLICT DO NOTHING paths.
-	c, err := st.CreateContest("Test Contest", "DL0TEST", "JN49XX", []string{"20m", "40m"}, "obj", "OP1", store.VisibilityOpen, u.ID, "", "", "", true, 60, "kHz", nil, nil)
+	c, err := st.CreateContest("Test Contest", "DL0TEST", "JN49XX", []string{"20m", "40m"}, "obj", "OP1", store.VisibilityOpen, u.ID, "", "", "", "", true, 60, "kHz", nil, nil)
 	if err != nil {
 		t.Fatalf("create contest: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestPostgresSchemaAndRoundTrips(t *testing.T) {
 			t.Fatalf("add participant (call %d): %v", i, err)
 		}
 	}
-	if _, err := st.CreateContest("Test Contest", "X", "", nil, "", "", store.VisibilityOpen, u.ID, "", "", "", true, 60, "kHz", nil, nil); err == nil {
+	if _, err := st.CreateContest("Test Contest", "X", "", nil, "", "", store.VisibilityOpen, u.ID, "", "", "", "", true, 60, "kHz", nil, nil); err == nil {
 		t.Fatal("duplicate contest name should fail")
 	}
 

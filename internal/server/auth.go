@@ -23,25 +23,25 @@ const (
 
 // Permission keys.  Add new ones here, then expose them in the UI.
 const (
-	PermQSOWrite              = "qso.write"
-	PermQSOExport             = "qso.export"
-	PermSettingsWrite         = "settings.write"
-	PermUsersManage           = "users.manage"
-	PermRigUse                = "rig.use"
-	PermRigRelease            = "rig.release"
-	PermRigSimulate           = "rig.simulate"
-	PermContestsManage        = "contests.manage"
-	PermContestsCreatePrivate = "contests.create_private"
-	PermContestsManagePrivate = "contests.manage_private"
-	PermContestAdmin          = "contest.admin"
-	PermAuditLog              = "audit.log"
-	PermSystemLog             = "system.log" // view the process-wide diagnostic log
-	PermFeatureRequestsRead   = "feature_requests.read"  // view/manage all requests
-	PermFeatureRequestsWrite  = "feature_requests.write" // submit a request
-	PermDOKEdit               = "dok.edit"               // manage DOK callsign cache
+	PermQSOWrite               = "qso.write"
+	PermQSOExport              = "qso.export"
+	PermSettingsWrite          = "settings.write"
+	PermUsersManage            = "users.manage"
+	PermRigUse                 = "rig.use"
+	PermRigRelease             = "rig.release"
+	PermRigSimulate            = "rig.simulate"
+	PermContestsManage         = "contests.manage"
+	PermContestsCreatePrivate  = "contests.create_private"
+	PermContestsManagePrivate  = "contests.manage_private"
+	PermContestAdmin           = "contest.admin"
+	PermAuditLog               = "audit.log"
+	PermSystemLog              = "system.log"               // view the process-wide diagnostic log
+	PermFeatureRequestsRead    = "feature_requests.read"    // view/manage all requests
+	PermFeatureRequestsWrite   = "feature_requests.write"   // submit a request
+	PermDOKEdit                = "dok.edit"                 // manage DOK callsign cache
 	PermCallsignRequestsReview = "callsign_requests.review" // view/decide all callsign change requests
-	PermBackupsManage         = "backups.manage"            // list / trigger / download / delete DB backups
-	PermGroupsManage          = "groups.manage"             // create / edit / delete groups; assign group members
+	PermBackupsManage          = "backups.manage"           // list / trigger / download / delete DB backups
+	PermGroupsManage           = "groups.manage"            // create / edit / delete groups; assign group members
 	PermContestTemplatesManage = "contest_templates.manage" // create / edit / delete your own contest templates
 )
 
@@ -115,16 +115,16 @@ type Session struct {
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
 
-	mu               sync.Mutex
-	selectedRig      string
-	contestID        int64
-	contestStatus    string
-	contestCall      string
-	contestName      string
-	contestQTH       string
-	contestBands     string
-	contestObjective string
-	contestStationID string
+	mu                sync.Mutex
+	selectedRig       string
+	contestID         int64
+	contestStatus     string
+	contestCall       string
+	contestName       string
+	contestQTH        string
+	contestBands      string
+	contestObjective  string
+	contestStationID  string
 	contestPrivate    bool
 	contestVisibility string // "open" | "groups" | "private"
 	contestOwnerID    int64
@@ -134,8 +134,8 @@ type Session struct {
 	contestLogColumns string // JSON-encoded ordered array of {key,on} for log table columns
 	contestNrPadded   bool   // display serial numbers zero-padded to 3 digits
 	contestFreqUnit   string // frequency display unit: "Hz", "kHz", "MHz", "GHz"
-	lastSeen         time.Time
-	lastDBUpdate     time.Time // last time last_seen was flushed to DB
+	lastSeen          time.Time
+	lastDBUpdate      time.Time // last time last_seen was flushed to DB
 }
 
 // SelectedRig returns the rig name this session has bound to (or "" for none).

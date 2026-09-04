@@ -8,10 +8,10 @@ import (
 
 func TestClassifyLogLine(t *testing.T) {
 	cases := []struct {
-		in       string
-		wantLvl  store.SysLevel
-		wantSrc  string
-		wantMsg  string
+		in      string
+		wantLvl store.SysLevel
+		wantSrc string
+		wantMsg string
 	}{
 		// Bare Noctalum-style prefix.
 		{"cluster: connected to dxc.ve7cc.net", store.SysInfo, "cluster", "connected to dxc.ve7cc.net"},

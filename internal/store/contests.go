@@ -47,6 +47,7 @@ type Contest struct {
 	CustomFields       string     `json:"custom_fields"`        // JSON-encoded array of {name,label,type,required,order}
 	QSOLayout          string     `json:"qso_layout"`           // JSON-encoded {cols, items:[{key,x,y,w}]} for the New QSO mask
 	LogColumns         string     `json:"log_columns"`          // JSON-encoded ordered array of {key,on} for log table columns
+	ADIFMapping        string     `json:"adif_mapping"`         // JSON-encoded {noctalum field key: ADIF tag} overrides; only changed fields are stored
 	AccessRestricted   bool       `json:"access_restricted"`    // when true, only access-listed users / owners / admins can see & enter (kept in sync with Visibility!="open" for backward compat)
 	NrPadded           bool       `json:"nr_padded"`            // display serial numbers zero-padded to 3 digits
 	StashExpiryMinutes int64      `json:"stash_expiry_minutes"` // auto-delete stashed pre-QSOs after this many minutes (default 60)
@@ -115,6 +116,7 @@ func (s *Store) migrateContests() error {
 			custom_fields        TEXT NOT NULL DEFAULT '',
 			qso_layout           TEXT NOT NULL DEFAULT '',
 			log_columns          TEXT NOT NULL DEFAULT '',
+			adif_mapping         TEXT NOT NULL DEFAULT '',
 			access_restricted    BOOLEAN NOT NULL DEFAULT false,
 			nr_padded            BOOLEAN NOT NULL DEFAULT true,
 			stash_expiry_minutes BIGINT NOT NULL DEFAULT 60,
@@ -124,6 +126,10 @@ func (s *Store) migrateContests() error {
 			created_at           TIMESTAMPTZ NOT NULL
 		)`,
 		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS start_date DATE`,
+		// Per-contest ADIF mapping overrides. Empty (the default for every
+		// pre-existing contest) means every field stays on the tag Noctalum
+		// has always used, so migrating changes nobody's export.
+		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS adif_mapping TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS end_date   DATE`,
 		// Authoritative visibility mode ("open" | "groups" | "private"),
 		// added when per-contest permissions were introduced. Backfill
@@ -210,7 +216,7 @@ func (s *Store) migrateContests() error {
 // visibility is one of VisibilityOpen / VisibilityGroups / VisibilityPrivate;
 // the legacy private / access_restricted booleans are derived from it so that
 // callers still using the old API keep seeing consistent data.
-func (s *Store) CreateContest(name, stationCall, qth string, bands []string, objective, stationID string, visibility string, ownerUserID int64, customFields, qsoLayout, logColumns string, nrPadded bool, stashExpiryMinutes int64, freqUnit string, startDate, endDate *time.Time) (*Contest, error) {
+func (s *Store) CreateContest(name, stationCall, qth string, bands []string, objective, stationID string, visibility string, ownerUserID int64, customFields, qsoLayout, logColumns, adifMapping string, nrPadded bool, stashExpiryMinutes int64, freqUnit string, startDate, endDate *time.Time) (*Contest, error) {
 	name = strings.TrimSpace(name)
 	stationCall = strings.ToUpper(strings.TrimSpace(stationCall))
 	qth = strings.ToUpper(strings.TrimSpace(qth))
@@ -229,9 +235,9 @@ func (s *Store) CreateContest(name, stationCall, qth string, bands []string, obj
 	now := time.Now().UTC()
 	var id int64
 	err := s.db.QueryRow(
-		`INSERT INTO contests (name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, access_restricted, visibility, nr_padded, stash_expiry_minutes, freq_unit, start_date, end_date, created_at)
-		 VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id`,
-		name, stationCall, qth, bandsToString(bands), objective, stationID, private, ownerUserID, customFields, qsoLayout, logColumns, accessRestricted, visibility, nrPadded, stashExpiryMinutes, freqUnit, startArg, endArg, now,
+		`INSERT INTO contests (name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, adif_mapping, access_restricted, visibility, nr_padded, stash_expiry_minutes, freq_unit, start_date, end_date, created_at)
+		 VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING id`,
+		name, stationCall, qth, bandsToString(bands), objective, stationID, private, ownerUserID, customFields, qsoLayout, logColumns, adifMapping, accessRestricted, visibility, nrPadded, stashExpiryMinutes, freqUnit, startArg, endArg, now,
 	).Scan(&id)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -239,7 +245,7 @@ func (s *Store) CreateContest(name, stationCall, qth string, bands []string, obj
 		}
 		return nil, err
 	}
-	return &Contest{ID: id, Name: name, StationCall: stationCall, QTH: qth, Bands: bands, Objective: objective, Status: "open", StationID: stationID, Visibility: visibility, Private: private, OwnerUserID: ownerUserID, CustomFields: customFields, QSOLayout: qsoLayout, LogColumns: logColumns, AccessRestricted: accessRestricted, NrPadded: nrPadded, StashExpiryMinutes: stashExpiryMinutes, FreqUnit: freqUnit, StartDate: normalizeDate(startDate), EndDate: normalizeDate(endDate), CreatedAt: now}, nil
+	return &Contest{ID: id, Name: name, StationCall: stationCall, QTH: qth, Bands: bands, Objective: objective, Status: "open", StationID: stationID, Visibility: visibility, Private: private, OwnerUserID: ownerUserID, CustomFields: customFields, QSOLayout: qsoLayout, LogColumns: logColumns, ADIFMapping: adifMapping, AccessRestricted: accessRestricted, NrPadded: nrPadded, StashExpiryMinutes: stashExpiryMinutes, FreqUnit: freqUnit, StartDate: normalizeDate(startDate), EndDate: normalizeDate(endDate), CreatedAt: now}, nil
 }
 
 // nullableDate returns the SQL argument for an optional date column: the
@@ -264,7 +270,7 @@ func normalizeDate(t *time.Time) *time.Time {
 func (s *Store) ListContests() ([]Contest, error) {
 	rows, err := s.db.Query(
 		`SELECT c.id, c.name, c.station_call, c.qth, c.bands, c.objective, c.status, c.station_id,
-		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.log_columns, c.access_restricted, c.visibility, c.nr_padded, c.stash_expiry_minutes, c.freq_unit, c.start_date, c.end_date, c.created_at,
+		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.log_columns, c.adif_mapping, c.access_restricted, c.visibility, c.nr_padded, c.stash_expiry_minutes, c.freq_unit, c.start_date, c.end_date, c.created_at,
 		        MAX(q.time_utc) AS last_activity_at
 		 FROM contests c
 		 LEFT JOIN qsos q ON q.contest_id = c.id
@@ -280,7 +286,7 @@ func (s *Store) ListContests() ([]Contest, error) {
 		var bandsStr string
 		var lastAct sql.NullTime
 		var startDate, endDate sql.NullTime
-		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt, &lastAct); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.ADIFMapping, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt, &lastAct); err != nil {
 			return nil, err
 		}
 		c.Bands = bandsFromString(bandsStr)
@@ -306,11 +312,11 @@ func (s *Store) ListContests() ([]Contest, error) {
 // GetContest returns a single contest by ID.
 func (s *Store) GetContest(id int64) (*Contest, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, access_restricted, visibility, nr_padded, stash_expiry_minutes, freq_unit, start_date, end_date, created_at FROM contests WHERE id = $1`, id)
+		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, adif_mapping, access_restricted, visibility, nr_padded, stash_expiry_minutes, freq_unit, start_date, end_date, created_at FROM contests WHERE id = $1`, id)
 	var c Contest
 	var bandsStr string
 	var startDate, endDate sql.NullTime
-	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.ADIFMapping, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrContestNotFound
 		}
@@ -348,7 +354,7 @@ func (s *Store) SetContestVisibility(contestID int64, visibility string) error {
 // startDate/endDate follow the same optional semantics as CreateContest — pass
 // nil to store SQL NULL (clears the date). Visibility is *not* touched here;
 // call SetContestVisibility() to change it (owner-only endpoint).
-func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, bands []string, objective, stationID, customFields, qsoLayout, logColumns string, nrPadded bool, stashExpiryMinutes int64, freqUnit string, startDate, endDate *time.Time) error {
+func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, bands []string, objective, stationID, customFields, qsoLayout, logColumns, adifMapping string, nrPadded bool, stashExpiryMinutes int64, freqUnit string, startDate, endDate *time.Time) error {
 	if stashExpiryMinutes <= 0 {
 		stashExpiryMinutes = 60
 	}
@@ -356,10 +362,10 @@ func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, b
 		freqUnit = "kHz"
 	}
 	_, err := s.db.Exec(
-		`UPDATE contests SET name = $1, station_call = $2, qth = $3, bands = $4, objective = $5, status = $6, station_id = $7, custom_fields = $8, qso_layout = $9, log_columns = $10, nr_padded = $11, stash_expiry_minutes = $12, freq_unit = $13, start_date = $14, end_date = $15 WHERE id = $16`,
+		`UPDATE contests SET name = $1, station_call = $2, qth = $3, bands = $4, objective = $5, status = $6, station_id = $7, custom_fields = $8, qso_layout = $9, log_columns = $10, adif_mapping = $11, nr_padded = $12, stash_expiry_minutes = $13, freq_unit = $14, start_date = $15, end_date = $16 WHERE id = $17`,
 		strings.TrimSpace(name), strings.ToUpper(strings.TrimSpace(stationCall)),
 		strings.ToUpper(strings.TrimSpace(qth)), bandsToString(bands), objective, status,
-		strings.TrimSpace(stationID), customFields, qsoLayout, logColumns, nrPadded, stashExpiryMinutes, freqUnit, nullableDate(startDate), nullableDate(endDate), id,
+		strings.TrimSpace(stationID), customFields, qsoLayout, logColumns, adifMapping, nrPadded, stashExpiryMinutes, freqUnit, nullableDate(startDate), nullableDate(endDate), id,
 	)
 	return err
 }
@@ -387,6 +393,7 @@ func (s *Store) DuplicateContest(srcID int64, newName string, ownerUserID int64)
 		src.CustomFields,
 		src.QSOLayout,
 		src.LogColumns,
+		src.ADIFMapping,
 		src.NrPadded,
 		src.StashExpiryMinutes,
 		src.FreqUnit,

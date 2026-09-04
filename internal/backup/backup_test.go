@@ -92,7 +92,7 @@ func TestDumpAndRestoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("user: %v", err)
 	}
-	c, err := st.CreateContest("Round-Trip Contest", "DL0TEST", "JN49XX", []string{"20m", "40m"}, "obj", "OP1", store.VisibilityPrivate, u.ID, "", "", "", false, 45, "MHz", nil, nil)
+	c, err := st.CreateContest("Round-Trip Contest", "DL0TEST", "JN49XX", []string{"20m", "40m"}, "obj", "OP1", store.VisibilityPrivate, u.ID, "", "", "", "", false, 45, "MHz", nil, nil)
 	if err != nil {
 		t.Fatalf("contest: %v", err)
 	}
@@ -268,7 +268,10 @@ func TestSchedulerFiresOnAuditForAutoTakes(t *testing.T) {
 
 	// Capture events synchronously — tick() calls emit() inline so
 	// there's no async race here.
-	type event struct{ action, target, details string; isErr bool }
+	type event struct {
+		action, target, details string
+		isErr                   bool
+	}
 	var events []event
 	m.OnAudit = func(action, target, details string, isError bool) {
 		events = append(events, event{action, target, details, isError})
