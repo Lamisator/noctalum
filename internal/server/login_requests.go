@@ -186,9 +186,32 @@ func (s *Server) handleLoginRequestByID(w http.ResponseWriter, r *http.Request) 
 			"requester_ua": req.RequesterUA,
 			"created_at":   req.CreatedAt.UTC().Format(time.RFC3339),
 			"expires_at":   req.ExpiresAt.UTC().Format(time.RFC3339),
+			// Elevation can only be handed out by a device that holds it:
+			// tell the dialog up front so it can explain itself instead of
+			// offering an Approve button that is going to be refused. The
+			// POST re-checks — this is a hint, not the gate.
+			"can_approve": req.Purpose != store.LoginRequestPurposeElevate || sess.AdminElevated(),
 		})
 	case (action == "approve" || action == "deny") && r.Method == http.MethodPost:
 		approve := action == "approve"
+		// Approving an elevation requires the approving device to have its
+		// own admin permissions active *now*. Otherwise the other-device
+		// route would be a way to conjure elevation out of a session that
+		// never proved anything — possession of a logged-in phone would
+		// stand in for the re-authentication the feature exists to demand.
+		// With this, the flow can only ever extend an elevation somebody
+		// already holds; the first one still has to come from a password or
+		// a passkey. Deny is deliberately not gated: refusing a request you
+		// did not make must always be possible.
+		if approve && req.Purpose == store.LoginRequestPurposeElevate && !sess.AdminElevated() {
+			s.audit(r, store.AuditWarn, AuditAdminElevateFail, sess.Username, "",
+				"cannot approve elevation from "+req.RequesterIP+": this device's admin permissions are not active")
+			writeJSON(w, http.StatusForbidden, map[string]any{
+				"error": "activate admin permissions on this device before approving",
+				"code":  "approver_not_elevated",
+			})
+			return
+		}
 		if err := s.store.DecideLoginRequest(id, approve, sess.UserID, time.Now()); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				writeError(w, http.StatusConflict, "request already decided or expired")

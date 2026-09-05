@@ -9940,6 +9940,16 @@
 
     const okBtn = $('device-approve-ok');
     const denyBtn = $('device-approve-deny');
+    // Elevation can only be granted by a device that currently holds it, so
+    // say so instead of offering an Approve the server is going to refuse.
+    // Deny stays live: turning down a request you did not make must always
+    // be possible, elevated or not.
+    if (elevating && j.can_approve === false) {
+      okBtn.disabled = true;
+      $('device-approve-error').textContent = t('devicelogin.approveNeedsElevation');
+    } else {
+      okBtn.disabled = false;
+    }
     const close = () => $('device-approve-modal').classList.add('hidden');
     const decide = async (approve) => {
       okBtn.disabled = true; denyBtn.disabled = true;
@@ -9947,6 +9957,14 @@
       okBtn.disabled = false; denyBtn.disabled = false;
       if (!r.ok && r.status !== 204) {
         const ej = await r.json().catch(() => ({}));
+        // The approver's own window can lapse between opening this dialog
+        // and pressing the button — the server checks at decision time, so
+        // handle the refusal here too.
+        if (ej.code === 'approver_not_elevated') {
+          okBtn.disabled = true;
+          $('device-approve-error').textContent = t('devicelogin.approveNeedsElevation');
+          return;
+        }
         $('device-approve-error').textContent = ej.error || t('devicelogin.decisionFailed');
         return;
       }

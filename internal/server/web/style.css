@@ -1344,6 +1344,16 @@ tbody tr[style*="pointer"]:hover { background: var(--bg-elev-2); }
   border-top: 1px solid var(--border);
   z-index: 1;
 }
+/* A disabled action in a modal had no visual state of its own, so a button
+   the code had switched off still looked inviting — noticed on the device
+   approver dialog, where Approve stays off until this device's own admin
+   permissions are active. Applies to every modal's actions, including the
+   brief in-flight disabling other dialogs already do. */
+.modal-card .modal-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.6);
+}
 .modal-card .perm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
 .modal-card .perm-grid label {
   display: flex; align-items: center; gap: 6px;
