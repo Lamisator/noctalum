@@ -112,11 +112,41 @@
   </div>
 </div>
 
+<!-- Admin elevation: prove again who you are to wake the admin permissions.
+     Offers the same three kinds of evidence as the login screen. -->
+<div id="admin-elevate-modal" class="modal-root hidden" style="z-index:220">
+  <div class="modal-card">
+    <h3 data-i18n="elevate.title">Activate admin permissions</h3>
+    <div id="admin-elevate-methods">
+      <!-- Carries {user} and {minutes}, so it is filled in from JS. -->
+      <p class="muted small" id="admin-elevate-hint"></p>
+      <form id="admin-elevate-form" autocomplete="off">
+        <label data-i18n="login.password">Password</label>
+        <input id="admin-elevate-password" type="password" autocomplete="current-password" />
+        <button type="submit" class="primary" style="margin-top:12px" data-i18n="elevate.confirm">Activate</button>
+      </form>
+      <div class="passkey-divider"><span data-i18n="login.or">or</span></div>
+      <button id="admin-elevate-passkey-btn" class="passkey-btn" data-i18n="elevate.usePasskey">&#128273; Use passkey</button>
+      <button id="admin-elevate-device-btn" class="passkey-btn" data-i18n="elevate.useOtherDevice">&#128241; Approve on another device</button>
+    </div>
+    <div id="admin-elevate-qr-pane" class="hidden">
+      <p class="muted small" data-i18n="elevate.deviceHint">Scan this code with a device where you are already signed in as the same user, and approve the request there.</p>
+      <div id="admin-elevate-qr" class="device-login-qr"></div>
+      <div id="admin-elevate-qr-status" class="device-login-status muted small"></div>
+    </div>
+    <div id="admin-elevate-error" class="error"></div>
+    <div class="modal-actions">
+      <button id="admin-elevate-back" class="ghost hidden" data-i18n="common.back">&#8592; Back</button>
+      <button id="admin-elevate-cancel" class="ghost" data-i18n="common.cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Approver modal (shown to an already-logged-in user who scanned a QR). -->
 <div id="device-approve-modal" class="modal-root hidden">
   <div class="modal-card">
-    <h3 data-i18n="devicelogin.approveTitle">Approve device login?</h3>
-    <p class="muted small" data-i18n="devicelogin.approveHint">Another device is asking to log in as you. If you did not scan a QR code on this account, deny the request.</p>
+    <h3 id="device-approve-title" data-i18n="devicelogin.approveTitle">Approve device login?</h3>
+    <p class="muted small" id="device-approve-hint" data-i18n="devicelogin.approveHint">Another device is asking to log in as you. If you did not scan a QR code on this account, deny the request.</p>
     <div class="device-approve-details">
       <span class="k" data-i18n="devicelogin.ip">IP address</span><span class="v" id="device-approve-ip"></span>
       <span class="k" data-i18n="devicelogin.device">Device / browser</span><span class="v" id="device-approve-ua"></span>
@@ -155,6 +185,13 @@
         <span data-i18n="contestScreen.downloadHelper">Download Helper</span>
       </button>
       <div class="nav-divider"></div>
+      <!-- Admin elevation. Shown only to accounts that actually hold
+           elevated permissions, and only while they are dormant; the
+           admin entries below stay hidden until then. -->
+      <button id="admin-elevate-nav-btn" class="nav-pill-btn nav-pill-btn-elevate hidden">
+        <span class="nav-pill-icon">&#128274;</span>
+        <span data-i18n="elevate.navLabel">Activate admin permissions</span>
+      </button>
       <button id="dok-cache-nav-btn" class="nav-pill-btn perm-required" data-perm="dok.edit">
         <span class="nav-pill-icon">&#128220;</span>
         <span data-i18n="contestScreen.dokDatabase">DOK Database</span>
@@ -376,6 +413,13 @@
             <input id="gs-oidc-redirect-url" type="text" readonly style="max-width:420px" />
             <button type="button" id="gs-oidc-redirect-copy" class="ghost" style="width:auto;margin:0" data-i18n="globalSettings.oidcRedirectUrlCopy">Copy</button>
           </div>
+        </label>
+      </fieldset>
+      <fieldset style="margin-top:16px" class="perm-required" data-perm="settings.write">
+        <legend data-i18n="globalSettings.adminElevationTitle">Admin permissions</legend>
+        <p class="muted small" data-i18n="globalSettings.adminElevationHint">Admin permissions stay switched off until an admin re-authenticates. They switch themselves off again after this much idle time — any action in the app restarts the countdown. A running activation keeps the window it was granted; a change here applies to the next one.</p>
+        <label style="margin-top:10px"><span data-i18n="globalSettings.adminElevationMinutes">Idle timeout (minutes)</span>
+          <input id="gs-admin-elevation-minutes" type="number" min="1" max="480" style="max-width:80px" placeholder="15" />
         </label>
       </fieldset>
       <fieldset style="margin-top:16px" class="perm-required" data-perm="backups.manage">
@@ -1512,6 +1556,16 @@ docker compose start noctalum</code></pre>
       <button type="button" id="rearrange-save-btn" class="primary" data-i18n="common.save">Save</button>
     </div>
   </div>
+</div>
+
+<!-- Admin-elevation countdown. Fixed to the bottom of the viewport while the
+     permissions are awake; the fill drains as the idle window runs out. -->
+<div id="admin-timer-bar" class="admin-timer-bar hidden" role="status">
+  <span class="admin-timer-icon" aria-hidden="true">&#128275;</span>
+  <span class="admin-timer-label" data-i18n="elevate.barLabel">Admin permissions active</span>
+  <div class="admin-timer-track"><div id="admin-timer-fill" class="admin-timer-fill"></div></div>
+  <span id="admin-timer-remaining" class="admin-timer-remaining">—</span>
+  <button id="admin-timer-lock" class="ghost" data-i18n="elevate.lockNow">Lock now</button>
 </div>
 
 <!-- Confirm dialog -->

@@ -3964,3 +3964,93 @@ body.env-ribbon-active { padding-top: 24px; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+
+/* ==== Admin elevation ("activate admin permissions") ==== */
+
+/* The way back into the admin menu. Warm-tinted so it reads as a state
+   change rather than just another destination in the list. */
+/* Scoped like the sibling nav rules — .contest-nav-pill .nav-pill-btn sets
+   the colour and removes the border, so a bare .nav-pill-btn-elevate would
+   lose the cascade. */
+.contest-nav-pill .nav-pill-btn-elevate {
+  color: var(--warn);
+  font-weight: 600;
+}
+.contest-nav-pill .nav-pill-btn-elevate:hover {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+
+/* Countdown bar. Fixed to the bottom so it stays visible whichever screen
+   the admin is on; the shell heights below make room for it. */
+.admin-timer-bar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 8000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  background: var(--bg-elev);
+  border-top: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+}
+/* Every screen shell is height:100vh, so body padding would not move
+   anything — it would only add a scrollbar. Shorten the shells instead, by
+   exactly the bar's own height, so the bar sits below the content it would
+   otherwise cover (the footer credits, the log table's last row). */
+body.admin-timer-active .contest-screen-outer,
+body.admin-timer-active .login-screen,
+body.admin-timer-active .app-screen,
+body.admin-timer-active .admin-screen {
+  height: calc(100vh - 36px);
+}
+.admin-timer-icon { font-size: 14px; line-height: 1; }
+.admin-timer-label {
+  color: var(--warn);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.admin-timer-track {
+  flex: 1 1 auto;
+  min-width: 60px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  overflow: hidden;
+}
+.admin-timer-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--warn);
+  /* Matches the 1s tick, so the bar glides instead of stepping. */
+  transition: width 1s linear, background-color .3s;
+}
+.admin-timer-fill-low { background: var(--error); }
+.admin-timer-remaining {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text);
+  min-width: 44px;
+  text-align: right;
+}
+.admin-timer-bar button { font-size: 11px; padding: 3px 10px; white-space: nowrap; }
+
+/* Post-expiry notice: the same bar, briefly, explaining why the admin menu
+   just disappeared. Track / countdown / button are irrelevant then. */
+.admin-timer-bar-lapsed { border-top-color: var(--border); }
+.admin-timer-bar-lapsed .admin-timer-label { color: var(--text-muted); font-weight: 400; }
+.admin-timer-bar-lapsed .admin-timer-track,
+.admin-timer-bar-lapsed .admin-timer-remaining,
+.admin-timer-bar-lapsed button { display: none; }
+
+/* The elevation modal reuses the login screen's method stack. */
+#admin-elevate-modal .modal-card { min-width: 340px; }
+#admin-elevate-modal .passkey-btn { text-align: left; margin-top: 8px; }
+#admin-elevate-qr-pane .device-login-qr { margin: 12px 0; }

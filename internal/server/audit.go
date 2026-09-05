@@ -88,6 +88,7 @@ const (
 var AllAuditActions = []string{
 	AuditLoginSuccess, AuditLoginFailure, AuditLoginLocked, AuditLoginDisabled,
 	AuditLogout, AuditLogoutAll, AuditSessionSwitch,
+	AuditAdminElevate, AuditAdminElevateFail, AuditAdminLock,
 	AuditUserCreate, AuditUserDelete, AuditUserDisable, AuditUserEnable,
 	AuditUserUnlock, AuditUserPasswordReset, AuditUserPasswordChange, AuditUserHelperTokenRegen, AuditUserRolesChange, AuditUserUsernameChange,
 	AuditRoleCreate, AuditRoleDelete, AuditRolePermsChange,

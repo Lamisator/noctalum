@@ -208,26 +208,44 @@ func (s *Server) handlePasskeyLoginFinish(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
+	u, ok := s.finishDiscoverablePasskey(w, r)
+	if !ok {
+		return
+	}
+	s.audit(r, store.AuditInfo, AuditLoginSuccess, u.Username, "", "passkey")
+	go s.store.TouchUserActivity(u.ID)
+	appSess := s.sessions.Create(u)
+	s.activateSession(w, r, appSess)
+	clearPasskeySessionCookie(w)
+	writeJSON(w, http.StatusOK, sessionInfo(appSess))
+}
 
+// finishDiscoverablePasskey runs the WebAuthn assertion begun by
+// handlePasskeyLoginBegin and returns the user the credential resolved to.
+// It is deliberately identity-only: the caller decides what proving that
+// identity buys — a brand-new session (login) or elevated permissions on an
+// existing one (handleAdminElevatePasskey). When ok is false the HTTP
+// response has already been written.
+func (s *Server) finishDiscoverablePasskey(w http.ResponseWriter, r *http.Request) (store.User, bool) {
 	wnSessCookie, err := r.Cookie(passkeySessionCookie)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "missing webauthn session")
-		return
+		return store.User{}, false
 	}
 	sessionData, err := s.store.GetPasskeySession(wnSessCookie.Value)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusBadRequest, "webauthn session expired or not found")
-		return
+		return store.User{}, false
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return store.User{}, false
 	}
 
 	wn, err := waForRequest(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "webauthn init: "+err.Error())
-		return
+		return store.User{}, false
 	}
 
 	var resolvedUser *wauthnUser
@@ -256,12 +274,11 @@ func (s *Server) handlePasskeyLoginFinish(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		s.audit(r, store.AuditWarn, AuditLoginFailure, "", "", "passkey: "+err.Error())
 		writeError(w, http.StatusUnauthorized, "passkey login failed: "+err.Error())
-		return
+		return store.User{}, false
 	}
-
 	if resolvedUser == nil {
 		writeError(w, http.StatusInternalServerError, "user not resolved")
-		return
+		return store.User{}, false
 	}
 
 	// Update sign count.
@@ -273,14 +290,9 @@ func (s *Server) handlePasskeyLoginFinish(w http.ResponseWriter, r *http.Request
 	u, err := s.store.GetUserByID(resolvedUser.id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return store.User{}, false
 	}
-	s.audit(r, store.AuditInfo, AuditLoginSuccess, u.Username, "", "passkey")
-	go s.store.TouchUserActivity(u.ID)
-	appSess := s.sessions.Create(u)
-	s.activateSession(w, r, appSess)
-	clearPasskeySessionCookie(w)
-	writeJSON(w, http.StatusOK, sessionInfo(appSess))
+	return u, true
 }
 
 // ----- credential management -----

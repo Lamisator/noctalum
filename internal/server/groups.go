@@ -40,9 +40,8 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, groups)
 	case http.MethodPost:
-		if !HasPermission(sess.Permissions, PermGroupsManage) {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermGroupsManage, "create group")
-			writeError(w, http.StatusForbidden, "missing permission: "+PermGroupsManage)
+		if !HasPermission(sess.EffectivePermissions(), PermGroupsManage) {
+			s.denyPermission(w, r, sess, PermGroupsManage, "create group")
 			return
 		}
 		var in struct {
@@ -244,7 +243,7 @@ func (s *Server) handleGroupMembers(w http.ResponseWriter, r *http.Request, sess
 // members to, or change roles in the given group. Rule: the caller must be
 // an owner of the group or hold users.manage.
 func (s *Server) canManageGroup(sess *Session, groupID int64) bool {
-	if HasPermission(sess.Permissions, PermUsersManage) {
+	if HasPermission(sess.EffectivePermissions(), PermUsersManage) {
 		return true
 	}
 	ok, err := s.store.IsGroupOwner(groupID, sess.UserID)

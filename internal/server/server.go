@@ -340,6 +340,16 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/me/last-seen-version", s.requireAuth(s.handleMeLastSeenVersion))
 	mux.HandleFunc("/api/me/callsign-request", s.requireAuth(s.handleMeCallsignRequest))
 	mux.HandleFunc("/api/login-request/", s.requireAuth(s.handleLoginRequestByID))
+	// Admin elevation. All of these need an existing session — they raise
+	// its powers, they never create one — so they sit behind requireAuth
+	// (which also brings CSRF) rather than requirePerm: the whole point is
+	// that the permission is not held yet.
+	mux.HandleFunc("/api/admin/elevate", s.requireAuth(s.handleAdminElevate))
+	mux.HandleFunc("/api/admin/elevate/passkey", s.requireAuth(s.handleAdminElevatePasskey))
+	mux.HandleFunc("/api/admin/elevate/pair", s.requireAuth(s.handleAdminElevatePairCreate))
+	mux.HandleFunc("/api/admin/elevate/pair/status", s.requireAuth(s.handleAdminElevatePairStatus))
+	mux.HandleFunc("/api/admin/keepalive", s.requireAuth(s.handleAdminKeepalive))
+	mux.HandleFunc("/api/admin/lock", s.requireAuth(s.handleAdminLock))
 	mux.HandleFunc("/api/passkey/register/begin", s.requireAuth(s.handlePasskeyRegisterBegin))
 	mux.HandleFunc("/api/passkey/register/finish", s.requireAuth(s.handlePasskeyRegisterFinish))
 	mux.HandleFunc("/api/passkey/credentials", s.requireAuth(s.handlePasskeyCredentials))
@@ -674,7 +684,20 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusForbidden, "invalid CSRF token")
 			return
 		}
+		touchElevationFor(sess, r)
 		h(w, r)
+	}
+}
+
+// touchElevationFor restarts the admin-elevation idle countdown on a request
+// that can only come from a real person: a mutating call.  GETs are excluded
+// on purpose — the app polls several of them in the background, and counting
+// those as activity would mean the elevation never times out on an unattended
+// screen.  Plain browsing is covered instead by the explicit keep-alive the
+// frontend sends when it sees actual input (see handleAdminKeepalive).
+func touchElevationFor(sess *Session, r *http.Request) {
+	if sess != nil && isMutatingMethod(r.Method) {
+		sess.TouchElevation()
 	}
 }
 
@@ -689,14 +712,36 @@ func (s *Server) requirePerm(perm string, h http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusForbidden, "invalid CSRF token")
 			return
 		}
-		if !HasPermission(sess.Permissions, perm) {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, perm,
-				r.Method+" "+r.URL.Path)
-			writeError(w, http.StatusForbidden, "missing permission: "+perm)
+		if !HasPermission(sess.EffectivePermissions(), perm) {
+			s.denyPermission(w, r, sess, perm, r.Method+" "+r.URL.Path)
 			return
 		}
+		touchElevationFor(sess, r)
 		h(w, r)
 	}
+}
+
+// denyPermission answers a failed permission check.  It exists so every call
+// site distinguishes the two failure modes the same way: an elevated
+// permission the account *does* hold, merely dormant, is a prompt to
+// re-authenticate (code "elevation_required") rather than a denial, and stays
+// out of the access-denied audit trail — being asked to activate admin rights
+// is not a security event, whereas actually lacking the right is.
+func (s *Server) denyPermission(w http.ResponseWriter, r *http.Request, sess *Session, perm, action string) {
+	if sess != nil && IsElevatedPermission(perm) && HasPermission(sess.Permissions, perm) {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error":      "admin permissions are not activated",
+			"code":       "elevation_required",
+			"permission": perm,
+		})
+		return
+	}
+	actor := ""
+	if sess != nil {
+		actor = sess.Username
+	}
+	s.audit(r, store.AuditError, AuditAccessDenied, actor, perm, action)
+	writeError(w, http.StatusForbidden, "missing permission: "+perm)
 }
 
 func sessionFor(s *Server, r *http.Request) *Session {
@@ -716,7 +761,7 @@ func (s *Server) effectiveContestRoleForSession(sess *Session, contestID int64) 
 	if err != nil {
 		return "", "", err
 	}
-	admin := ContestAdminOverride(sess.Permissions, c.Visibility)
+	admin := ContestAdminOverride(sess.EffectivePermissions(), c.Visibility)
 	role, err = s.store.EffectiveContestRole(contestID, sess.UserID, admin)
 	return role, c.Visibility, err
 }
@@ -1063,11 +1108,14 @@ func (s *Server) handleMeLastSeenVersion(w http.ResponseWriter, r *http.Request)
 
 func sessionInfo(sess *Session) map[string]any {
 	contestID, contestStatus, contestCall, contestName := sess.ContestInfo()
-	return map[string]any{
-		"username":              sess.Username,
-		"callsign":              sess.Callsign,
-		"user_id":               sess.UserID,
-		"permissions":           sess.Permissions,
+	info := map[string]any{
+		"username": sess.Username,
+		"callsign": sess.Callsign,
+		"user_id":  sess.UserID,
+		// The *effective* set, so the UI naturally hides everything an
+		// un-activated admin may not use. The granted-but-dormant powers
+		// are advertised separately below.
+		"permissions":           sess.EffectivePermissions(),
 		"selected_rig":          sess.SelectedRig(),
 		"csrf_token":            sess.CSRFToken,
 		"contest_id":            contestID,
@@ -1088,6 +1136,18 @@ func sessionInfo(sess *Session) map[string]any {
 		"contest_nr_padded":     sess.ContestNrPadded(),
 		"contest_freq_unit":     sess.ContestFreqUnit(),
 	}
+	// Admin elevation. can_elevate drives the "Activate admin permissions"
+	// entry; admin_seconds_left lets the countdown bar start ticking
+	// without a second round-trip.
+	info["can_elevate"] = sess.CanElevate()
+	info["admin_elevated"] = sess.AdminElevated()
+	if until := sess.AdminUntil(); !until.IsZero() {
+		info["admin_until"] = until.UTC().Format(time.RFC3339)
+		info["admin_seconds_left"] = int(time.Until(until).Round(time.Second).Seconds())
+	} else {
+		info["admin_seconds_left"] = 0
+	}
+	return info
 }
 
 func (s *Server) handleChangeOwnPassword(w http.ResponseWriter, r *http.Request) {
@@ -1187,9 +1247,8 @@ func (s *Server) handleReserveNr(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFor(s, r)
-	if !HasPermission(sess.Permissions, PermQSOWrite) {
-		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermQSOWrite, "reserve nr")
-		writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
+	if !HasPermission(sess.EffectivePermissions(), PermQSOWrite) {
+		s.denyPermission(w, r, sess, PermQSOWrite, "reserve nr")
 		return
 	}
 	contestID, contestStatus, _, contestName := sess.ContestInfo()
@@ -1229,9 +1288,8 @@ func (s *Server) handleReserveNr(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateQSO(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFor(s, r)
-	if !HasPermission(sess.Permissions, PermQSOWrite) {
-		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermQSOWrite, "create qso")
-		writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
+	if !HasPermission(sess.EffectivePermissions(), PermQSOWrite) {
+		s.denyPermission(w, r, sess, PermQSOWrite, "create qso")
 		return
 	}
 	contestID, contestStatus, contestCall, contestName := sess.ContestInfo()
@@ -1587,9 +1645,8 @@ func (s *Server) handleWSJTXBridgeQSO(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleQSOByID(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFor(s, r)
-	if !HasPermission(sess.Permissions, PermQSOWrite) {
-		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermQSOWrite, r.Method+" qso")
-		writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
+	if !HasPermission(sess.EffectivePermissions(), PermQSOWrite) {
+		s.denyPermission(w, r, sess, PermQSOWrite, r.Method+" qso")
 		return
 	}
 	contestID, contestStatus, _, _ := sess.ContestInfo()
@@ -1769,7 +1826,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			// only break the map for non-admins, not protect anything.
 			"map_tiles_api_key": s.settings.MapTilesAPIKey,
 		}
-		if HasPermission(sess.Permissions, PermSettingsWrite) {
+		if HasPermission(sess.EffectivePermissions(), PermSettingsWrite) {
 			out["helper_token"] = s.settings.HelperToken
 			out["qrz_username"] = s.settings.QRZUsername
 			out["qrz_configured"] = s.settings.QRZPassword != ""
@@ -1789,8 +1846,9 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			out["oidc_callsign_claim"] = s.settings.OIDCCallsignClaim
 			out["oidc_auto_create"] = s.settings.OIDCAutoCreate
 			out["oidc_redirect_url"] = oidcRedirectURL(r)
+			out["admin_elevation_minutes"] = store.ClampAdminElevationMinutes(s.settings.AdminElevationMinutes)
 		}
-		if HasPermission(sess.Permissions, PermBackupsManage) {
+		if HasPermission(sess.EffectivePermissions(), PermBackupsManage) {
 			// Also surface the retention setting to backup managers
 			// so the "Retention" input in the Global Settings screen
 			// pre-fills — even if they don't have settings.write.
@@ -1798,9 +1856,8 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, out)
 	case http.MethodPut:
-		if !HasPermission(sess.Permissions, PermSettingsWrite) {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermSettingsWrite, "update settings")
-			writeError(w, http.StatusForbidden, "missing permission: "+PermSettingsWrite)
+		if !HasPermission(sess.EffectivePermissions(), PermSettingsWrite) {
+			s.denyPermission(w, r, sess, PermSettingsWrite, "update settings")
 			return
 		}
 		// Every settings field is a pointer so the client can omit fields it
@@ -1828,6 +1885,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			OIDCCallsignClaim     *string `json:"oidc_callsign_claim"`
 			OIDCAutoCreate        *bool   `json:"oidc_auto_create"`
 			MapTilesAPIKey        *string `json:"map_tiles_api_key"`
+			AdminElevationMinutes *int    `json:"admin_elevation_minutes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -1855,6 +1913,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		if in.ChatSound != nil {
 			ns.ChatSound = *in.ChatSound
 		}
+		if in.AdminElevationMinutes != nil {
+			// Only affects elevations activated from here on: a running
+			// elevation keeps the window it was granted (Session.adminTTL).
+			ns.AdminElevationMinutes = store.ClampAdminElevationMinutes(*in.AdminElevationMinutes)
+		}
 		if in.PublicFeatureRequests != nil {
 			ns.PublicFeatureRequests = *in.PublicFeatureRequests
 		}
@@ -1862,7 +1925,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		// it. 0 is a valid value (== "keep forever") so we accept any
 		// >= 0.
 		if in.BackupRetentionDays != nil && *in.BackupRetentionDays >= 0 &&
-			HasPermission(sess.Permissions, PermBackupsManage) {
+			HasPermission(sess.EffectivePermissions(), PermBackupsManage) {
 			ns.BackupRetentionDays = *in.BackupRetentionDays
 		}
 		if in.RegenHelperToken {
@@ -2010,7 +2073,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		// the new value out so the audit log makes it obvious who
 		// changed it and to what.
 		if in.BackupRetentionDays != nil && *in.BackupRetentionDays >= 0 &&
-			HasPermission(sess.Permissions, PermBackupsManage) {
+			HasPermission(sess.EffectivePermissions(), PermBackupsManage) {
 			appendDetail("backup_retention_days", strconv.Itoa(*in.BackupRetentionDays))
 		}
 		s.audit(r, store.AuditInfo, AuditSettingsChange, sess.Username, "", details)
@@ -2406,9 +2469,8 @@ func (s *Server) handleSelectRig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessionFor(s, r)
-	if !HasPermission(sess.Permissions, PermRigUse) {
-		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermRigUse, "select rig")
-		writeError(w, http.StatusForbidden, "missing permission: "+PermRigUse)
+	if !HasPermission(sess.EffectivePermissions(), PermRigUse) {
+		s.denyPermission(w, r, sess, PermRigUse, "select rig")
 		return
 	}
 	var body struct{ Name string }
@@ -2449,9 +2511,8 @@ func (s *Server) handleReleaseRig(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	target := strings.ToUpper(strings.TrimSpace(body.Callsign))
 	if target != "" && target != strings.ToUpper(sess.Callsign) {
-		if !HasPermission(sess.Permissions, PermRigRelease) {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermRigRelease, "force release rig for "+target)
-			writeError(w, http.StatusForbidden, "missing permission: "+PermRigRelease)
+		if !HasPermission(sess.EffectivePermissions(), PermRigRelease) {
+			s.denyPermission(w, r, sess, PermRigRelease, "force release rig for "+target)
 			return
 		}
 		// Walk every active session; clear rig where callsign matches.
@@ -2908,8 +2969,8 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		canSeeAll := HasPermission(sess.Permissions, PermContestAdmin)
-		canManagePrivate := HasPermission(sess.Permissions, PermContestsManagePrivate)
+		canSeeAll := HasPermission(sess.EffectivePermissions(), PermContestAdmin)
+		canManagePrivate := HasPermission(sess.EffectivePermissions(), PermContestsManagePrivate)
 		participations, _ := s.store.GetUserParticipations(sess.UserID)
 		type contestWithParticipation struct {
 			store.Contest
@@ -2995,8 +3056,8 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		if in.StashExpiryMinutes != nil && *in.StashExpiryMinutes > 0 {
 			stashExpiryCreate = *in.StashExpiryMinutes
 		}
-		canManage := HasPermission(sess.Permissions, PermContestsManage)
-		canCreatePrivate := HasPermission(sess.Permissions, PermContestsCreatePrivate) || HasPermission(sess.Permissions, PermContestsManagePrivate)
+		canManage := HasPermission(sess.EffectivePermissions(), PermContestsManage)
+		canCreatePrivate := HasPermission(sess.EffectivePermissions(), PermContestsCreatePrivate) || HasPermission(sess.EffectivePermissions(), PermContestsManagePrivate)
 		// Resolve visibility, honouring the legacy "private" bool when
 		// no explicit value was sent. VisibilityPrivate demands the
 		// same create_private / manage_private / manage perms as before;
@@ -3004,14 +3065,12 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		visibility := store.NormalizeVisibility(in.Visibility, in.Private, false)
 		if visibility == store.VisibilityPrivate {
 			if !canManage && !canCreatePrivate {
-				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsCreatePrivate, "create private contest")
-				writeError(w, http.StatusForbidden, "missing permission: "+PermContestsCreatePrivate)
+				s.denyPermission(w, r, sess, PermContestsCreatePrivate, "create private contest")
 				return
 			}
 		} else {
 			if !canManage {
-				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "create contest")
-				writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
+				s.denyPermission(w, r, sess, PermContestsManage, "create contest")
 				return
 			}
 		}
@@ -3084,8 +3143,8 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		canSeeAllSel := HasPermission(sess.Permissions, PermContestAdmin)
-		canManagePrivateSel := HasPermission(sess.Permissions, PermContestsManagePrivate)
+		canSeeAllSel := HasPermission(sess.EffectivePermissions(), PermContestAdmin)
+		canManagePrivateSel := HasPermission(sess.EffectivePermissions(), PermContestsManagePrivate)
 		isOwnerSel := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
 		checkContestAccess := func() bool {
 			hasAccess, _ := s.store.HasContestAccess(c.ID, sess.UserID)
@@ -3154,9 +3213,9 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		}
 		sess := sessionFor(s, r)
 		// contest.admin sees all; contests.manage only manages public contests
-		isAdmin := HasPermission(sess.Permissions, PermContestAdmin)
-		isManager := isAdmin || (HasPermission(sess.Permissions, PermContestsManage) && !c.Private) ||
-			(HasPermission(sess.Permissions, PermContestsManagePrivate) && c.Private)
+		isAdmin := HasPermission(sess.EffectivePermissions(), PermContestAdmin)
+		isManager := isAdmin || (HasPermission(sess.EffectivePermissions(), PermContestsManage) && !c.Private) ||
+			(HasPermission(sess.EffectivePermissions(), PermContestsManagePrivate) && c.Private)
 		ownerParticipant, _ := s.store.GetContestParticipant(c.ID, sess.UserID)
 		isOwner := (ownerParticipant != nil && ownerParticipant.Role == "owner" && ownerParticipant.Status == "active") ||
 			(c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID)
@@ -3348,7 +3407,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		if !ContestAdminOverride(sess.Permissions, c.Visibility) {
+		if !ContestAdminOverride(sess.EffectivePermissions(), c.Visibility) {
 			part, _ := s.store.GetContestParticipant(id, sess.UserID)
 			if part == nil || part.Role != store.ContestRoleOwner || part.Status != "active" {
 				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "change visibility: not owner")
@@ -3423,7 +3482,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusMethodNotAllowed, "GET or PUT only")
 			return
 		}
-		if !ContestAdminOverride(sess.Permissions, c.Visibility) {
+		if !ContestAdminOverride(sess.EffectivePermissions(), c.Visibility) {
 			part, _ := s.store.GetContestParticipant(id, sess.UserID)
 			if part == nil || part.Role != store.ContestRoleOwner || part.Status != "active" {
 				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "change group access: not owner")
@@ -3460,7 +3519,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		isAdmin := HasPermission(sess.Permissions, PermContestAdmin)
+		isAdmin := HasPermission(sess.EffectivePermissions(), PermContestAdmin)
 		isOwner := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
 		if !isAdmin && !isOwner {
 			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "manage contest access: not owner or contest.admin")
@@ -3574,7 +3633,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Stashes need the same write access that creating a QSO needs.
-		if !HasPermission(sess.Permissions, PermQSOWrite) {
+		if !HasPermission(sess.EffectivePermissions(), PermQSOWrite) {
 			writeError(w, http.StatusForbidden, "missing permission: "+PermQSOWrite)
 			return
 		}
@@ -3690,10 +3749,10 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		canManageCopy := HasPermission(sess.Permissions, PermContestsManage)
-		canCreatePrivateCopy := HasPermission(sess.Permissions, PermContestsCreatePrivate) || HasPermission(sess.Permissions, PermContestsManagePrivate)
+		canManageCopy := HasPermission(sess.EffectivePermissions(), PermContestsManage)
+		canCreatePrivateCopy := HasPermission(sess.EffectivePermissions(), PermContestsCreatePrivate) || HasPermission(sess.EffectivePermissions(), PermContestsManagePrivate)
 		// Source must be visible to the caller (mirrors the access checks on /select).
-		canSeeAllCopy := HasPermission(sess.Permissions, PermContestAdmin)
+		canSeeAllCopy := HasPermission(sess.EffectivePermissions(), PermContestAdmin)
 		isOwnerCopy := src.OwnerUserID != 0 && src.OwnerUserID == sess.UserID
 		canSeeSrc := canSeeAllCopy || isOwnerCopy
 		if !canSeeSrc {
@@ -3713,13 +3772,11 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		// Creation permission: private contests need the create_private perm.
 		if src.Private {
 			if !canManageCopy && !canCreatePrivateCopy {
-				s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsCreatePrivate, "copy private contest")
-				writeError(w, http.StatusForbidden, "missing permission: "+PermContestsCreatePrivate)
+				s.denyPermission(w, r, sess, PermContestsCreatePrivate, "copy private contest")
 				return
 			}
 		} else if !canManageCopy {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "copy contest")
-			writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
+			s.denyPermission(w, r, sess, PermContestsManage, "copy contest")
 			return
 		}
 		var in struct {
@@ -3753,8 +3810,8 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 	// PUT — update contest (contests.manage, contests.manage_private, or contest owner)
 	if r.Method == http.MethodPut {
 		sess := sessionFor(s, r)
-		canManagePut := HasPermission(sess.Permissions, PermContestsManage)
-		canManagePrivatePut := HasPermission(sess.Permissions, PermContestsManagePrivate)
+		canManagePut := HasPermission(sess.EffectivePermissions(), PermContestsManage)
+		canManagePrivatePut := HasPermission(sess.EffectivePermissions(), PermContestsManagePrivate)
 		// Look up existing contest to preserve private/owner fields (we don't allow changing them via PUT).
 		existing, err := s.store.GetContest(id)
 		if err != nil {
@@ -3769,14 +3826,12 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !canManagePut && !canManagePrivatePut && !isOwnerPut {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "update contest id: "+idStr)
-			writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
+			s.denyPermission(w, r, sess, PermContestsManage, "update contest id: "+idStr)
 			return
 		}
 		// managers with manage_private can only edit private contests
 		if !canManagePut && !isOwnerPut && !existing.Private {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "update public contest id: "+idStr)
-			writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
+			s.denyPermission(w, r, sess, PermContestsManage, "update public contest id: "+idStr)
 			return
 		}
 		var in struct {
@@ -3897,7 +3952,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sess := sessionFor(s, r)
-		isAdmin := HasPermission(sess.Permissions, PermContestAdmin)
+		isAdmin := HasPermission(sess.EffectivePermissions(), PermContestAdmin)
 		isOwner := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
 		if !isAdmin && !isOwner {
 			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, c.Name, "delete contest: not owner or contest.admin")
@@ -4218,9 +4273,8 @@ func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
 	sess := sessionFor(s, r)
 	switch r.Method {
 	case http.MethodGet:
-		if !HasPermission(sess.Permissions, PermFeatureRequestsRead) {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermFeatureRequestsRead, "list feature requests")
-			writeError(w, http.StatusForbidden, "missing permission: "+PermFeatureRequestsRead)
+		if !HasPermission(sess.EffectivePermissions(), PermFeatureRequestsRead) {
+			s.denyPermission(w, r, sess, PermFeatureRequestsRead, "list feature requests")
 			return
 		}
 		list, err := s.store.ListFeatureRequests()
@@ -4235,9 +4289,8 @@ func (s *Server) handleFeatureRequests(w http.ResponseWriter, r *http.Request) {
 		// json tag (json:"-") so nothing extra to do here.
 		writeJSON(w, http.StatusOK, list)
 	case http.MethodPost:
-		if !HasPermission(sess.Permissions, PermFeatureRequestsWrite) {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermFeatureRequestsWrite, "create feature request")
-			writeError(w, http.StatusForbidden, "missing permission: "+PermFeatureRequestsWrite)
+		if !HasPermission(sess.EffectivePermissions(), PermFeatureRequestsWrite) {
+			s.denyPermission(w, r, sess, PermFeatureRequestsWrite, "create feature request")
 			return
 		}
 		s.submitFeatureRequest(w, r, sess)
@@ -4456,9 +4509,8 @@ func (s *Server) handleFeatureRequestByID(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, "unknown action")
 		return
 	}
-	if !HasPermission(sess.Permissions, PermFeatureRequestsRead) {
-		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermFeatureRequestsRead, r.Method+" feature request")
-		writeError(w, http.StatusForbidden, "missing permission: "+PermFeatureRequestsRead)
+	if !HasPermission(sess.EffectivePermissions(), PermFeatureRequestsRead) {
+		s.denyPermission(w, r, sess, PermFeatureRequestsRead, r.Method+" feature request")
 		return
 	}
 	idStr := parts[0]
@@ -4557,7 +4609,7 @@ func (s *Server) serveFeatureRequestAttachment(w http.ResponseWriter, r *http.Re
 	// only the submitter of the request (so "My Feature Requests" links
 	// keep working). Public-mode listings don't grant a download right —
 	// visibility of the row and access to the file are separate concerns.
-	if !HasPermission(sess.Permissions, PermFeatureRequestsRead) && fr.From != sess.Username {
+	if !HasPermission(sess.EffectivePermissions(), PermFeatureRequestsRead) && fr.From != sess.Username {
 		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermFeatureRequestsRead,
 			"download feature request attachment #"+strconv.FormatInt(id, 10)+"/"+strconv.FormatInt(attachmentID, 10))
 		writeError(w, http.StatusForbidden, "not permitted")
@@ -4807,9 +4859,8 @@ func (s *Server) handleSoundsAPI(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		sess := sessionFor(s, r)
-		if !HasPermission(sess.Permissions, PermSettingsWrite) {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermSettingsWrite, "upload sound")
-			writeError(w, http.StatusForbidden, "missing permission: "+PermSettingsWrite)
+		if !HasPermission(sess.EffectivePermissions(), PermSettingsWrite) {
+			s.denyPermission(w, r, sess, PermSettingsWrite, "upload sound")
 			return
 		}
 		if s.soundsDir == "" {
@@ -4851,9 +4902,8 @@ func (s *Server) handleSoundsAPI(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodDelete:
 		sess := sessionFor(s, r)
-		if !HasPermission(sess.Permissions, PermSettingsWrite) {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermSettingsWrite, "delete sound")
-			writeError(w, http.StatusForbidden, "missing permission: "+PermSettingsWrite)
+		if !HasPermission(sess.EffectivePermissions(), PermSettingsWrite) {
+			s.denyPermission(w, r, sess, PermSettingsWrite, "delete sound")
 			return
 		}
 		if s.soundsDir == "" {

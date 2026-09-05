@@ -47,7 +47,7 @@ func (s *Server) handleLoginRequestCreate(w http.ResponseWriter, r *http.Request
 	expires := now.Add(loginRequestTTL)
 	ip := clientIP(r)
 	ua := truncate(r.UserAgent(), 512)
-	if err := s.store.CreateLoginRequest(id, ip, ua, now, expires); err != nil {
+	if err := s.store.CreateLoginRequest(id, ip, ua, store.LoginRequestPurposeLogin, 0, now, expires); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -95,7 +95,7 @@ func (s *Server) handleLoginRequestStatus(w http.ResponseWriter, r *http.Request
 			// approver's user.  Any concurrent poll from the same id
 			// hitting the same path returns "consumed" and cannot
 			// hijack the session.
-			approverID, err := s.store.ConsumeLoginRequest(id, time.Now())
+			approverID, err := s.store.ConsumeLoginRequest(id, store.LoginRequestPurposeLogin, time.Now())
 			if err != nil {
 				writeJSON(w, http.StatusOK, map[string]any{"status": "consumed"})
 				return
@@ -176,8 +176,12 @@ func (s *Server) handleLoginRequestByID(w http.ResponseWriter, r *http.Request) 
 	switch {
 	case action == "" && r.Method == http.MethodGet:
 		writeJSON(w, http.StatusOK, map[string]any{
-			"id":           req.ID,
-			"status":       string(req.Status),
+			"id":     req.ID,
+			"status": string(req.Status),
+			// "login" (a new device wants in) or "elevate" (a device this
+			// same account is already on wants admin permissions) — the
+			// approver dialog asks a different question for each.
+			"purpose":      req.Purpose,
 			"requester_ip": req.RequesterIP,
 			"requester_ua": req.RequesterUA,
 			"created_at":   req.CreatedAt.UTC().Format(time.RFC3339),
@@ -193,11 +197,15 @@ func (s *Server) handleLoginRequestByID(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		kind := "device-pair"
+		if req.Purpose == store.LoginRequestPurposeElevate {
+			kind = "admin elevation"
+		}
 		actKind := AuditLoginPairDeny
-		details := "denied device-pair from " + req.RequesterIP
+		details := "denied " + kind + " from " + req.RequesterIP
 		if approve {
 			actKind = AuditLoginPairApprove
-			details = "approved device-pair from " + req.RequesterIP
+			details = "approved " + kind + " from " + req.RequesterIP
 		}
 		s.audit(r, store.AuditInfo, actKind, sess.Username, "", details)
 		w.WriteHeader(http.StatusNoContent)

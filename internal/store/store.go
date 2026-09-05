@@ -82,6 +82,11 @@ type Settings struct {
 	// travels in the tile URLs the browser fetches, so it is served to
 	// every logged-in user rather than gated on settings.write.
 	MapTilesAPIKey string `json:"map_tiles_api_key"`
+
+	// AdminElevationMinutes is the idle window an activated admin session
+	// keeps its elevated permissions for ("activate admin permissions").
+	// Clamped to 1..480 on save; default 15.
+	AdminElevationMinutes int `json:"admin_elevation_minutes"`
 }
 
 // DummyRig is a simulated transceiver configuration persisted in the database.
@@ -808,12 +813,38 @@ func (s *Store) DeleteFeatureRequest(id int64) error {
 	return err
 }
 
+// Admin-elevation window bounds.  The lower bound keeps the feature usable
+// (a sub-minute window would expire mid-dialog); the upper bound stops the
+// setting from being turned into "elevation never lapses", which would defeat
+// the point of the idle timeout.
+const (
+	DefaultAdminElevationMinutes = 15
+	MinAdminElevationMinutes     = 1
+	MaxAdminElevationMinutes     = 480
+)
+
+// ClampAdminElevationMinutes maps any stored or submitted value into the
+// supported range, treating 0 / negative / absurd input as "use the default".
+func ClampAdminElevationMinutes(n int) int {
+	if n <= 0 {
+		return DefaultAdminElevationMinutes
+	}
+	if n < MinAdminElevationMinutes {
+		return MinAdminElevationMinutes
+	}
+	if n > MaxAdminElevationMinutes {
+		return MaxAdminElevationMinutes
+	}
+	return n
+}
+
 // LoadSettings returns the persisted settings, falling back to defaults.
 func (s *Store) LoadSettings() (Settings, error) {
 	defaults := Settings{
-		DefaultMode:         "SSB",
-		DefaultBand:         "20m",
-		BackupRetentionDays: 30,
+		DefaultMode:           "SSB",
+		DefaultBand:           "20m",
+		BackupRetentionDays:   30,
+		AdminElevationMinutes: DefaultAdminElevationMinutes,
 	}
 	rows, err := s.db.Query(`SELECT key, value FROM settings`)
 	if err != nil {
@@ -874,6 +905,10 @@ func (s *Store) LoadSettings() (Settings, error) {
 			out.OIDCAutoCreate = v == "1" || v == "true"
 		case "map_tiles_api_key":
 			out.MapTilesAPIKey = v
+		case "admin_elevation_minutes":
+			if n, err := strconv.Atoi(v); err == nil {
+				out.AdminElevationMinutes = ClampAdminElevationMinutes(n)
+			}
 		}
 	}
 	return out, rows.Err()
@@ -903,6 +938,8 @@ func (s *Store) SaveSettings(set Settings) error {
 		publicFR = "1"
 	}
 	pairs = append(pairs, [2]string{"public_feature_requests", publicFR})
+	pairs = append(pairs, [2]string{"admin_elevation_minutes",
+		strconv.Itoa(ClampAdminElevationMinutes(set.AdminElevationMinutes))})
 	// Always persist backup_retention_days so 0 (== "keep forever")
 	// is round-trippable through the settings UI.
 	if set.BackupRetentionDays >= 0 {

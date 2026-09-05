@@ -230,6 +230,15 @@ func (s *Server) handleSessionSwitch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "cached login expired")
 		return
 	}
+	// Admin elevation never survives a change of operator. The session
+	// being left loses it because the person who proved themselves is
+	// walking away; the one being entered loses it because whoever is
+	// sitting down has proved nothing yet. Either way the next admin
+	// action starts with a fresh re-authentication.
+	if outgoing, ok := s.sessions.SessionFromRequest(r); ok {
+		outgoing.DropElevation()
+	}
+	sess.DropElevation()
 	s.activateSession(w, r, sess)
 	s.audit(r, store.AuditInfo, AuditSessionSwitch, sess.Username, "", "account switcher")
 	go s.store.TouchUserActivity(sess.UserID)

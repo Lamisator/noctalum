@@ -28,9 +28,9 @@ func (s *Server) handleContestShares(w http.ResponseWriter, r *http.Request, con
 		return
 	}
 	// Only owners + contest-write managers can create / revoke / list shares.
-	canManage := HasPermission(sess.Permissions, PermContestsManage)
-	canManagePrivate := HasPermission(sess.Permissions, PermContestsManagePrivate)
-	isAdmin := HasPermission(sess.Permissions, PermContestAdmin)
+	canManage := HasPermission(sess.EffectivePermissions(), PermContestsManage)
+	canManagePrivate := HasPermission(sess.EffectivePermissions(), PermContestsManagePrivate)
+	isAdmin := HasPermission(sess.EffectivePermissions(), PermContestAdmin)
 	isOwner := c.OwnerUserID != 0 && c.OwnerUserID == sess.UserID
 	if !isOwner {
 		ownerPart, _ := s.store.GetContestParticipant(contestID, sess.UserID)
@@ -211,17 +211,15 @@ func (s *Server) handleImportShare(w http.ResponseWriter, r *http.Request) {
 	}
 	// Creation permission: the importer is creating a contest, so they need
 	// the same perm as for /api/contests POST.
-	canManage := HasPermission(sess.Permissions, PermContestsManage)
-	canCreatePrivate := HasPermission(sess.Permissions, PermContestsCreatePrivate) || HasPermission(sess.Permissions, PermContestsManagePrivate)
+	canManage := HasPermission(sess.EffectivePermissions(), PermContestsManage)
+	canCreatePrivate := HasPermission(sess.EffectivePermissions(), PermContestsCreatePrivate) || HasPermission(sess.EffectivePermissions(), PermContestsManagePrivate)
 	if in.Private {
 		if !canManage && !canCreatePrivate {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsCreatePrivate, "import-share private")
-			writeError(w, http.StatusForbidden, "missing permission: "+PermContestsCreatePrivate)
+			s.denyPermission(w, r, sess, PermContestsCreatePrivate, "import-share private")
 			return
 		}
 	} else if !canManage {
-		s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestsManage, "import-share public")
-		writeError(w, http.StatusForbidden, "missing permission: "+PermContestsManage)
+		s.denyPermission(w, r, sess, PermContestsManage, "import-share public")
 		return
 	}
 	sh, err := s.store.GetShare(in.Token)

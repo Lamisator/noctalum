@@ -34,7 +34,7 @@ import (
 // templates (owner_user_id 0) have no owner, so only a contests.manage admin
 // can touch them.
 func (s *Server) canManageTemplate(sess *Session, t *store.ContestTemplate) bool {
-	if HasPermission(sess.Permissions, PermContestsManage) || HasPermission(sess.Permissions, PermContestAdmin) {
+	if HasPermission(sess.EffectivePermissions(), PermContestsManage) || HasPermission(sess.EffectivePermissions(), PermContestAdmin) {
 		return true
 	}
 	return t.OwnerUserID != 0 && t.OwnerUserID == sess.UserID
@@ -123,9 +123,8 @@ func (s *Server) handleContestTemplates(w http.ResponseWriter, r *http.Request) 
 		}
 		writeJSON(w, http.StatusOK, list)
 	case http.MethodPost:
-		if !HasPermission(sess.Permissions, PermContestTemplatesManage) {
-			s.audit(r, store.AuditError, AuditAccessDenied, sess.Username, PermContestTemplatesManage, "create contest template")
-			writeError(w, http.StatusForbidden, "missing permission: "+PermContestTemplatesManage)
+		if !HasPermission(sess.EffectivePermissions(), PermContestTemplatesManage) {
+			s.denyPermission(w, r, sess, PermContestTemplatesManage, "create contest template")
 			return
 		}
 		t, err := decodeTemplate(r)

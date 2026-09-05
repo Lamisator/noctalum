@@ -754,6 +754,9 @@
       // route to the login screen — logout, switch, a 401 from an expired
       // session, cold boot — gets the picker.
       if (typeof renderLoginAccounts === 'function') renderLoginAccounts().catch(() => {});
+      // The session may still be alive here (the "Switch user" detour keeps
+      // it), but the countdown belongs to the app, not to a sign-in page.
+      if (typeof resetElevationState === 'function') resetElevationState();
       // Fire-and-forget: reveal the SSO button if the admin has
       // enabled OIDC in Global Settings. Function is defined below
       // in the OIDC section — the forward reference is safe at
@@ -777,8 +780,23 @@
     if (res.status === 401 && me) {
       me = null;
       csrfToken = null;
+      resetElevationState();
       show('login-screen');
       throw new Error('unauthorized');
+    }
+    // The server distinguishes "you may not" from "you have not activated
+    // it yet"; the latter is answered with the re-auth prompt instead of an
+    // error the operator can do nothing about. Read a clone so the caller
+    // still gets an unconsumed body.
+    if (res.status === 403 && me && path !== '/api/admin/elevate') {
+      try {
+        const j = await res.clone().json();
+        if (j && j.code === 'elevation_required') {
+          // openElevateModal() clears the error line, so set it after.
+          openElevateModal(true);
+          $('admin-elevate-error').textContent = t('elevate.requiredNotice');
+        }
+      } catch {}
     }
     return res;
   }
@@ -1060,6 +1078,7 @@
     }).catch(() => {});
     me = null;
     csrfToken = null;
+    resetElevationState();
     if (ws) try { ws.close(); } catch {}
     ws = null;
     clearChat();
@@ -1118,6 +1137,9 @@
         // fall back to 30 if the field is missing (older backend).
         const bkRet = ('backup_retention_days' in s) ? s.backup_retention_days : 30;
         if ($('gs-backup-retention')) $('gs-backup-retention').value = bkRet;
+        if ($('gs-admin-elevation-minutes') && 'admin_elevation_minutes' in s) {
+          $('gs-admin-elevation-minutes').value = s.admin_elevation_minutes;
+        }
         currentSound = s.chat_sound || '';
         $('gs-public-feature-requests').checked = !!s.public_feature_requests;
         // The map key is returned to every caller (all operators need it to
@@ -1247,6 +1269,14 @@
     if (bkRetEl && bkRetEl.value !== '') {
       const bkRet = parseInt(bkRetEl.value);
       if (!Number.isNaN(bkRet) && bkRet >= 0) body.backup_retention_days = bkRet;
+    }
+    // Same pattern for the admin-elevation window: the fieldset is
+    // settings.write-gated, so a caller without it never sends the key and
+    // the server keeps the stored value.
+    const elevEl = $('gs-admin-elevation-minutes');
+    if (elevEl && elevEl.value !== '') {
+      const mins = parseInt(elevEl.value);
+      if (!Number.isNaN(mins) && mins > 0) body.admin_elevation_minutes = mins;
     }
     // Only include QRZ fields when the operator actually changed them in this
     // menu — server treats missing keys as "preserve current credentials".
@@ -9100,6 +9130,7 @@
     }
     $('current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
     $('contest-current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
+    readElevationState(j);
     return true;
   }
 
@@ -9221,6 +9252,8 @@
     const ok = await refreshMe();
     if (!ok) return;
     applyPermissionsToUI();
+    applyElevationUI();
+    startElevationKeepalive();
     await loadSettings();
     applyDefaults();
     // Fire the device-pair approver prompt asynchronously — it must not
@@ -9307,6 +9340,380 @@
     }
   });
 
+  // ----- admin elevation ("activate admin permissions") -----
+  //
+  // Holding an admin role no longer means holding admin powers: /api/me
+  // reports the *effective* permission set, which has the elevated ones
+  // stripped until the operator re-authenticates. So the whole admin UI
+  // hides itself for free through applyPermissionsToUI() — all this code
+  // adds is the way back in, and the countdown that takes it away again.
+  //
+  // The window is a pure idle timer. The server restarts it on every
+  // mutating request; plain browsing is covered by the keep-alive below,
+  // which fires only when the operator has actually touched something —
+  // background polling must never keep an unattended screen elevated.
+
+  let elevation = { elevated: false, secondsLeft: 0, windowSeconds: 900 };
+  let _elevTicker = null;      // 1s interval driving the bar
+  let _elevActivity = false;   // real input seen since the last keep-alive
+  let _elevKeepalive = null;   // periodic keep-alive interval
+
+  // Screens that only an activated admin may sit on. When the window
+  // lapses while one of them is open, we bounce back to the main menu
+  // rather than leaving a dead screen whose every request 403s.
+  const ELEVATED_SCREENS = [
+    'users-admin-screen', 'audit-admin-screen', 'syslog-admin-screen',
+    'featurerequests-admin-screen', 'callsign-requests-admin-screen',
+    'backups-admin-screen', 'dok-cache-screen', 'global-settings-screen',
+  ];
+
+  function elevationMinutes() {
+    return Math.max(1, Math.round((elevation.windowSeconds || 900) / 60));
+  }
+
+  // Adopts the elevation half of an /api/me or /api/admin/* response.
+  function readElevationState(j) {
+    if (!j) return;
+    if ('window_seconds' in j) elevation.windowSeconds = j.window_seconds;
+    if ('admin_elevated' in j) {
+      elevation.elevated = !!j.admin_elevated;
+      elevation.secondsLeft = j.admin_seconds_left || 0;
+    } else if ('elevated' in j) {
+      elevation.elevated = !!j.elevated;
+      elevation.secondsLeft = j.seconds_left || 0;
+    }
+    applyElevationUI();
+  }
+
+  // Leaving the session behind — logout, a 401 from an expired one, or just
+  // stepping out to the login screen to switch accounts — must take the
+  // countdown bar with it. Nothing outside the app should still be claiming
+  // admin permissions are active.
+  function resetElevationState() {
+    elevation = { elevated: false, secondsLeft: 0, windowSeconds: elevation.windowSeconds };
+    stopElevationTicker();
+    if (_elevNoticeTimer) { clearTimeout(_elevNoticeTimer); _elevNoticeTimer = null; }
+    const bar = $('admin-timer-bar');
+    if (bar) {
+      bar.classList.add('hidden');
+      bar.classList.remove('admin-timer-bar-lapsed');
+      bar.querySelector('.admin-timer-label').textContent = t('elevate.barLabel');
+    }
+    document.body.classList.remove('admin-timer-active');
+    $('admin-elevate-nav-btn')?.classList.add('hidden');
+  }
+
+  function applyElevationUI() {
+    const navBtn = $('admin-elevate-nav-btn');
+    if (navBtn) {
+      // Offer activation only to accounts that have something dormant to
+      // activate, and only while it is dormant.
+      navBtn.classList.toggle('hidden', !(me && me.can_elevate) || elevation.elevated);
+    }
+    const bar = $('admin-timer-bar');
+    if (bar && !_elevNoticeTimer) {
+      bar.classList.toggle('hidden', !elevation.elevated);
+      document.body.classList.toggle('admin-timer-active', elevation.elevated);
+    }
+    if (elevation.elevated) startElevationTicker();
+    else stopElevationTicker();
+    renderElevationCountdown();
+  }
+
+  function renderElevationCountdown() {
+    if (!elevation.elevated) return;
+    const left = Math.max(0, elevation.secondsLeft);
+    const mm = String(Math.floor(left / 60)).padStart(2, '0');
+    const ss = String(left % 60).padStart(2, '0');
+    const label = $('admin-timer-remaining');
+    if (label) label.textContent = mm + ':' + ss;
+    const fill = $('admin-timer-fill');
+    if (fill) {
+      const pct = Math.max(0, Math.min(100, (left / Math.max(1, elevation.windowSeconds)) * 100));
+      fill.style.width = pct + '%';
+      // Warn in the last fifth of the window so the countdown is noticed
+      // before it bites.
+      fill.classList.toggle('admin-timer-fill-low', pct <= 20);
+    }
+  }
+
+  function startElevationTicker() {
+    if (_elevTicker) return;
+    _elevTicker = setInterval(() => {
+      elevation.secondsLeft -= 1;
+      if (elevation.secondsLeft <= 0) {
+        onElevationLapsed();
+        return;
+      }
+      renderElevationCountdown();
+    }, 1000);
+  }
+  function stopElevationTicker() {
+    if (_elevTicker) { clearInterval(_elevTicker); _elevTicker = null; }
+  }
+
+  // The client-side countdown only *predicts* expiry — the server is the
+  // authority — so confirm with /api/me before tearing the admin UI down.
+  async function onElevationLapsed() {
+    stopElevationTicker();
+    const minutes = elevationMinutes();
+    await refreshMe().catch(() => {});
+    applyPermissionsToUI();
+    applyElevationUI();
+    if (elevation.elevated) return; // a keep-alive raced us; nothing to do
+    if (ELEVATED_SCREENS.some(id => $(id) && !$(id).classList.contains('hidden'))) {
+      await showContestScreen();
+    }
+    showElevationLapsedNotice(minutes);
+  }
+
+  // Reuses the countdown bar as the notice surface: it turns into a short
+  // "switched off" message rather than just vanishing, so an admin who
+  // looks up mid-task understands why the admin menu disappeared.
+  let _elevNoticeTimer = null;
+  function showElevationLapsedNotice(minutes) {
+    const bar = $('admin-timer-bar');
+    if (!bar) return;
+    if (_elevNoticeTimer) clearTimeout(_elevNoticeTimer);
+    bar.querySelector('.admin-timer-label').textContent = t('elevate.expiredNotice', { minutes });
+    bar.classList.add('admin-timer-bar-lapsed');
+    bar.classList.remove('hidden');
+    document.body.classList.add('admin-timer-active');
+    _elevNoticeTimer = setTimeout(() => {
+      bar.classList.add('hidden');
+      bar.classList.remove('admin-timer-bar-lapsed');
+      bar.querySelector('.admin-timer-label').textContent = t('elevate.barLabel');
+      document.body.classList.remove('admin-timer-active');
+      _elevNoticeTimer = null;
+    }, 8000);
+  }
+
+  // ----- keep-alive -----
+  //
+  // "Anything you do resets the timer" has to mean *you*, not the app's
+  // background chatter, so activity is sampled from real input events and
+  // flushed at most once every 30s while elevated.
+  ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(ev => {
+    document.addEventListener(ev, () => { _elevActivity = true; }, { passive: true, capture: true });
+  });
+
+  function startElevationKeepalive() {
+    if (_elevKeepalive) return;
+    _elevKeepalive = setInterval(async () => {
+      if (!elevation.elevated || !_elevActivity) return;
+      _elevActivity = false;
+      try {
+        const res = await api('/api/admin/keepalive', { method: 'POST', body: '{}' });
+        if (res.ok) readElevationState(await res.json());
+      } catch {}
+    }, 30000);
+  }
+
+  // Set when the prompt was raised by a request that came back
+  // "not activated" rather than by the operator clicking Activate. Such a
+  // request already failed, so whatever screen it was loading is now half
+  // built — see onElevated().
+  let _elevPromptedByRequest = false;
+
+  function openElevateModal(fromRequest) {
+    const modal = $('admin-elevate-modal');
+    if (!modal) return;
+    _elevPromptedByRequest = !!fromRequest;
+    $('admin-elevate-error').textContent = '';
+    $('admin-elevate-password').value = '';
+    $('admin-elevate-hint').textContent = t('elevate.hint', {
+      user: me ? me.username : '', minutes: elevationMinutes(),
+    });
+    showElevateStep('methods');
+    modal.classList.remove('hidden');
+    setTimeout(() => { try { $('admin-elevate-password').focus(); } catch {} }, 0);
+  }
+
+  function showElevateStep(step) {
+    $('admin-elevate-methods').classList.toggle('hidden', step !== 'methods');
+    $('admin-elevate-qr-pane').classList.toggle('hidden', step !== 'qr');
+    $('admin-elevate-back').classList.toggle('hidden', step !== 'qr');
+  }
+
+  function closeElevateModal() {
+    stopElevatePair();
+    $('admin-elevate-modal')?.classList.add('hidden');
+    $('admin-elevate-qr').innerHTML = '';
+  }
+
+  // Dismissing the prompt without activating: same reasoning as onElevated's
+  // tail, except there is nothing to come back to, so bring the UI's idea of
+  // the permissions back in line first.
+  async function cancelElevateModal() {
+    const fromRequest = _elevPromptedByRequest;
+    _elevPromptedByRequest = false;
+    closeElevateModal();
+    if (!fromRequest) return;
+    await refreshMe().catch(() => {});
+    applyPermissionsToUI();
+    applyElevationUI();
+    if (ELEVATED_SCREENS.some(id => $(id) && !$(id).classList.contains('hidden'))) {
+      await showContestScreen();
+    }
+  }
+
+  // Shared tail of every successful elevation: pick up the new permission
+  // set, redraw the UI that was hidden, and start the countdown.
+  async function onElevated(j) {
+    closeElevateModal();
+    await refreshMe().catch(() => {});
+    readElevationState(j);
+    applyPermissionsToUI();
+    applyElevationUI();
+    startElevationKeepalive();
+    // The screen underneath a request-triggered prompt was populated by a
+    // call that 403'd, so it is empty and would stay that way. Go back to
+    // the menu, where every admin entry is now unlocked, instead of leaving
+    // a blank table behind.
+    if (_elevPromptedByRequest) {
+      _elevPromptedByRequest = false;
+      if (ELEVATED_SCREENS.some(id => $(id) && !$(id).classList.contains('hidden'))) {
+        await showContestScreen();
+      }
+    }
+  }
+
+  $('admin-elevate-nav-btn')?.addEventListener('click', () => openElevateModal(false));
+  $('admin-elevate-cancel').addEventListener('click', cancelElevateModal);
+  $('admin-elevate-back').addEventListener('click', () => { stopElevatePair(); showElevateStep('methods'); });
+  $('admin-elevate-modal').addEventListener('click', (e) => {
+    if (e.target === $('admin-elevate-modal')) cancelElevateModal();
+  });
+
+  $('admin-elevate-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('admin-elevate-error').textContent = '';
+    const res = await api('/api/admin/elevate', {
+      method: 'POST',
+      body: JSON.stringify({ password: $('admin-elevate-password').value }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const j = res ? await res.json().catch(() => ({})) : {};
+      $('admin-elevate-error').textContent =
+        j.code === 'bad_credentials' ? t('elevate.wrongPassword') : (j.error || t('elevate.failed'));
+      return;
+    }
+    await onElevated(await res.json().catch(() => ({})));
+  });
+
+  $('admin-elevate-passkey-btn').addEventListener('click', async () => {
+    $('admin-elevate-error').textContent = '';
+    if (!passkeyAvailable()) {
+      $('admin-elevate-error').textContent = t('elevate.noPasskeySupport');
+      return;
+    }
+    try {
+      // Same discoverable-credential ceremony as the login screen; only
+      // the endpoint that redeems the assertion differs.
+      const beginRes = await fetch('/api/passkey/login/begin', { method: 'POST', credentials: 'same-origin' });
+      if (!beginRes.ok) throw new Error(t('elevate.failed'));
+      const pk = await beginRes.json();
+      pk.publicKey.challenge = fromB64url(pk.publicKey.challenge);
+      if (pk.publicKey.allowCredentials) {
+        pk.publicKey.allowCredentials = pk.publicKey.allowCredentials.map(c => ({ ...c, id: fromB64url(c.id) }));
+      }
+      const assertion = await navigator.credentials.get({ publicKey: pk.publicKey });
+      const res = await api('/api/admin/elevate/passkey', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: assertion.id,
+          rawId: b64url(assertion.rawId),
+          type: assertion.type,
+          response: {
+            clientDataJSON: b64url(assertion.response.clientDataJSON),
+            authenticatorData: b64url(assertion.response.authenticatorData),
+            signature: b64url(assertion.response.signature),
+            userHandle: assertion.response.userHandle ? b64url(assertion.response.userHandle) : null,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        $('admin-elevate-error').textContent =
+          j.code === 'wrong_account' ? t('elevate.wrongAccount') : (j.error || t('elevate.failed'));
+        return;
+      }
+      await onElevated(await res.json().catch(() => ({})));
+    } catch (err) {
+      $('admin-elevate-error').textContent = err.message || t('elevate.failed');
+    }
+  });
+
+  // ----- elevation via another device -----
+  let elevatePairAbort = null;
+
+  function stopElevatePair() {
+    if (elevatePairAbort) {
+      try { elevatePairAbort.abort(); } catch {}
+      elevatePairAbort = null;
+    }
+  }
+
+  $('admin-elevate-device-btn').addEventListener('click', async () => {
+    $('admin-elevate-error').textContent = '';
+    $('admin-elevate-qr-status').textContent = t('elevate.waiting');
+    showElevateStep('qr');
+    const res = await api('/api/admin/elevate/pair', { method: 'POST', body: '{}' }).catch(() => null);
+    if (!res || !res.ok) {
+      const j = res ? await res.json().catch(() => ({})) : {};
+      $('admin-elevate-error').textContent = j.error || t('elevate.failed');
+      showElevateStep('methods');
+      return;
+    }
+    const j = await res.json();
+    renderQRInto($('admin-elevate-qr'), window.location.origin + '/#approve=' + encodeURIComponent(j.id));
+    pollElevatePair(j.id);
+  });
+
+  async function pollElevatePair(id) {
+    elevatePairAbort = new AbortController();
+    while (elevatePairAbort) {
+      let res;
+      try {
+        res = await fetch('/api/admin/elevate/pair/status?id=' + encodeURIComponent(id), {
+          credentials: 'same-origin', signal: elevatePairAbort.signal,
+        });
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        await new Promise(r => setTimeout(r, 1500));
+        continue;
+      }
+      if (!res.ok) {
+        $('admin-elevate-error').textContent = t('devicelogin.pollFailed');
+        return;
+      }
+      const j = await res.json().catch(() => ({}));
+      // The grant arrives as the elevation state itself, not a status.
+      if (j.elevated) {
+        elevatePairAbort = null;
+        await onElevated(j);
+        return;
+      }
+      if (j.status === 'denied') { $('admin-elevate-qr-status').textContent = t('elevate.denied'); return; }
+      if (j.status === 'expired' || j.status === 'consumed') {
+        $('admin-elevate-qr-status').textContent = t('elevate.expired');
+        return;
+      }
+      // still pending — the server already long-polled ~25s.
+    }
+  }
+
+  $('admin-timer-lock').addEventListener('click', async () => {
+    const res = await api('/api/admin/lock', { method: 'POST', body: '{}' }).catch(() => null);
+    if (res && res.ok) readElevationState(await res.json().catch(() => ({})));
+    await refreshMe().catch(() => {});
+    applyPermissionsToUI();
+    applyElevationUI();
+    if (ELEVATED_SCREENS.some(id => $(id) && !$(id).classList.contains('hidden'))) {
+      await showContestScreen();
+    }
+  });
+
   // ----- device-pairing login (unauthenticated device shows a QR) -----
   //
   // Flow:
@@ -9339,7 +9746,12 @@
   $('device-login-cancel').addEventListener('click', closeDevicePairModal);
 
   function renderPairQR(url) {
-    const host = $('device-login-qr');
+    renderQRInto($('device-login-qr'), url);
+  }
+
+  // Shared by the device-login and admin-elevation QR panes.
+  function renderQRInto(host, url) {
+    if (!host) return;
     host.innerHTML = '';
     if (typeof window.qrcode !== 'function') {
       host.textContent = url;
@@ -9481,6 +9893,11 @@
     }
     const j = await res.json();
     if (j.status !== 'pending') { console.warn('device-pair: request status is', j.status); return; }
+    const elevating = j.purpose === 'elevate';
+    $('device-approve-title').textContent =
+      t(elevating ? 'devicelogin.approveElevateTitle' : 'devicelogin.approveTitle');
+    $('device-approve-hint').textContent =
+      t(elevating ? 'devicelogin.approveElevateHint' : 'devicelogin.approveHint');
     $('device-approve-ip').textContent = j.requester_ip || '—';
     $('device-approve-ua').textContent = summarizeUA(j.requester_ua || '');
     $('device-approve-age').textContent = fmtDeviceAge(j.created_at);
@@ -12018,7 +12435,10 @@
       applyTheme(me.theme);
       $('current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
       $('contest-current-op').textContent = me.username + ' / ' + fmtCall(me.callsign);
+      readElevationState(me);
       applyPermissionsToUI();
+      applyElevationUI();
+      startElevationKeepalive();
       await loadSettings();
       applyDefaults();
       // If the page was opened from a QR-code deep link

@@ -45,6 +45,68 @@ const (
 	PermContestTemplatesManage = "contest_templates.manage" // create / edit / delete your own contest templates
 )
 
+// ElevatedPermissions are the administrative powers that a session does NOT
+// hold by default, even when the user's roles grant them.  An admin must
+// re-authenticate ("activate admin permissions") to get them, and they fall
+// away again after an idle timeout — the classic sudo model, so a logged-in
+// station PC left unattended is not a standing admin console.
+//
+// The set is deliberately limited to the admin-console powers.  Day-to-day
+// club-admin work during a contest — creating and editing contests, groups
+// and templates, simulating a rig — stays available without elevating, so a
+// running contest is never interrupted by a re-auth prompt.
+var ElevatedPermissions = []string{
+	PermUsersManage,
+	PermSettingsWrite,
+	PermAuditLog,
+	PermSystemLog,
+	PermBackupsManage,
+	PermCallsignRequestsReview,
+	PermDOKEdit,
+	PermFeatureRequestsRead,
+	PermContestAdmin,
+}
+
+// IsElevatedPermission reports whether key needs an activated admin session.
+func IsElevatedPermission(key string) bool {
+	for _, p := range ElevatedPermissions {
+		if p == key {
+			return true
+		}
+	}
+	return false
+}
+
+// withoutElevated projects a granted permission set down to what a
+// non-activated session may use.  It walks AllPermissions rather than the
+// input because the admin role stores the "*" wildcard: the wildcard has to
+// be expanded to be stripped, and expanding through the canonical list is
+// also what keeps a future permission from silently leaking in unelevated.
+func withoutElevated(granted []string) []string {
+	out := make([]string, 0, len(AllPermissions))
+	for _, p := range AllPermissions {
+		if IsElevatedPermission(p) {
+			continue
+		}
+		if HasPermission(granted, p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// GrantsElevatedPermission reports whether the user's roles grant at least one
+// elevated permission — i.e. whether "activate admin permissions" is something
+// this account can even do.
+func GrantsElevatedPermission(granted []string) bool {
+	for _, p := range ElevatedPermissions {
+		if HasPermission(granted, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // AllPermissions is the canonical list (used by UI + role validation).
 var AllPermissions = []string{
 	PermQSOWrite, PermQSOExport, PermSettingsWrite, PermUsersManage, PermRigUse, PermRigRelease, PermRigSimulate, PermContestsManage, PermContestsCreatePrivate, PermContestsManagePrivate, PermContestAdmin, PermAuditLog, PermSystemLog, PermFeatureRequestsRead, PermFeatureRequestsWrite, PermDOKEdit, PermCallsignRequestsReview, PermBackupsManage, PermGroupsManage, PermContestTemplatesManage,
@@ -136,6 +198,84 @@ type Session struct {
 	contestFreqUnit   string // frequency display unit: "Hz", "kHz", "MHz", "GHz"
 	lastSeen          time.Time
 	lastDBUpdate      time.Time // last time last_seen was flushed to DB
+
+	// Admin elevation ("activate admin permissions").  adminUntil is the
+	// moment the elevation lapses; it is pushed forward on every piece of
+	// real user activity, so it behaves as a pure idle timeout.  adminTTL
+	// is the window length captured when the session was elevated, so a
+	// later change to the global setting cannot retroactively stretch or
+	// cut an elevation that is already running.
+	//
+	// Neither field is persisted: a server restart drops every elevation,
+	// which is the safe direction.
+	adminUntil time.Time
+	adminTTL   time.Duration
+}
+
+// AdminElevated reports whether the session currently holds its elevated
+// permissions.  Expiry is evaluated lazily on read — there is no reaper
+// goroutine, so an idle elevation simply stops being true.
+func (s *Session) AdminElevated() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.adminUntil.IsZero() && time.Now().Before(s.adminUntil)
+}
+
+// AdminUntil returns the instant the current elevation lapses, or the zero
+// time when the session is not elevated.
+func (s *Session) AdminUntil() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.adminUntil.IsZero() || !time.Now().Before(s.adminUntil) {
+		return time.Time{}
+	}
+	return s.adminUntil
+}
+
+// Elevate activates the session's admin permissions for ttl of idle time.
+func (s *Session) Elevate(ttl time.Duration) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.adminTTL = ttl
+	s.adminUntil = time.Now().Add(ttl)
+	return s.adminUntil
+}
+
+// TouchElevation restarts the idle countdown, but only for a session that is
+// still elevated — it can never revive one that has already lapsed.  Returns
+// the new deadline, or the zero time when the session is not elevated.
+func (s *Session) TouchElevation() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	if s.adminUntil.IsZero() || !now.Before(s.adminUntil) {
+		return time.Time{}
+	}
+	s.adminUntil = now.Add(s.adminTTL)
+	return s.adminUntil
+}
+
+// DropElevation revokes the elevated permissions immediately.
+func (s *Session) DropElevation() {
+	s.mu.Lock()
+	s.adminUntil = time.Time{}
+	s.adminTTL = 0
+	s.mu.Unlock()
+}
+
+// EffectivePermissions is the permission set every authorisation check must
+// use.  It equals the granted set while the session is elevated, and the
+// granted set minus ElevatedPermissions otherwise.
+func (s *Session) EffectivePermissions() []string {
+	if s.AdminElevated() {
+		return s.Permissions
+	}
+	return withoutElevated(s.Permissions)
+}
+
+// CanElevate reports whether this account has anything to activate.
+func (s *Session) CanElevate() bool {
+	return GrantsElevatedPermission(s.Permissions)
 }
 
 // SelectedRig returns the rig name this session has bound to (or "" for none).
