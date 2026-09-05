@@ -2060,6 +2060,17 @@
     renderBandPills();
     renderObjective();
     renderCustomFields();
+    // A different contest means a different running number, so the mask is
+    // wiped and re-seeded here rather than carried over. Without this, leaving
+    // a contest whose next number is 004 and entering an empty one still shows
+    // 004: the stored number stays correct (the server assigns it per contest
+    // at insert), but the operator reads the wrong one off the screen and
+    // passes it on air. Runs after renderCustomFields() so the tiles being
+    // cleared are the new contest's, and before updateNrPreview() so the
+    // preview is computed from the freshly loaded qsos.
+    resetEntryMask(true);
+    updateNrPreview();
+    updateDuplicateBadge();
     // Refresh cluster band/mode dropdowns so they reflect the newly selected contest's
     // bands instead of retaining stale options from the previous contest.
     updateClusterFilters();
@@ -4478,21 +4489,47 @@
     $('q-call').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
-  function cancelQsoEdit() {
+  // The per-QSO inputs of the New QSO mask — everything that describes *this*
+  // contact. Deliberately excludes band/frequency, which describe the rig and
+  // survive between contacts.
+  const ENTRY_MASK_FIELDS = ['q-call', 'q-name', 'q-nr-rcvd', 'q-nr-sent', 'q-dok',
+    'q-loc', 'q-itu', 'q-cq', 'q-lh', 'q-notes', 'q-time'];
+
+  // Returns the mask to its empty state.
+  //
+  // alsoCustomFields additionally blanks the contest's custom fields. That is
+  // wanted when changing contest — a field of the same name in another contest
+  // means something else — but not between two QSOs of the same contest, where
+  // a repeated exchange value is a convenience the operator relies on.
+  function resetEntryMask(alsoCustomFields) {
     editingQsoId = null;
-    // Re-enable q-nr-sent — loadQsoIntoForm locks it during editing because
-    // the backend refuses nr_sent updates (it's server-assigned at insert).
+    // loadQsoIntoForm() locks q-nr-sent while editing, because the backend
+    // refuses nr_sent updates (it is server-assigned at insert). Leaving a
+    // contest mid-edit must not carry that lock into the next one.
     $('q-nr-sent').readOnly = false;
-    ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
+    ENTRY_MASK_FIELDS.forEach(id => { const el = $(id); if (el) el.value = ''; });
+    // Nothing in the field is auto-filled any more, so the next
+    // updateNrPreview() is free to write the current contest's number in.
+    // Without this, a number the operator had typed by hand would be treated
+    // as "theirs" and survive into a contest it does not belong to.
+    nrSentAutoFilled = false;
+    $('q-nr-sent').placeholder = '';
+    if (alsoCustomFields) {
+      document.querySelectorAll('#qso-grid [data-cf-name]').forEach(el => { el.value = ''; });
+    }
     clearQRZInfo();
     currentTargetLocator = null;
     callsignFilter = null;
+    $('log-qso-btn').textContent = t('qso.logQSO');
+    $('entry-panel-title').textContent = t('qso.newQSO');
+  }
+
+  function cancelQsoEdit() {
+    resetEntryMask(false);
     updateDuplicateBadge();
     updateOobBadge();
     renderQsos();
     updateNrPreview();
-    $('log-qso-btn').textContent = t('qso.logQSO');
-    $('entry-panel-title').textContent = t('qso.newQSO');
     $('q-call').focus();
     renderBandPills();
     // Collapse the mobile "More fields" expansion after each entry.
@@ -4606,10 +4643,7 @@
       $('qso-error').textContent = j.error || t('qso.saveFail');
       return;
     }
-    ['q-call','q-name','q-nr-rcvd','q-nr-sent','q-dok','q-loc','q-itu','q-cq','q-lh','q-notes','q-time'].forEach(id => $(id).value = '');
-    clearQRZInfo();
-    currentTargetLocator = null;
-    callsignFilter = null;
+    resetEntryMask(false);
     updateDuplicateBadge();
     updateOobBadge();
     renderQsos();
