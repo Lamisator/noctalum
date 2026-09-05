@@ -451,7 +451,7 @@ func (s *Server) finishOIDCLogin(w http.ResponseWriter, r *http.Request, u store
 	s.audit(r, store.AuditInfo, AuditLoginSuccess, u.Username, "", "oidc:"+provStage)
 	go s.store.TouchUserActivity(u.ID)
 	sess := s.sessions.Create(u)
-	SetSessionCookie(w, sess.ID)
+	s.activateSession(w, r, sess)
 	// Clear the transient state cookie now that we're done with it.
 	http.SetCookie(w, &http.Cookie{
 		Name:     oidcStateCookie,

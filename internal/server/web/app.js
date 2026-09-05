@@ -749,6 +749,11 @@
     if (which === 'setup-screen') $('setup-username').focus();
     if (which === 'login-screen') {
       $('login-username').focus();
+      // Offer the accounts this browser still has signed in (multi-user
+      // session ring). Hooked here rather than at each call site so every
+      // route to the login screen — logout, switch, a 401 from an expired
+      // session, cold boot — gets the picker.
+      if (typeof renderLoginAccounts === 'function') renderLoginAccounts().catch(() => {});
       // Fire-and-forget: reveal the SSO button if the admin has
       // enabled OIDC in Global Settings. Function is defined below
       // in the OIDC section — the forward reference is safe at
@@ -858,11 +863,201 @@
     window.location.href = '/api/oidc/login';
   });
 
-  $('logout-btn').addEventListener('click', doLogout);
-  $('contest-logout-btn').addEventListener('click', doLogout);
+  // ----- multi-user switching -----
+  //
+  // The browser can hold several logged-in accounts at once (the server-side
+  // "session ring", see internal/server/session_ring.go).  Both former Logout
+  // buttons now open one modal that first asks "switch or log out?", then
+  // lists the accounts that are still signed in on this device.
+  //
+  // Session ids never reach this code: /api/sessions returns display identity
+  // only and switching addresses an account by user_id.
 
-  async function doLogout() {
-    await api('/api/logout', { method: 'POST' }).catch(() => {});
+  $('logout-btn').addEventListener('click', openSwitchLogout);
+  $('contest-logout-btn').addEventListener('click', openSwitchLogout);
+
+  // Accounts cached on this device, as last reported by /api/sessions.
+  let cachedAccounts = [];
+
+  async function loadCachedAccounts() {
+    try {
+      const res = await fetch('/api/sessions', { credentials: 'same-origin' });
+      if (!res.ok) { cachedAccounts = []; return cachedAccounts; }
+      const j = await res.json();
+      cachedAccounts = Array.isArray(j.sessions) ? j.sessions : [];
+    } catch {
+      cachedAccounts = [];
+    }
+    return cachedAccounts;
+  }
+
+  // Renders one account row.  `active` marks the session the cookie currently
+  // points at; it is badged either way, but only *locked* inside the modal,
+  // where switching to yourself is a no-op.  On the login screen the same row
+  // has to stay clickable — that is the "continue as me" case, e.g. after
+  // choosing "Switch user" while no second account is cached yet.
+  //
+  // The avatar takes its initials from the username, not the callsign: at a
+  // German club station every call starts "DL", which would give every
+  // operator the same badge.
+  function accountItemHtml(acc, lockActive) {
+    const call = fmtCall(acc.callsign || '');
+    const initials = (acc.username || call || '?').slice(0, 2).toUpperCase();
+    const locked = lockActive && acc.active;
+    return '<button type="button" class="account-item' + (acc.active ? ' account-item-current' : '') + '"' +
+      ' data-user-id="' + acc.user_id + '"' + (locked ? ' disabled' : '') + '>' +
+      '<span class="account-avatar">' + escHtml(initials) + '</span>' +
+      '<span class="account-id"><span class="account-name">' + escHtml(acc.username || '') + '</span>' +
+      '<span class="account-call">' + escHtml(call) + '</span></span>' +
+      (acc.active ? '<span class="account-badge">' + escHtml(t('switcher.current')) + '</span>' : '') +
+      '</button>';
+  }
+
+  function renderAccountList(host, accounts, onPick, lockActive) {
+    host.innerHTML = accounts.map(a => accountItemHtml(a, lockActive)).join('');
+    host.querySelectorAll('.account-item:not([disabled])').forEach(btn => {
+      btn.addEventListener('click', () => onPick(Number(btn.dataset.userId)));
+    });
+  }
+
+  // ----- the login screen's account picker -----
+  //
+  // Reached whenever no session is active but the ring still holds logins:
+  // the active session timed out, or the operator logged out of one account
+  // while others stayed signed in.  The password form stays right below it,
+  // so signing in as somebody new is always one scroll away.
+  async function renderLoginAccounts() {
+    const block = $('login-accounts');
+    const list = $('login-account-list');
+    if (!block || !list) return;
+    const accounts = await loadCachedAccounts();
+    if (!accounts.length) {
+      block.classList.add('hidden');
+      list.innerHTML = '';
+      return;
+    }
+    renderAccountList(list, accounts, uid => switchToUser(uid, $('login-error')), false);
+    block.classList.remove('hidden');
+  }
+
+  function openSwitchLogout() {
+    const modal = $('session-switch-modal');
+    if (!modal) return;
+    $('session-switch-error').textContent = '';
+    showSwitchStep('ask');
+    modal.classList.remove('hidden');
+    // Load the ring in the background: the "Switch user" and "log out
+    // everywhere" affordances only make sense with more than one account.
+    loadCachedAccounts().then(accounts => {
+      const others = accounts.filter(a => !a.active).length;
+      $('session-switch-do-switch').textContent = t('switcher.switchUser');
+      $('session-switch-do-logout').textContent =
+        t('switcher.logoutThis', { user: me ? me.username : '' });
+      $('session-switch-do-logout-all').classList.toggle('hidden', accounts.length < 2);
+      $('session-switch-ask-hint').textContent =
+        t('switcher.askHint', { user: me ? me.username : '' });
+      // Nothing else cached yet — "Switch user" still works, it just leads
+      // straight to the login screen to add the second account.
+      void others;
+    });
+  }
+
+  function showSwitchStep(step) {
+    $('session-switch-ask').classList.toggle('hidden', step !== 'ask');
+    $('session-switch-pick').classList.toggle('hidden', step !== 'pick');
+    $('session-switch-back').classList.toggle('hidden', step !== 'pick');
+    $('session-switch-title').textContent =
+      step === 'pick' ? t('switcher.pickTitle') : t('switcher.title');
+  }
+
+  function closeSwitchLogout() {
+    $('session-switch-modal')?.classList.add('hidden');
+  }
+
+  $('session-switch-cancel').addEventListener('click', closeSwitchLogout);
+  $('session-switch-back').addEventListener('click', () => showSwitchStep('ask'));
+  $('session-switch-modal').addEventListener('click', (e) => {
+    if (e.target === $('session-switch-modal')) closeSwitchLogout();
+  });
+
+  $('session-switch-do-switch').addEventListener('click', async () => {
+    $('session-switch-error').textContent = '';
+    const accounts = await loadCachedAccounts();
+    const others = accounts.filter(a => !a.active);
+    if (!others.length) {
+      // No second account yet: go add one. The current login stays in the
+      // ring, so it will be offered back on the login screen.
+      closeSwitchLogout();
+      show('login-screen');
+      return;
+    }
+    renderAccountList($('session-switch-list'), accounts,
+      uid => switchToUser(uid, $('session-switch-error')), true);
+    showSwitchStep('pick');
+  });
+
+  $('session-switch-add').addEventListener('click', () => {
+    closeSwitchLogout();
+    show('login-screen');
+  });
+
+  $('session-switch-do-logout').addEventListener('click', () => {
+    closeSwitchLogout();
+    doLogout(false);
+  });
+
+  $('session-switch-do-logout-all').addEventListener('click', async () => {
+    const n = cachedAccounts.length;
+    closeSwitchLogout();
+    if (!(await showConfirm(t('switcher.logoutAllConfirm', { n })))) return;
+    doLogout(true);
+  });
+
+  // Activates another cached account.  A full reload is deliberate: the app
+  // keeps a lot of per-operator state (WebSocket, chat, rig binding, contest,
+  // panel layout, maps), and rebuilding all of it by hand is far more
+  // error-prone than letting the page boot fresh on the new session cookie.
+  async function switchToUser(userId, errEl) {
+    if (errEl) errEl.textContent = '';
+    let res;
+    try {
+      res = await fetch('/api/sessions/switch', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+        },
+        body: JSON.stringify({ user_id: userId }),
+      });
+    } catch {
+      if (errEl) errEl.textContent = t('switcher.switchFailed');
+      return;
+    }
+    if (!res.ok) {
+      // 404 means the cached login hit its timeout between listing and
+      // clicking — drop it from the UI and say so.
+      if (errEl) {
+        errEl.textContent = res.status === 404
+          ? t('switcher.sessionExpired')
+          : t('switcher.switchFailed');
+      }
+      await renderLoginAccounts().catch(() => {});
+      return;
+    }
+    if (ws) try { ws.close(); } catch {}
+    ws = null;
+    window.location.reload();
+  }
+
+  // Signs the current account out. Other cached logins survive unless `all`
+  // is set, so the next screen is the account picker rather than a bare
+  // password prompt.
+  async function doLogout(all = false) {
+    await api('/api/logout', {
+      method: 'POST',
+      body: JSON.stringify({ all: !!all }),
+    }).catch(() => {});
     me = null;
     csrfToken = null;
     if (ws) try { ws.close(); } catch {}

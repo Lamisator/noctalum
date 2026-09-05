@@ -18,6 +18,8 @@ const (
 	AuditLoginLocked             = "login.locked"
 	AuditLoginDisabled           = "login.disabled"
 	AuditLogout                  = "logout"
+	AuditLogoutAll               = "logout.all"     // signed out every cached account in one browser
+	AuditSessionSwitch           = "session.switch" // flipped to another cached account
 	AuditUserCreate              = "user.create"
 	AuditUserDelete              = "user.delete"
 	AuditUserDisable             = "user.disable"
@@ -85,7 +87,7 @@ const (
 // AllAuditActions is used by the UI to populate the action filter dropdown.
 var AllAuditActions = []string{
 	AuditLoginSuccess, AuditLoginFailure, AuditLoginLocked, AuditLoginDisabled,
-	AuditLogout,
+	AuditLogout, AuditLogoutAll, AuditSessionSwitch,
 	AuditUserCreate, AuditUserDelete, AuditUserDisable, AuditUserEnable,
 	AuditUserUnlock, AuditUserPasswordReset, AuditUserPasswordChange, AuditUserHelperTokenRegen, AuditUserRolesChange, AuditUserUsernameChange,
 	AuditRoleCreate, AuditRoleDelete, AuditRolePermsChange,

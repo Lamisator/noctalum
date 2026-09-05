@@ -110,7 +110,7 @@ func (s *Server) handleLoginRequestStatus(w http.ResponseWriter, r *http.Request
 				return
 			}
 			sess := s.sessions.Create(u)
-			SetSessionCookie(w, sess.ID)
+			s.activateSession(w, r, sess)
 			s.audit(r, store.AuditInfo, AuditLoginSuccess, u.Username, "", "device-pair")
 			go s.store.TouchUserActivity(u.ID)
 			writeJSON(w, http.StatusOK, map[string]any{

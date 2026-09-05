@@ -317,6 +317,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/logout", s.handleLogout)
 	mux.HandleFunc("/api/me", s.handleMe)
+	// Both are public: the login screen has to be able to list and activate
+	// the accounts this browser already holds while no session is active.
+	mux.HandleFunc("/api/sessions", s.handleSessionList)
+	mux.HandleFunc("/api/sessions/switch", s.handleSessionSwitch)
 	mux.HandleFunc("/api/passkey/login/begin", s.handlePasskeyLoginBegin)
 	mux.HandleFunc("/api/passkey/login/finish", s.handlePasskeyLoginFinish)
 	mux.HandleFunc("/api/oidc/config", s.handleOIDCConfig)
@@ -804,7 +808,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, store.AuditInfo, AuditUserCreate, "system", u.Username,
 		"callsign: "+u.Callsign+", roles: admin (first-run setup)")
 	sess := s.sessions.Create(u)
-	SetSessionCookie(w, sess.ID)
+	s.activateSession(w, r, sess)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"username": u.Username, "callsign": u.Callsign,
 	})
@@ -833,7 +837,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.audit(r, store.AuditInfo, AuditLoginSuccess, u.Username, "", "password")
 		go s.store.TouchUserActivity(u.ID)
 		sess := s.sessions.Create(u)
-		SetSessionCookie(w, sess.ID)
+		s.activateSession(w, r, sess)
 		writeJSON(w, http.StatusOK, sessionInfo(sess))
 	case LoginLocked:
 		s.audit(r, store.AuditWarn, AuditLoginLocked, body.Username, "",
@@ -851,17 +855,31 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleLogout signs the active account out.  Other accounts this browser has
+// cached (see session_ring.go) survive by design — logging out of one operator
+// on a shared station PC must not evict the rest — and the login screen offers
+// them straight away.  POST {"all": true} is the explicit escape hatch that
+// clears every cached login at once, for when the operator is done with the
+// machine rather than just with their own turn.
+//
+// The response reports how many logins are left so the client can decide
+// between "show the account picker" and "show the password form".
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		All bool `json:"all"`
+	}
+	if r.Body != nil {
+		// Body is optional: the plain single-account logout sends none.
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
-		ClearSessionCookie(w)
-		w.WriteHeader(http.StatusNoContent)
+		s.logoutRemaining(w, r, body.All, nil)
 		return
 	}
 	sess, ok := s.sessions.Get(c.Value)
 	if !ok {
-		ClearSessionCookie(w)
-		w.WriteHeader(http.StatusNoContent)
+		s.logoutRemaining(w, r, body.All, nil)
 		return
 	}
 	if r.Header.Get("X-CSRF-Token") != sess.CSRFToken {
@@ -870,8 +888,31 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, store.AuditInfo, AuditLogout, sess.Username, "", "")
 	s.sessions.Delete(c.Value)
+	s.logoutRemaining(w, r, body.All, sess)
+}
+
+// logoutRemaining clears the active-session cookie, prunes (or, for "log out
+// everywhere on this device", destroys) the rest of the ring, and reports how
+// many cached logins the browser still holds.
+func (s *Server) logoutRemaining(w http.ResponseWriter, r *http.Request, all bool, actor *Session) {
+	activeID := ""
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		activeID = c.Value
+	}
+	remaining := s.ringWithout(r, activeID)
+	if all {
+		for _, id := range remaining {
+			s.sessions.Delete(id)
+		}
+		if len(remaining) > 0 && actor != nil {
+			s.audit(r, store.AuditInfo, AuditLogoutAll, actor.Username, "",
+				fmt.Sprintf("also signed out %d cached account(s) on this device", len(remaining)))
+		}
+		remaining = nil
+	}
+	writeSessionRing(w, remaining)
 	ClearSessionCookie(w)
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]any{"remaining": len(remaining)})
 }
 
 // handlePing is a lightweight, unauthenticated liveness check.  It returns the

@@ -2,6 +2,7 @@
 :root {
   --bg: #121417;
   --bg-elev: #1c1f24;
+  --bg-elev-1: #202429;
   --bg-elev-2: #242830;
   --border: #2c3138;
   --text: #e6eaf0;
@@ -27,6 +28,7 @@
 body.theme-light {
   --bg: #f7f8fa;
   --bg-elev: #ffffff;
+  --bg-elev-1: #f4f5f7;
   --bg-elev-2: #eef0f3;
   --border: #c8cdd5;
   --text: #1a1d22;
@@ -3858,3 +3860,107 @@ body.deploy-ribbon-active { padding-top: 48px; }
    .deploy-ribbon-active below so its larger 48px padding wins the
    cascade when both classes happen to be on <body> at once. */
 body.env-ribbon-active { padding-top: 24px; }
+
+
+/* ==== Multi-user account switcher ====
+   Shared by the login screen's "still signed in here" picker and the
+   Switch / Logout modal, so a cached account looks identical wherever it
+   is offered. */
+.account-block { margin: 4px 0 0; }
+.account-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.account-list { display: flex; flex-direction: column; gap: 8px; }
+/* Two class selectors so these win over `.login-card button`, which would
+   otherwise paint every row as a full-width accent button. */
+.account-list .account-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  text-align: left;
+  background: var(--bg-elev-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.account-list .account-item:hover {
+  background: var(--bg-elev-1);
+  border-color: var(--accent);
+}
+/* The row for the session that is active right now: shown for orientation,
+   never clickable. */
+.account-list .account-item[disabled] {
+  cursor: default;
+  opacity: 0.75;
+  background: var(--bg-elev);
+  border-style: dashed;
+}
+.account-list .account-item[disabled]:hover { border-color: var(--border); }
+.account-avatar {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.account-id { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.account-name {
+  font-size: 14px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-call { font-size: 11px; color: var(--text-muted); }
+.account-badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+/* Step 1 of the modal: the switch / log out / log out everywhere choices. */
+.account-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.account-actions .passkey-btn { text-align: left; }
+#session-switch-add { margin-top: 12px; text-align: left; }
+#session-switch-pick .account-list { max-height: 46vh; overflow-y: auto; }
+/* "Switch/Logout" is wider than the old "Logout". Keep it on one line, and
+   size the app-header instance like its contest-screen twin (12px) — measured
+   at 1280-1360px that is the difference between a one-row and a two-row
+   header, because the tab nav wraps as soon as the right-hand controls grow.
+
+   .topbar is flex-wrap:nowrap, so a right-hand control that refuses to shrink
+   pushes the whole page wider than the viewport (measured: 1217px of content
+   at a 1200px viewport with the German label, clipping the button and adding a
+   horizontal scrollbar). min-width:0 lets the flex item shrink past its text
+   width and the ellipsis absorbs the rest, so the header degrades instead of
+   overflowing — for this label and for any longer translation added later.
+   The full text stays reachable as the button's tooltip. */
+#logout-btn, #contest-logout-btn { white-space: nowrap; }
+#logout-btn {
+  font-size: 12px;
+  padding: 5px 10px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -44,6 +44,15 @@
     <img src="/noctalum.png" alt="Noctalum" class="app-logo" />
     <h1>Noctalum</h1>
     <p class="muted" data-i18n="login.signIn">Sign in</p>
+    <!-- Accounts this browser still has logged in (the multi-user session
+         ring). Filled in by renderLoginAccounts() on every visit to this
+         screen; stays hidden when nothing is cached, so the single-user
+         experience is unchanged. -->
+    <div id="login-accounts" class="account-block hidden">
+      <p class="account-hint" data-i18n="switcher.stillSignedIn">Still signed in on this device</p>
+      <div id="login-account-list" class="account-list"></div>
+      <div class="passkey-divider"><span data-i18n="switcher.orOtherAccount">or use another account</span></div>
+    </div>
     <form id="login-form" autocomplete="on">
       <label data-i18n="login.username">Username</label>
       <input id="login-username" type="text" autocomplete="username" required />
@@ -71,6 +80,34 @@
     <div id="device-login-error" class="error"></div>
     <div class="modal-actions">
       <button id="device-login-cancel" class="ghost" data-i18n="common.cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Switch user / log out.  Step 1 asks which of the two the operator meant,
+     step 2 lists the accounts this browser has cached (see session_ring.go). -->
+<div id="session-switch-modal" class="modal-root hidden" style="z-index:210">
+  <div class="modal-card">
+    <h3 id="session-switch-title" data-i18n="switcher.title">Switch user or log out?</h3>
+    <div id="session-switch-ask">
+      <!-- Text carries a {user} placeholder, so it is filled in from JS
+           rather than by the declarative data-i18n pass. -->
+      <p class="muted small" id="session-switch-ask-hint">You are signed in. Do you want to continue as a different operator, or sign out completely?</p>
+      <div class="account-actions">
+        <button id="session-switch-do-switch" class="passkey-btn" data-i18n="switcher.switchUser">&#128100; Switch user</button>
+        <button id="session-switch-do-logout" class="passkey-btn">&#128682; Log out</button>
+        <button id="session-switch-do-logout-all" class="passkey-btn hidden" data-i18n="switcher.logoutAll">&#128274; Log out every account on this device</button>
+      </div>
+    </div>
+    <div id="session-switch-pick" class="hidden">
+      <p class="muted small" data-i18n="switcher.pickHint">Pick the account to continue as. Accounts stay signed in until their normal login timeout.</p>
+      <div id="session-switch-list" class="account-list"></div>
+      <button id="session-switch-add" class="passkey-btn" data-i18n="switcher.addAccount">&#10133; Log in as another user</button>
+    </div>
+    <div id="session-switch-error" class="error"></div>
+    <div class="modal-actions">
+      <button id="session-switch-back" class="ghost hidden" data-i18n="common.back">&#8592; Back</button>
+      <button id="session-switch-cancel" class="ghost" data-i18n="common.cancel">Cancel</button>
     </div>
   </div>
 </div>
@@ -225,7 +262,7 @@
       <div id="contest-pick-error" class="error" style="margin-top:10px"></div>
       <div style="margin-top:16px;display:flex;justify-content:flex-end;align-items:center">
         <div style="display:flex;gap:8px;align-items:center">
-          <button id="contest-logout-btn" class="ghost" style="font-size:12px" data-i18n="common.signOut">Sign out</button>
+          <button id="contest-logout-btn" class="ghost" style="font-size:12px" data-i18n="common.switchLogout">Switch/Logout</button>
         </div>
       </div>
     </div>
@@ -453,7 +490,7 @@
         </svg>
         <span class="rearrange-btn-label" data-i18n="topbar.rearrangeShort">Re-Arrange</span>
       </button>
-      <button id="logout-btn" class="ghost" data-i18n="common.logout">Logout</button>
+      <button id="logout-btn" class="ghost" data-i18n="common.switchLogout" data-i18n-title="common.switchLogout" title="Switch/Logout">Switch/Logout</button>
     </div>
   </header>
 

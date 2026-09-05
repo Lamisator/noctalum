@@ -434,6 +434,31 @@ func (s *SessionStore) Get(id string) (*Session, bool) {
 	return sess, true
 }
 
+// Peek returns a session by ID **without** extending its TTL or touching
+// last_seen.  It is used to enumerate the cached logins of a browser
+// (see session_ring.go): merely listing the accounts in the switcher must
+// never keep a session that nobody is using alive, otherwise the idle
+// auto-logout would never fire for a parked account.  Expired sessions are
+// reaped on the way out, exactly as Get does.
+func (s *SessionStore) Peek(id string) (*Session, bool) {
+	s.mu.Lock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		s.mu.Unlock()
+		return nil, false
+	}
+	if time.Now().After(sess.ExpiresAt) {
+		delete(s.sessions, id)
+		s.mu.Unlock()
+		if err := s.db.DeleteSession(id); err != nil {
+			SysLog(store.SysWarn, "sessions", "delete expired session "+id+": "+err.Error())
+		}
+		return nil, false
+	}
+	s.mu.Unlock()
+	return sess, true
+}
+
 // Delete removes a session from memory and the database.
 func (s *SessionStore) Delete(id string) {
 	s.mu.Lock()
