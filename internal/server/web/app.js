@@ -5996,6 +5996,8 @@
         ${buildADIFMappingEditorHTML('', [], false)}
         <label style="margin-top:10px">${escHtml(t('contestScreen.cabrilloMapping'))} <span class="muted small">${escHtml(t('contestScreen.cabrilloMappingHint'))}</span></label>
         ${buildCabrilloMappingEditorHTML('', [], false)}
+        <label style="margin-top:10px">${escHtml(t('contestScreen.ediHeader'))} <span class="muted small">${escHtml(t('contestScreen.ediHeaderHint'))}</span></label>
+        ${buildEDIHeaderEditorHTML('', [], false)}
         <label style="margin-top:10px">${escHtml(t('contestScreen.objective'))} <span class="muted small">${escHtml(t('contestScreen.objectiveMdOptional'))}</span></label>
         <div class="md-editor-wrap">
           <textarea name="objective" placeholder="${escHtml(t('contestScreen.objectivePlaceholder'))}"></textarea>
@@ -6028,6 +6030,7 @@
           log_columns: carried.log_columns,
           freq_unit: carried.freq_unit,
           stash_expiry_minutes: carried.stash_expiry_minutes,
+          edi_header: serializeEDIHeaderEditor(),
           nr_padded: form.nr_padded.checked,
           start_date: (form.start_date?.value || '').trim(),
           end_date: (form.end_date?.value || '').trim(),
@@ -6051,6 +6054,7 @@
     attachLayoutEditorListeners('');
     attachADIFMappingListeners([]);
     attachCabrilloMappingListeners([]);
+    attachEDIHeaderListeners([]);
     const taC = document.querySelector('#modal-card textarea[name=objective]');
     const previewC = $('modal-md-preview');
     if (taC && previewC) {
@@ -6218,6 +6222,8 @@
         ${buildADIFMappingEditorHTML(c.adif_mapping || '', existingFields, readOnly)}
         <label style="margin-top:14px">${escHtml(t('contestScreen.cabrilloMapping'))} <span class="muted small">${escHtml(t('contestScreen.cabrilloMappingHint'))}</span></label>
         ${buildCabrilloMappingEditorHTML(c.cabrillo_mapping || '', existingFields, readOnly)}
+        ${readOnly ? '' : `<label style="margin-top:14px">${escHtml(t('contestScreen.ediHeader'))} <span class="muted small">${escHtml(t('contestScreen.ediHeaderHint'))}</span></label>
+        ${buildEDIHeaderEditorHTML(c.edi_header || '', existingFields, false)}`}
         <div class="modal-err error"></div>
         ${actionsHtml}
       </form>
@@ -6239,6 +6245,7 @@
           adif_mapping: serializeADIFMappingEditor(),
           cabrillo_mapping: serializeCabrilloMappingEditor(),
           log_columns: serializeLogColumnsEditor(),
+          edi_header: serializeEDIHeaderEditor(),
           nr_padded: form.nr_padded.checked,
           stash_expiry_minutes: Math.max(1, parseInt(form.stash_expiry_minutes?.value || '60', 10) || 60),
           freq_unit: form.freq_unit?.value || 'kHz',
@@ -6270,6 +6277,7 @@
     }
     attachADIFMappingListeners(existingFields);
     attachCabrilloMappingListeners(existingFields);
+    attachEDIHeaderListeners(existingFields);
     // Live markdown preview (always shown, read-only preview still renders)
     const ta = document.querySelector('#modal-card textarea[name=objective]');
     const preview = $('modal-md-preview');
@@ -7508,6 +7516,107 @@
         <div class="cbr-map-rows">${rows}</div>
         ${add}
       </div>`;
+  }
+
+  // ----- EDI (REG1TEST) header editor -----
+  // The header lines the EDI export cannot take from the contest or its log.
+  // Keys are the REG1TEST keywords in lower case, matching server/edi.go.
+  const EDI_FIELD_GROUPS = [
+    ['ediGroupStation', [
+      ['pexch', 'ediPExch', { maxlength: 6, upper: true }],
+      ['pclub', 'ediPClub', { upper: true }],
+      ['padr1', 'ediPAdr1'],
+      ['padr2', 'ediPAdr2'],
+    ]],
+    ['ediGroupResponsible', [
+      ['rname', 'ediRName'],
+      ['rcall', 'ediRCall', { upper: true, placeholder: 'ediRCallPlaceholder' }],
+      ['radr1', 'ediRAdr1'],
+      ['radr2', 'ediRAdr2'],
+      ['rpoco', 'ediRPoCo'],
+      ['rcity', 'ediRCity'],
+      ['rcoun', 'ediRCoun'],
+      ['rphon', 'ediRPhon'],
+      ['rhbbs', 'ediRHBBS'],
+    ]],
+    ['ediGroupEquipment', [
+      ['stxeq', 'ediSTXEq'],
+      ['spowe', 'ediSPowe', { numeric: true }],
+      ['srxeq', 'ediSRXEq'],
+      ['sante', 'ediSAnte'],
+      ['santh_agl', 'ediSAntHAGL', { numeric: true }],
+      ['santh_asl', 'ediSAntHASL', { numeric: true }],
+    ]],
+  ];
+
+  function parseEDIHeader(raw) {
+    try {
+      const o = JSON.parse(raw || '{}');
+      return o && typeof o === 'object' ? o : {};
+    } catch { return {}; }
+  }
+
+  function ediExchOptionsHTML(customFields, selected) {
+    const opts = [['', t('contestScreen.ediExchNone')], ['dok', t('contestScreen.ediExchDok')]]
+      .concat((customFields || []).map(f => [f.name, f.label || f.name]));
+    // A custom field that has since been removed stays selectable so saving
+    // the form does not silently change the setting.
+    if (selected && !opts.some(o => o[0] === selected)) opts.push([selected, selected]);
+    return opts.map(([v, l]) =>
+      `<option value="${escHtml(v)}"${v === selected ? ' selected' : ''}>${escHtml(l)}</option>`).join('');
+  }
+
+  function buildEDIHeaderEditorHTML(raw, customFields, readOnly) {
+    const h = parseEDIHeader(raw);
+    const d = readOnly ? ' disabled' : '';
+    const input = ([key, labelKey, o = {}]) => `
+      <label class="edi-field"><span>${escHtml(t('contestScreen.' + labelKey))}</span>
+        <input data-edi="${key}" value="${escHtml(h[key] || '')}"${o.maxlength ? ` maxlength="${o.maxlength}"` : ''}${o.upper ? ' autocapitalize="characters" style="text-transform:uppercase"' : ''}${o.numeric ? ' inputmode="numeric"' : ''}${o.placeholder ? ` placeholder="${escHtml(t('contestScreen.' + o.placeholder))}"` : ''}${d} />
+      </label>`;
+    const groups = EDI_FIELD_GROUPS.map(([g, fields]) => `
+      <div class="edi-group-title">${escHtml(t('contestScreen.' + g))}</div>
+      <div class="edi-grid">${fields.map(input).join('')}</div>`).join('');
+    return `
+      <div class="edi-editor" id="edi-editor">
+        <div class="edi-intro muted small">${escHtml(t('contestScreen.ediIntro'))}</div>
+        ${groups}
+        <div class="edi-group-title">${escHtml(t('contestScreen.ediGroupOperators'))}</div>
+        <div class="edi-intro muted small">${escHtml(t('contestScreen.ediOperatorsHint'))}</div>
+        <label class="edi-field"><span>${escHtml(t('contestScreen.ediOperators'))}</span>
+          <input data-edi="operators" value="${escHtml(h.operators || '')}" placeholder="${escHtml(t('contestScreen.ediOperatorsPlaceholder'))}" autocapitalize="characters" style="text-transform:uppercase"${d} />
+        </label>
+        <div class="edi-group-title">${escHtml(t('contestScreen.ediGroupLog'))}</div>
+        <label class="edi-field"><span>${escHtml(t('contestScreen.ediExchField'))}</span>
+          <select data-edi="exch_field"${d}>${ediExchOptionsHTML(customFields, h.exch_field || '')}</select>
+        </label>
+        <label class="edi-field"><span>${escHtml(t('contestScreen.ediRemarks'))}</span>
+          <textarea data-edi="remarks" rows="3"${d}>${escHtml(h.remarks || '')}</textarea>
+        </label>
+      </div>`;
+  }
+
+  // The received-exchange picker offers the contest's custom fields, which
+  // may still be changing in the same form — so its options are rebuilt from
+  // the custom-fields editor whenever it gets focus.
+  function attachEDIHeaderListeners(customFields) {
+    const sel = document.querySelector('#edi-editor select[data-edi="exch_field"]');
+    if (!sel || sel.disabled) return;
+    sel.addEventListener('focus', () => {
+      sel.innerHTML = ediExchOptionsHTML(_mappingCustomFields(customFields), sel.value);
+    });
+  }
+
+  // Returns undefined when the editor is not on screen, so the PUT body
+  // leaves the stored details alone (JSON.stringify drops the key).
+  function serializeEDIHeaderEditor() {
+    const editor = document.getElementById('edi-editor');
+    if (!editor) return undefined;
+    const out = {};
+    editor.querySelectorAll('[data-edi]').forEach(el => {
+      const v = (el.value || '').trim();
+      if (v) out[el.dataset.edi] = v;
+    });
+    return Object.keys(out).length ? JSON.stringify(out) : '';
   }
 
   function buildCabrilloMappingEditorHTML(mappingJSON, customFields, readOnly) {

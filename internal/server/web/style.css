@@ -3080,6 +3080,50 @@ button.cf-picker-item:focus-visible {
   margin-top: 6px;
 }
 
+/* EDI (REG1TEST) header editor — grouped two-column grid of the header lines
+   the export cannot derive from the log. */
+.edi-editor {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  background: var(--bg-elev-2);
+  margin-bottom: 6px;
+}
+.edi-intro {
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+.edi-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 10px 0 2px;
+}
+.edi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0 10px;
+}
+.modal-card label.edi-field {
+  margin: 6px 0 0;
+  min-width: 0;
+}
+.modal-card label.edi-field > span {
+  display: block;
+  margin-bottom: 3px;
+}
+.modal-card .edi-field input,
+.modal-card .edi-field select,
+.modal-card .edi-field textarea {
+  letter-spacing: normal;
+  width: 100%;
+  box-sizing: border-box;
+}
+.modal-card .edi-field textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
 /* ADIF export mapping editor — one row per Noctalum data field, showing (and
    for most of them, letting you change) the ADIF tag it exports as. */
 .adif-map-editor {

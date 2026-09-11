@@ -3004,6 +3004,16 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 				p.Role = "owner"
 				p.Status = "active"
 			}
+			// The EDI details hold the responsible operator's postal
+			// address and phone number; only people who may edit the
+			// contest get them. (They still end up in the EDI export, which
+			// is the point of entering them.)
+			canEditContest := canSeeAll || p.Role == store.ContestRoleOwner ||
+				HasPermission(sess.EffectivePermissions(), PermContestsManage) ||
+				(canManagePrivate && c.Private)
+			if !canEditContest {
+				c.EDIHeader = ""
+			}
 			filtered = append(filtered, contestWithParticipation{Contest: c, MyRole: p.Role, MyStatus: p.Status})
 		}
 		writeJSON(w, http.StatusOK, filtered)
@@ -3024,6 +3034,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			LogColumns         string   `json:"log_columns"`
 			ADIFMapping        string   `json:"adif_mapping"`
 			CabrilloMapping    string   `json:"cabrillo_mapping"`
+			EDIHeader          *string  `json:"edi_header"` // nil = leave unchanged
 			NrPadded           *bool    `json:"nr_padded"`
 			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
 			FreqUnit           string   `json:"freq_unit"`
@@ -3087,6 +3098,13 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid QTH locator")
 			return
 		}
+		ediHeaderCreate := ""
+		if in.EDIHeader != nil {
+			if ediHeaderCreate, err = normalizeEDIHeader(*in.EDIHeader); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
 		ownerID := int64(0)
 		if visibility == store.VisibilityPrivate {
 			ownerID = sess.UserID
@@ -3095,6 +3113,13 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
+		}
+		if ediHeaderCreate != "" {
+			if err := s.store.SetContestEDIHeader(c.ID, ediHeaderCreate); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			c.EDIHeader = ediHeaderCreate
 		}
 		_ = s.store.AddContestParticipant(c.ID, sess.UserID, store.ContestRoleOwner, "active")
 		// Attach the initial group access list when this is a "groups"
@@ -3847,6 +3872,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			LogColumns         string   `json:"log_columns"`
 			ADIFMapping        string   `json:"adif_mapping"`
 			CabrilloMapping    string   `json:"cabrillo_mapping"`
+			EDIHeader          *string  `json:"edi_header"` // nil = leave unchanged
 			NrPadded           *bool    `json:"nr_padded"`
 			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
 			FreqUnit           string   `json:"freq_unit"`
@@ -3906,9 +3932,24 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 		if putFreqUnit == "" {
 			putFreqUnit = "kHz"
 		}
+		// Validated up front so a bad EDI detail rejects the whole save
+		// instead of half-applying it.
+		ediHeaderPut := ""
+		if in.EDIHeader != nil {
+			if ediHeaderPut, err = normalizeEDIHeader(*in.EDIHeader); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
 		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, in.ADIFMapping, in.CabrilloMapping, nrPaddedPut, stashExpiryPut, putFreqUnit, startDatePut, endDatePut); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if in.EDIHeader != nil {
+			if err := s.store.SetContestEDIHeader(id, ediHeaderPut); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
 		contestUpdSess := sessionFor(s, r)
 		s.audit(r, store.AuditInfo, AuditContestUpdate, contestUpdSess.Username, in.Name,
@@ -4153,10 +4194,22 @@ func (s *Server) handleExportEDI(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	opts := EDIExportOptions{
+		ContestName: contestName,
+		StationCall: contestCall,
+		QTH:         sess.ContestQTH(),
+	}
+	if c, err := s.store.GetContest(contestID); err == nil {
+		opts.Bands = c.Bands
+		opts.StartDate = c.StartDate
+		opts.EndDate = c.EndDate
+		opts.HeaderJSON = c.EDIHeader
+	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: EDI")
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	// REG1TEST is 7-bit ASCII; the exporter transliterates everything else.
+	w.Header().Set("Content-Type", "text/plain; charset=us-ascii")
 	w.Header().Set("Content-Disposition", attachmentDisposition(exportFilename(contestName, contestCall, "edi")))
-	if err := ExportEDI(w, qsos, contestName, contestCall, sess.ContestQTH()); err != nil {
+	if err := ExportEDI(w, qsos, opts); err != nil {
 		log.Printf("EDI export error: %v", err)
 	}
 }

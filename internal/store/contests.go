@@ -49,6 +49,7 @@ type Contest struct {
 	LogColumns         string     `json:"log_columns"`          // JSON-encoded ordered array of {key,on} for log table columns
 	ADIFMapping        string     `json:"adif_mapping"`         // JSON-encoded {noctalum field key: ADIF tag} overrides; only changed fields are stored
 	CabrilloMapping    string     `json:"cabrillo_mapping"`     // JSON-encoded {sent:[field keys], received:[field keys]} exchange layout
+	EDIHeader          string     `json:"edi_header"`           // JSON-encoded REG1TEST header details (address, responsible operator, equipment, …)
 	AccessRestricted   bool       `json:"access_restricted"`    // when true, only access-listed users / owners / admins can see & enter (kept in sync with Visibility!="open" for backward compat)
 	NrPadded           bool       `json:"nr_padded"`            // display serial numbers zero-padded to 3 digits
 	StashExpiryMinutes int64      `json:"stash_expiry_minutes"` // auto-delete stashed pre-QSOs after this many minutes (default 60)
@@ -119,7 +120,8 @@ func (s *Store) migrateContests() error {
 			log_columns          TEXT NOT NULL DEFAULT '',
 			adif_mapping         TEXT NOT NULL DEFAULT '',
 			cabrillo_mapping     TEXT NOT NULL DEFAULT '',
-			access_restricted    BOOLEAN NOT NULL DEFAULT false,
+			edi_header           TEXT NOT NULL DEFAULT '',
+			access_restricted   BOOLEAN NOT NULL DEFAULT false,
 			nr_padded            BOOLEAN NOT NULL DEFAULT true,
 			stash_expiry_minutes BIGINT NOT NULL DEFAULT 60,
 			freq_unit            TEXT NOT NULL DEFAULT 'kHz',
@@ -136,6 +138,9 @@ func (s *Store) migrateContests() error {
 		// pre-existing contest) means the historical sent=RST+ITU /
 		// received=RST+CQ arrangement, so migrating changes nobody's export.
 		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS cabrillo_mapping TEXT NOT NULL DEFAULT ''`,
+		// REG1TEST (EDI) header details. Empty means "nothing entered", which
+		// exports the same blank header lines as before.
+		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS edi_header TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS end_date   DATE`,
 		// Authoritative visibility mode ("open" | "groups" | "private"),
 		// added when per-contest permissions were introduced. Backfill
@@ -276,7 +281,7 @@ func normalizeDate(t *time.Time) *time.Time {
 func (s *Store) ListContests() ([]Contest, error) {
 	rows, err := s.db.Query(
 		`SELECT c.id, c.name, c.station_call, c.qth, c.bands, c.objective, c.status, c.station_id,
-		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.log_columns, c.adif_mapping, c.cabrillo_mapping, c.access_restricted, c.visibility, c.nr_padded, c.stash_expiry_minutes, c.freq_unit, c.start_date, c.end_date, c.created_at,
+		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.log_columns, c.adif_mapping, c.cabrillo_mapping, c.edi_header, c.access_restricted, c.visibility, c.nr_padded, c.stash_expiry_minutes, c.freq_unit, c.start_date, c.end_date, c.created_at,
 		        MAX(q.time_utc) AS last_activity_at
 		 FROM contests c
 		 LEFT JOIN qsos q ON q.contest_id = c.id
@@ -292,7 +297,7 @@ func (s *Store) ListContests() ([]Contest, error) {
 		var bandsStr string
 		var lastAct sql.NullTime
 		var startDate, endDate sql.NullTime
-		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.ADIFMapping, &c.CabrilloMapping, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt, &lastAct); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.ADIFMapping, &c.CabrilloMapping, &c.EDIHeader, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt, &lastAct); err != nil {
 			return nil, err
 		}
 		c.Bands = bandsFromString(bandsStr)
@@ -318,11 +323,11 @@ func (s *Store) ListContests() ([]Contest, error) {
 // GetContest returns a single contest by ID.
 func (s *Store) GetContest(id int64) (*Contest, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, adif_mapping, cabrillo_mapping, access_restricted, visibility, nr_padded, stash_expiry_minutes, freq_unit, start_date, end_date, created_at FROM contests WHERE id = $1`, id)
+		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, adif_mapping, cabrillo_mapping, edi_header, access_restricted, visibility, nr_padded, stash_expiry_minutes, freq_unit, start_date, end_date, created_at FROM contests WHERE id = $1`, id)
 	var c Contest
 	var bandsStr string
 	var startDate, endDate sql.NullTime
-	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.ADIFMapping, &c.CabrilloMapping, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.ADIFMapping, &c.CabrilloMapping, &c.EDIHeader, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrContestNotFound
 		}
@@ -376,6 +381,14 @@ func (s *Store) UpdateContest(id int64, name, stationCall, qth, status string, b
 	return err
 }
 
+// SetContestEDIHeader stores a contest's REG1TEST header details. It is kept
+// out of UpdateContest so that callers which only change other settings (the
+// status toggle, older clients) leave the stored details untouched.
+func (s *Store) SetContestEDIHeader(contestID int64, ediHeader string) error {
+	_, err := s.db.Exec(`UPDATE contests SET edi_header = $1 WHERE id = $2`, ediHeader, contestID)
+	return err
+}
+
 // DuplicateContest creates a new contest that copies the source contest's
 // configuration (custom fields, QSO layout, log columns, bands, etc.) but
 // starts empty — no QSOs, no access list, no participants other than the
@@ -387,7 +400,7 @@ func (s *Store) DuplicateContest(srcID int64, newName string, ownerUserID int64)
 	if err != nil {
 		return nil, err
 	}
-	return s.CreateContest(
+	c, err := s.CreateContest(
 		newName,
 		src.StationCall,
 		src.QTH,
@@ -407,6 +420,18 @@ func (s *Store) DuplicateContest(srcID int64, newName string, ownerUserID int64)
 		nil,
 		nil,
 	)
+	if err != nil {
+		return nil, err
+	}
+	// The EDI details describe the station (address, equipment, responsible
+	// operator), so they carry over like the other station-level fields.
+	if src.EDIHeader != "" {
+		if err := s.SetContestEDIHeader(c.ID, src.EDIHeader); err != nil {
+			return nil, err
+		}
+		c.EDIHeader = src.EDIHeader
+	}
+	return c, nil
 }
 
 // AutoCloseExpiredContests flips any 'open' contest whose scheduled last day
