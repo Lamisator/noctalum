@@ -7474,6 +7474,7 @@
       return {
         sent: Array.isArray(o.sent) ? o.sent.filter(k => typeof k === 'string') : [],
         received: Array.isArray(o.received) ? o.received.filter(k => typeof k === 'string') : [],
+        emptyNrZero: o.empty_nr_zero === true,
       };
     } catch { return null; }
   }
@@ -7637,6 +7638,7 @@
         <div class="cbr-map-preview" id="cbr-map-preview"></div>
         ${cabrilloGroupHTML('sent', m.sent, customFields, readOnly)}
         ${cabrilloGroupHTML('received', m.received, customFields, readOnly)}
+        <label class="cbr-map-option"><input type="checkbox" id="cbr-map-empty-nr-zero"${m.emptyNrZero ? ' checked' : ''}${readOnly ? ' disabled' : ''} /> ${escHtml(t('contestScreen.cbrEmptyNrZero'))}</label>
         <div class="cbr-map-actions">${reset}</div>
       </div>`;
   }
@@ -7715,6 +7717,8 @@
         const wrap = editor.querySelector(`.cbr-map-group[data-group="${g}"] .cbr-map-rows`);
         wrap.innerHTML = CABRILLO_DEFAULT[g].map(k => cabrilloRowHTML(g, k, fields(), ro)).join('');
       }
+      const zero = document.getElementById('cbr-map-empty-nr-zero');
+      if (zero) zero.checked = false;
       redraw();
     });
     // A custom field removed or renamed in the custom-fields editor must not
@@ -7747,9 +7751,10 @@
   function serializeCabrilloMappingEditor() {
     if (!document.getElementById('cbr-map-editor')) return '';
     const out = { sent: cabrilloGroupKeys('sent'), received: cabrilloGroupKeys('received') };
+    if (document.getElementById('cbr-map-empty-nr-zero')?.checked) out.empty_nr_zero = true;
     const same = g => out[g].length === CABRILLO_DEFAULT[g].length
       && out[g].every((k, i) => k === CABRILLO_DEFAULT[g][i]);
-    if (same('sent') && same('received')) return '';
+    if (same('sent') && same('received') && !out.empty_nr_zero) return '';
     return JSON.stringify(out);
   }
 

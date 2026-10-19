@@ -534,6 +534,11 @@ func ExportCabrillo(w io.Writer, qsos []store.QSO, opts CabrilloExportOptions) e
 	customFields := parseCustomFieldDefs(opts.CustomFieldsJSON)
 	sent, received := resolveCabrilloMapping(opts.MappingJSON, customFields)
 	myCall := strings.ToUpper(opts.StationCall)
+	ctx := cabrilloLineContext{
+		MyGridsquare: opts.MyGridsquare,
+		MyDOK:        opts.MyDOK,
+		EmptyNrZero:  cabrilloEmptyNrZero(opts.MappingJSON),
+	}
 	for _, q := range qsos {
 		extras := parseExtras(q.Extras)
 		var b strings.Builder
@@ -544,7 +549,7 @@ func ExportCabrillo(w io.Writer, qsos []store.QSO, opts CabrilloExportOptions) e
 			fmt.Fprintf(&b, " %-13s", call)
 			for _, k := range keys {
 				fmt.Fprintf(&b, " %-*s", cabrilloFieldWidth(k),
-					cabrilloExchangeValue(k, q, opts.MyGridsquare, opts.MyDOK, extras))
+					cabrilloExchangeValue(k, q, ctx, extras))
 			}
 		}
 		group(myCall, sent)

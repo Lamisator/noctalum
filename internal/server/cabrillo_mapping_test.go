@@ -100,7 +100,7 @@ func TestExportCabrilloSerialExchange(t *testing.T) {
 		t.Fatalf("ExportCabrillo: %v", err)
 	}
 	line := qsoLine(t, buf.String())
-	if !strings.Contains(line, "DM2LAP        59  17     DL8AA         59  23") {
+	if !strings.Contains(line, "DM2LAP        59  017    DL8AA         59  023") {
 		t.Errorf("serial exchange not laid out as expected: %q", line)
 	}
 }
@@ -207,7 +207,7 @@ func TestExportCabrilloWAGExchange(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"DM2LAP        59  P01    DK2XYZ        59  B36   \n",
-		"DM2LAP        59  P01    OK1AA         59  7     \n",
+		"DM2LAP        59  P01    OK1AA         59  007   \n",
 		// A logged DOK wins over the serial, and NM is kept as typed.
 		"DM2LAP        59  P01    DL9QQ         59  NM    \n",
 		// Neither logged: an empty column, never an invented "NM".
@@ -230,5 +230,53 @@ func TestNormalizeMyDOK(t *testing.T) {
 		if _, err := normalizeMyDOK(bad); err == nil {
 			t.Errorf("normalizeMyDOK(%q) accepted", bad)
 		}
+	}
+}
+
+func TestExportCabrilloSerialsPadWithoutCappingWidth(t *testing.T) {
+	q := sampleQSO()
+	q.NrSent, q.NrReceived = 5, 1234
+	var buf bytes.Buffer
+	err := ExportCabrillo(&buf, []store.QSO{q}, cabrilloOpts(
+		`{"sent":["rst_sent","nr_sent"],"received":["rst_received","nr_received"]}`, ""))
+	if err != nil {
+		t.Fatalf("ExportCabrillo: %v", err)
+	}
+	if line := qsoLine(t, buf.String()); !strings.Contains(line, "59  005    DL8AA         59  1234") {
+		t.Errorf("serials not padded as expected: %q", line)
+	}
+}
+
+func TestExportCabrilloEmptyReceivedNumberAsZeros(t *testing.T) {
+	missing := sampleQSO()
+	missing.NrReceived, missing.DOK = 0, ""
+	for _, c := range []struct {
+		mapping, want string
+	}{
+		// Off (default): the column stays empty.
+		{`{"sent":["rst_sent"],"received":["rst_received","nr_received"]}`, "DL8AA         59        "},
+		{`{"sent":["rst_sent"],"received":["rst_received","nr_received"],"empty_nr_zero":true}`, "DL8AA         59  000   "},
+		// dok_or_nr: no DOK and no serial -> 000, but never "NM".
+		{`{"sent":["rst_sent"],"received":["rst_received","dok_or_nr"],"empty_nr_zero":true}`, "DL8AA         59  000   "},
+	} {
+		var buf bytes.Buffer
+		if err := ExportCabrillo(&buf, []store.QSO{missing}, cabrilloOpts(c.mapping, "")); err != nil {
+			t.Fatalf("ExportCabrillo: %v", err)
+		}
+		if line := qsoLine(t, buf.String()); !strings.HasSuffix(line, c.want) {
+			t.Errorf("%s: want line ending %q, got %q", c.mapping, c.want, line)
+		}
+	}
+
+	// A logged serial or DOK is never replaced by zeros.
+	logged := sampleQSO()
+	logged.NrReceived, logged.DOK = 0, "B36"
+	var buf bytes.Buffer
+	if err := ExportCabrillo(&buf, []store.QSO{logged}, cabrilloOpts(
+		`{"sent":["rst_sent"],"received":["rst_received","dok_or_nr"],"empty_nr_zero":true}`, "")); err != nil {
+		t.Fatalf("ExportCabrillo: %v", err)
+	}
+	if line := qsoLine(t, buf.String()); !strings.HasSuffix(line, "59  B36   ") {
+		t.Errorf("logged DOK overwritten: %q", line)
 	}
 }

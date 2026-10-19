@@ -3274,6 +3274,17 @@ button.cf-picker-item:focus-visible {
   margin-top: 6px;
   font-size: 12px;
 }
+.cbr-map-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.cbr-map-option input {
+  width: auto;
+  margin: 0;
+}
 .cbr-map-actions {
   margin-top: 10px;
 }

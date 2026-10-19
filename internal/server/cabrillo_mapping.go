@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"errors"
-	"strconv"
 	"strings"
 
 	"github.com/noctalum/noctalum/internal/store"
@@ -77,6 +76,28 @@ const cabrilloCustomKeyPrefix = "cf:"
 type cabrilloMapping struct {
 	Sent     []string `json:"sent"`
 	Received []string `json:"received"`
+	// EmptyNrZero writes "000" into a received-serial slot (nr_received, or
+	// dok_or_nr without a DOK) when the QSO has no received number, for
+	// contest robots that reject a line with a missing column.
+	EmptyNrZero bool `json:"empty_nr_zero,omitempty"`
+}
+
+// cabrilloEmptyNrZero reports whether the contest's mapping asks for "000" in
+// place of a missing received serial. A missing or malformed blob means no.
+func cabrilloEmptyNrZero(mappingJSON string) bool {
+	var m cabrilloMapping
+	if json.Unmarshal([]byte(mappingJSON), &m) != nil {
+		return false
+	}
+	return m.EmptyNrZero
+}
+
+// cabrilloLineContext carries the per-export values an exchange slot may
+// need besides the QSO itself.
+type cabrilloLineContext struct {
+	MyGridsquare string
+	MyDOK        string
+	EmptyNrZero  bool
 }
 
 // resolveCabrilloMapping decodes a contest's stored blob into the ordered
@@ -140,7 +161,11 @@ func cabrilloFieldWidth(key string) int {
 // upper-cased and stripped of whitespace: Cabrillo is a whitespace-delimited
 // format, so a value containing a space would silently become two columns and
 // shift the rest of the line.
-func cabrilloExchangeValue(key string, q store.QSO, myGridsquare, myDOK string, extras map[string]string) string {
+//
+// Serial numbers are always zero-padded to three digits ("007"), the form
+// contest robots and adjudicators compare against; serials past 999 keep
+// their natural width.
+func cabrilloExchangeValue(key string, q store.QSO, ctx cabrilloLineContext, extras map[string]string) string {
 	var v string
 	if name, ok := strings.CutPrefix(key, cabrilloCustomKeyPrefix); ok {
 		v = extras[name]
@@ -151,12 +176,11 @@ func cabrilloExchangeValue(key string, q store.QSO, myGridsquare, myDOK string, 
 		case "rst_received":
 			v = q.RSTReceived
 		case "nr_sent":
-			if q.NrSent > 0 {
-				v = strconv.Itoa(q.NrSent)
-			}
+			v = formatSerial(q.NrSent, true)
 		case "nr_received":
-			if q.NrReceived > 0 {
-				v = strconv.Itoa(q.NrReceived)
+			v = formatSerial(q.NrReceived, true)
+			if v == "" && ctx.EmptyNrZero {
+				v = "000"
 			}
 		case "itu":
 			v = q.ITUZone
@@ -165,18 +189,21 @@ func cabrilloExchangeValue(key string, q store.QSO, myGridsquare, myDOK string, 
 		case "dok":
 			v = q.DOK
 		case "my_dok":
-			v = myDOK
+			v = ctx.MyDOK
 		case "dok_or_nr":
 			// A logged DOK wins; "NM" is a DOK value like any other and is
 			// never filled in on the operator's behalf.
 			v = q.DOK
-			if strings.TrimSpace(v) == "" && q.NrReceived > 0 {
-				v = strconv.Itoa(q.NrReceived)
+			if strings.TrimSpace(v) == "" {
+				v = formatSerial(q.NrReceived, true)
+				if v == "" && ctx.EmptyNrZero {
+					v = "000"
+				}
 			}
 		case "locator":
 			v = q.Locator
 		case "my_locator":
-			v = myGridsquare
+			v = ctx.MyGridsquare
 		case "name":
 			v = q.Name
 		case "lighthouse":
