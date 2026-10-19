@@ -90,8 +90,26 @@ func (s *Store) migrateContestTemplates() error {
 			return err
 		}
 	}
-	return s.seedBuiltinTemplates()
+	if err := s.seedBuiltinTemplates(); err != nil {
+		return err
+	}
+	// Installs that seeded the WAG template before it ticked the "000"
+	// option get it too — but only while the built-in still holds exactly
+	// the original exchange, so an operator's own edit is never overwritten.
+	_, err := s.db.Exec(
+		`UPDATE contest_templates SET cabrillo_mapping = $1
+		 WHERE owner_user_id = 0 AND name = $2 AND cabrillo_mapping = $3`,
+		wagCabrilloMapping, "Worked All Germany (WAG)", wagCabrilloMappingV1)
+	return err
 }
+
+// wagCabrilloMapping is the WAG template's exchange: RST + own DOK sent, RST +
+// DOK-or-serial received, with "000" where a station gave neither.
+const wagCabrilloMapping = `{"sent":["rst_sent","my_dok"],"received":["rst_received","dok_or_nr"],"empty_nr_zero":true}`
+
+// wagCabrilloMappingV1 is what the WAG template was first seeded with, before
+// it switched on the "000" option.
+const wagCabrilloMappingV1 = `{"sent":["rst_sent","my_dok"],"received":["rst_received","dok_or_nr"]}`
 
 // seedBuiltinTemplates inserts the shared, ownerless built-in templates. Each
 // one is seeded at most once ever, tracked by its own settings key — after
@@ -144,7 +162,7 @@ func (s *Store) seedBuiltinTemplates() error {
 					`{"key":"nr_received","on":true},{"key":"name","on":false},{"key":"locator","on":false},` +
 					`{"key":"distance","on":false},{"key":"itu","on":false},{"key":"lighthouse","on":false},` +
 					`{"key":"notes","on":false},{"key":"operator","on":true}]`,
-				CabrilloMapping:    `{"sent":["rst_sent","my_dok"],"received":["rst_received","dok_or_nr"]}`,
+				CabrilloMapping:    wagCabrilloMapping,
 				NrPadded:           true,
 				FreqUnit:           "kHz",
 				StashExpiryMinutes: 60,
