@@ -186,3 +186,49 @@ func TestExportCabrilloFallsBackToBandFrequencyWithoutQRG(t *testing.T) {
 		}
 	}
 }
+
+func TestExportCabrilloWAGExchange(t *testing.T) {
+	opts := cabrilloOpts(`{"sent":["rst_sent","my_dok"],"received":["rst_received","dok_or_nr"]}`, "")
+	opts.MyDOK = "P01"
+
+	dl := sampleQSO()
+	dl.Callsign, dl.DOK, dl.NrReceived = "DK2XYZ", "b36", 0
+	dx := sampleQSO()
+	dx.Callsign, dx.DOK, dx.NrReceived = "OK1AA", "", 7
+	nm := sampleQSO()
+	nm.Callsign, nm.DOK, nm.NrReceived = "DL9QQ", "NM", 12
+	none := sampleQSO()
+	none.Callsign, none.DOK, none.NrReceived = "DL7ZZ", "", 0
+
+	var buf bytes.Buffer
+	if err := ExportCabrillo(&buf, []store.QSO{dl, dx, nm, none}, opts); err != nil {
+		t.Fatalf("ExportCabrillo: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"DM2LAP        59  P01    DK2XYZ        59  B36   \n",
+		"DM2LAP        59  P01    OK1AA         59  7     \n",
+		// A logged DOK wins over the serial, and NM is kept as typed.
+		"DM2LAP        59  P01    DL9QQ         59  NM    \n",
+		// Neither logged: an empty column, never an invented "NM".
+		"DM2LAP        59  P01    DL7ZZ         59        \n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing line ending %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestNormalizeMyDOK(t *testing.T) {
+	for in, want := range map[string]string{" p01 ": "P01", "": "", "50jdarc": "50JDARC"} {
+		got, err := normalizeMyDOK(in)
+		if err != nil || got != want {
+			t.Errorf("normalizeMyDOK(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"P 01", "P-01", "ÄB1", "ABCDEFGHIJKLM"} {
+		if _, err := normalizeMyDOK(bad); err == nil {
+			t.Errorf("normalizeMyDOK(%q) accepted", bad)
+		}
+	}
+}

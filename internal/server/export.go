@@ -495,6 +495,9 @@ type CabrilloExportOptions struct {
 	// MyGridsquare is the contest QTH, available as an exchange field for the
 	// VHF/UHF contests that send a locator.
 	MyGridsquare string
+	// MyDOK is the station's own DOK, available as the "my_dok" exchange
+	// field for DOK-exchange contests such as WAG.
+	MyDOK string
 	// CustomFieldsJSON lists the contest's per-QSO custom fields, so one can
 	// be placed in an exchange slot.
 	CustomFieldsJSON string
@@ -541,7 +544,7 @@ func ExportCabrillo(w io.Writer, qsos []store.QSO, opts CabrilloExportOptions) e
 			fmt.Fprintf(&b, " %-13s", call)
 			for _, k := range keys {
 				fmt.Fprintf(&b, " %-*s", cabrilloFieldWidth(k),
-					cabrilloExchangeValue(k, q, opts.MyGridsquare, extras))
+					cabrilloExchangeValue(k, q, opts.MyGridsquare, opts.MyDOK, extras))
 			}
 		}
 		group(myCall, sent)

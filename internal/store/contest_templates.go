@@ -93,50 +93,94 @@ func (s *Store) migrateContestTemplates() error {
 	return s.seedBuiltinTemplates()
 }
 
-// seedBuiltinTemplates inserts the templates that used to live hardcoded in
-// app.js as CONTEST_PRESETS, so upgrading installations keep the EU DX preset
-// they already had in the create-contest dropdown. Runs at most once ever,
-// tracked by a settings key — after that the catalogue belongs entirely to
-// the operators.
+// seedBuiltinTemplates inserts the shared, ownerless built-in templates. Each
+// one is seeded at most once ever, tracked by its own settings key — after
+// that the catalogue belongs entirely to the operators, and a built-in an
+// admin deleted stays deleted. A built-in added in a later release gets a new
+// key, so upgrading installations receive it once too.
 func (s *Store) seedBuiltinTemplates() error {
-	var seeded string
-	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = $1`, templatesSeededSettingKey).Scan(&seeded)
-	if err == nil && seeded == "1" {
-		return nil
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	now := time.Now().UTC()
-	builtins := []ContestTemplate{
+	builtins := []struct {
+		guardKey string
+		tpl      ContestTemplate
+	}{
 		{
-			Name:               "EU DX Contest",
-			DefaultName:        "EU DX Contest",
-			Bands:              []string{"80m", "40m", "20m", "15m", "10m"},
-			CustomFields:       `[{"name":"region_code","label":"Region","type":"text","required":true,"options":[],"order":0}]`,
-			NrPadded:           true,
-			FreqUnit:           "kHz",
-			StashExpiryMinutes: 60,
-			Shared:             true,
+			// The templates that used to live hardcoded in app.js as
+			// CONTEST_PRESETS, so upgrades keep the EU DX preset they
+			// already had in the create-contest dropdown.
+			guardKey: templatesSeededSettingKey,
+			tpl: ContestTemplate{
+				Name:               "EU DX Contest",
+				DefaultName:        "EU DX Contest",
+				Bands:              []string{"80m", "40m", "20m", "15m", "10m"},
+				CustomFields:       `[{"name":"region_code","label":"Region","type":"text","required":true,"options":[],"order":0}]`,
+				NrPadded:           true,
+				FreqUnit:           "kHz",
+				StashExpiryMinutes: 60,
+				Shared:             true,
+			},
+		},
+		{
+			// DARC Worked All Germany: German stations send RST + DOK,
+			// everyone else RST + serial. The default name doubles as the
+			// ADIF CONTEST_ID and the Cabrillo CONTEST: value.
+			guardKey: "contest_templates_seeded_wag",
+			tpl: ContestTemplate{
+				Name:        "Worked All Germany (WAG)",
+				DefaultName: "DARC-WAG",
+				Bands:       []string{"160m", "80m", "40m", "20m", "15m", "10m"},
+				// DOK sits next to the received serial so either can be
+				// typed straight after the reports.
+				QSOLayout: `{"cols":12,"items":[` +
+					`{"key":"callsign","x":0,"y":0,"w":3},{"key":"rst_sent","x":3,"y":0,"w":2},` +
+					`{"key":"rst_received","x":5,"y":0,"w":2},{"key":"dok","x":7,"y":0,"w":2},` +
+					`{"key":"nr_received","x":9,"y":0,"w":2},` +
+					`{"key":"mode","x":0,"y":1,"w":2},{"key":"band","x":2,"y":1,"w":2},` +
+					`{"key":"freq","x":4,"y":1,"w":3},{"key":"name","x":7,"y":1,"w":3},` +
+					`{"key":"nr_sent","x":0,"y":2,"w":2},{"key":"locator","x":2,"y":2,"w":3},` +
+					`{"key":"notes","x":0,"y":3,"w":6},{"key":"time","x":6,"y":3,"w":3}],"removed":[]}`,
+				LogColumns: `[{"key":"nr_sent","on":true},{"key":"time","on":true},{"key":"callsign","on":true},` +
+					`{"key":"band","on":true},{"key":"freq","on":true},{"key":"mode","on":true},` +
+					`{"key":"rst_sent","on":true},{"key":"rst_received","on":true},{"key":"dok","on":true},` +
+					`{"key":"nr_received","on":true},{"key":"name","on":false},{"key":"locator","on":false},` +
+					`{"key":"distance","on":false},{"key":"itu","on":false},{"key":"lighthouse","on":false},` +
+					`{"key":"notes","on":false},{"key":"operator","on":true}]`,
+				CabrilloMapping:    `{"sent":["rst_sent","my_dok"],"received":["rst_received","dok_or_nr"]}`,
+				NrPadded:           true,
+				FreqUnit:           "kHz",
+				StashExpiryMinutes: 60,
+				Shared:             true,
+			},
 		},
 	}
+	now := time.Now().UTC()
 	for _, b := range builtins {
+		var seeded string
+		err := s.db.QueryRow(`SELECT value FROM settings WHERE key = $1`, b.guardKey).Scan(&seeded)
+		if err == nil && seeded == "1" {
+			continue
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		t := b.tpl
 		if _, err := s.db.Exec(
 			`INSERT INTO contest_templates
 			   (name, default_name, bands, objective, custom_fields, qso_layout, log_columns, adif_mapping, cabrillo_mapping,
 			    nr_padded, freq_unit, stash_expiry_minutes, shared, owner_user_id, created_at, updated_at)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,0,$14,$14)
 			 ON CONFLICT (owner_user_id, name) DO NOTHING`,
-			b.Name, b.DefaultName, bandsToString(b.Bands), b.Objective, b.CustomFields,
-			b.QSOLayout, b.LogColumns, b.ADIFMapping, b.CabrilloMapping, b.NrPadded, b.FreqUnit, b.StashExpiryMinutes, b.Shared, now,
+			t.Name, t.DefaultName, bandsToString(t.Bands), t.Objective, t.CustomFields,
+			t.QSOLayout, t.LogColumns, t.ADIFMapping, t.CabrilloMapping, t.NrPadded, t.FreqUnit, t.StashExpiryMinutes, t.Shared, now,
 		); err != nil {
 			return err
 		}
+		if _, err := s.db.Exec(
+			`INSERT INTO settings (key, value) VALUES ($1, '1')
+			 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, b.guardKey); err != nil {
+			return err
+		}
 	}
-	_, err = s.db.Exec(
-		`INSERT INTO settings (key, value) VALUES ($1, '1')
-		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, templatesSeededSettingKey)
-	return err
+	return nil
 }
 
 // normalizeTemplate applies the same defaults the create/update paths share so

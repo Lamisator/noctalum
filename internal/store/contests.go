@@ -50,6 +50,7 @@ type Contest struct {
 	ADIFMapping        string     `json:"adif_mapping"`         // JSON-encoded {noctalum field key: ADIF tag} overrides; only changed fields are stored
 	CabrilloMapping    string     `json:"cabrillo_mapping"`     // JSON-encoded {sent:[field keys], received:[field keys]} exchange layout
 	EDIHeader          string     `json:"edi_header"`           // JSON-encoded REG1TEST header details (address, responsible operator, equipment, …)
+	MyDOK              string     `json:"my_dok"`               // the station's own DOK, sent in DOK-exchange contests such as WAG
 	AccessRestricted   bool       `json:"access_restricted"`    // when true, only access-listed users / owners / admins can see & enter (kept in sync with Visibility!="open" for backward compat)
 	NrPadded           bool       `json:"nr_padded"`            // display serial numbers zero-padded to 3 digits
 	StashExpiryMinutes int64      `json:"stash_expiry_minutes"` // auto-delete stashed pre-QSOs after this many minutes (default 60)
@@ -121,6 +122,7 @@ func (s *Store) migrateContests() error {
 			adif_mapping         TEXT NOT NULL DEFAULT '',
 			cabrillo_mapping     TEXT NOT NULL DEFAULT '',
 			edi_header           TEXT NOT NULL DEFAULT '',
+			my_dok               TEXT NOT NULL DEFAULT '',
 			access_restricted   BOOLEAN NOT NULL DEFAULT false,
 			nr_padded            BOOLEAN NOT NULL DEFAULT true,
 			stash_expiry_minutes BIGINT NOT NULL DEFAULT 60,
@@ -141,6 +143,9 @@ func (s *Store) migrateContests() error {
 		// REG1TEST (EDI) header details. Empty means "nothing entered", which
 		// exports the same blank header lines as before.
 		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS edi_header TEXT NOT NULL DEFAULT ''`,
+		// The station's own DOK for the Cabrillo "My DOK" exchange field.
+		// Empty means none entered, which writes an empty column as before.
+		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS my_dok TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE contests ADD COLUMN IF NOT EXISTS end_date   DATE`,
 		// Authoritative visibility mode ("open" | "groups" | "private"),
 		// added when per-contest permissions were introduced. Backfill
@@ -281,7 +286,7 @@ func normalizeDate(t *time.Time) *time.Time {
 func (s *Store) ListContests() ([]Contest, error) {
 	rows, err := s.db.Query(
 		`SELECT c.id, c.name, c.station_call, c.qth, c.bands, c.objective, c.status, c.station_id,
-		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.log_columns, c.adif_mapping, c.cabrillo_mapping, c.edi_header, c.access_restricted, c.visibility, c.nr_padded, c.stash_expiry_minutes, c.freq_unit, c.start_date, c.end_date, c.created_at,
+		        c.private, c.owner_user_id, c.custom_fields, c.qso_layout, c.log_columns, c.adif_mapping, c.cabrillo_mapping, c.edi_header, c.my_dok, c.access_restricted, c.visibility, c.nr_padded, c.stash_expiry_minutes, c.freq_unit, c.start_date, c.end_date, c.created_at,
 		        MAX(q.time_utc) AS last_activity_at
 		 FROM contests c
 		 LEFT JOIN qsos q ON q.contest_id = c.id
@@ -297,7 +302,7 @@ func (s *Store) ListContests() ([]Contest, error) {
 		var bandsStr string
 		var lastAct sql.NullTime
 		var startDate, endDate sql.NullTime
-		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.ADIFMapping, &c.CabrilloMapping, &c.EDIHeader, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt, &lastAct); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.ADIFMapping, &c.CabrilloMapping, &c.EDIHeader, &c.MyDOK, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt, &lastAct); err != nil {
 			return nil, err
 		}
 		c.Bands = bandsFromString(bandsStr)
@@ -323,11 +328,11 @@ func (s *Store) ListContests() ([]Contest, error) {
 // GetContest returns a single contest by ID.
 func (s *Store) GetContest(id int64) (*Contest, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, adif_mapping, cabrillo_mapping, edi_header, access_restricted, visibility, nr_padded, stash_expiry_minutes, freq_unit, start_date, end_date, created_at FROM contests WHERE id = $1`, id)
+		`SELECT id, name, station_call, qth, bands, objective, status, station_id, private, owner_user_id, custom_fields, qso_layout, log_columns, adif_mapping, cabrillo_mapping, edi_header, my_dok, access_restricted, visibility, nr_padded, stash_expiry_minutes, freq_unit, start_date, end_date, created_at FROM contests WHERE id = $1`, id)
 	var c Contest
 	var bandsStr string
 	var startDate, endDate sql.NullTime
-	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.ADIFMapping, &c.CabrilloMapping, &c.EDIHeader, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.StationCall, &c.QTH, &bandsStr, &c.Objective, &c.Status, &c.StationID, &c.Private, &c.OwnerUserID, &c.CustomFields, &c.QSOLayout, &c.LogColumns, &c.ADIFMapping, &c.CabrilloMapping, &c.EDIHeader, &c.MyDOK, &c.AccessRestricted, &c.Visibility, &c.NrPadded, &c.StashExpiryMinutes, &c.FreqUnit, &startDate, &endDate, &c.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrContestNotFound
 		}
@@ -389,6 +394,13 @@ func (s *Store) SetContestEDIHeader(contestID int64, ediHeader string) error {
 	return err
 }
 
+// SetContestMyDOK stores the station's own DOK. Like SetContestEDIHeader it is
+// kept out of UpdateContest so callers that do not send it leave it untouched.
+func (s *Store) SetContestMyDOK(contestID int64, myDOK string) error {
+	_, err := s.db.Exec(`UPDATE contests SET my_dok = $1 WHERE id = $2`, myDOK, contestID)
+	return err
+}
+
 // DuplicateContest creates a new contest that copies the source contest's
 // configuration (custom fields, QSO layout, log columns, bands, etc.) but
 // starts empty — no QSOs, no access list, no participants other than the
@@ -430,6 +442,12 @@ func (s *Store) DuplicateContest(srcID int64, newName string, ownerUserID int64)
 			return nil, err
 		}
 		c.EDIHeader = src.EDIHeader
+	}
+	if src.MyDOK != "" {
+		if err := s.SetContestMyDOK(c.ID, src.MyDOK); err != nil {
+			return nil, err
+		}
+		c.MyDOK = src.MyDOK
 	}
 	return c, nil
 }

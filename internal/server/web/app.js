@@ -5984,6 +5984,8 @@
         <input name="station_id" placeholder="${escHtml(t('contestScreen.stationIdPlaceholder'))}" />
         <label>${escHtml(t('contestScreen.qthLocator'))}</label>
         <input name="qth" placeholder="${escHtml(t('contestScreen.qthPlaceholder'))}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase" />
+        <label>${escHtml(t('contestScreen.myDok'))} <span class="muted small">${escHtml(t('contestScreen.myDokHint'))}</span></label>
+        <input name="my_dok" placeholder="${escHtml(t('contestScreen.myDokPlaceholder'))}" maxlength="12" autocapitalize="characters" style="text-transform:uppercase" />
         ${buildBandSelectHTML([])}
         <label style="margin-top:10px">${escHtml(t('contestScreen.contestDates'))} <span class="muted small">${escHtml(t('contestScreen.contestDatesOptional'))}</span></label>
         ${buildContestDatesHTML('', '')}
@@ -6021,6 +6023,7 @@
           station_call: form.station_call.value.trim().toUpperCase(),
           station_id: (form.station_id?.value || '').trim(),
           qth: form.qth.value.trim().toUpperCase(),
+          my_dok: form.my_dok.value.trim().toUpperCase(),
           bands: selectedBandsFromModal(),
           objective: form.objective.value,
           private: forcePrivate || !!(form.private && form.private.checked),
@@ -6194,6 +6197,8 @@
         <input name="station_id" value="${escHtml(c.station_id || '')}" placeholder="${escHtml(t('contestScreen.stationIdPlaceholder'))}"${d} />
         <label>${escHtml(t('contestScreen.qthLocator'))}</label>
         <input name="qth" value="${escHtml(c.qth || '')}" placeholder="${escHtml(t('contestScreen.qthPlaceholder'))}" maxlength="6" autocapitalize="characters" style="text-transform:uppercase"${d} />
+        <label>${escHtml(t('contestScreen.myDok'))} <span class="muted small">${escHtml(t('contestScreen.myDokHint'))}</span></label>
+        <input name="my_dok" value="${escHtml(c.my_dok || '')}" placeholder="${escHtml(t('contestScreen.myDokPlaceholder'))}" maxlength="12" autocapitalize="characters" style="text-transform:uppercase"${d} />
         ${buildBandSelectHTML(c.bands || [])}
         <label style="margin-top:10px">${escHtml(t('contestScreen.contestDates'))} <span class="muted small">${escHtml(t('contestScreen.contestDatesOptional'))}</span></label>
         ${buildContestDatesHTML(c.start_date || '', c.end_date || '', readOnly)}
@@ -6238,6 +6243,7 @@
           station_call: form.station_call.value.trim().toUpperCase(),
           station_id: (form.station_id?.value || '').trim(),
           qth: form.qth.value.trim().toUpperCase(),
+          my_dok: form.my_dok.value.trim().toUpperCase(),
           status: pendingStatus,
           bands: selectedBandsFromModal(),
           objective: form.objective.value,
@@ -7217,6 +7223,7 @@
     station_call: 'contestScreen.stationCall', my_locator: 'contestScreen.adifMapMyLocator',
     contest_name: 'contestScreen.contestName', notes: 'qso.notes',
     distance: 'contestScreen.adifMapDistance',
+    my_dok: 'contestScreen.cbrMyDok', dok_or_nr: 'contestScreen.cbrDokOrNr',
   };
   function adifSourceLabel(key) {
     const k = ADIF_SOURCE_LABEL_KEYS[key];
@@ -7453,7 +7460,7 @@
   // internal/server/cabrillo_mapping.go — keep in sync.
   const CABRILLO_EXCHANGE_FIELDS = [
     'rst_sent', 'rst_received', 'nr_sent', 'nr_received',
-    'itu', 'cq', 'dok', 'locator', 'my_locator',
+    'itu', 'cq', 'dok', 'my_dok', 'dok_or_nr', 'locator', 'my_locator',
     'name', 'lighthouse', 'band', 'operator',
   ];
   const CABRILLO_DEFAULT = { sent: ['rst_sent', 'itu'], received: ['rst_received', 'cq'] };

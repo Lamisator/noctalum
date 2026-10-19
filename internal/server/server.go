@@ -3035,6 +3035,7 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 			ADIFMapping        string   `json:"adif_mapping"`
 			CabrilloMapping    string   `json:"cabrillo_mapping"`
 			EDIHeader          *string  `json:"edi_header"` // nil = leave unchanged
+			MyDOK              *string  `json:"my_dok"`     // nil = leave unchanged
 			NrPadded           *bool    `json:"nr_padded"`
 			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
 			FreqUnit           string   `json:"freq_unit"`
@@ -3105,6 +3106,13 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		myDOKCreate := ""
+		if in.MyDOK != nil {
+			if myDOKCreate, err = normalizeMyDOK(*in.MyDOK); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
 		ownerID := int64(0)
 		if visibility == store.VisibilityPrivate {
 			ownerID = sess.UserID
@@ -3120,6 +3128,13 @@ func (s *Server) handleContests(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			c.EDIHeader = ediHeaderCreate
+		}
+		if myDOKCreate != "" {
+			if err := s.store.SetContestMyDOK(c.ID, myDOKCreate); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			c.MyDOK = myDOKCreate
 		}
 		_ = s.store.AddContestParticipant(c.ID, sess.UserID, store.ContestRoleOwner, "active")
 		// Attach the initial group access list when this is a "groups"
@@ -3873,6 +3888,7 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 			ADIFMapping        string   `json:"adif_mapping"`
 			CabrilloMapping    string   `json:"cabrillo_mapping"`
 			EDIHeader          *string  `json:"edi_header"` // nil = leave unchanged
+			MyDOK              *string  `json:"my_dok"`     // nil = leave unchanged
 			NrPadded           *bool    `json:"nr_padded"`
 			StashExpiryMinutes *int64   `json:"stash_expiry_minutes"`
 			FreqUnit           string   `json:"freq_unit"`
@@ -3941,12 +3957,25 @@ func (s *Server) handleContestByID(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		myDOKPut := ""
+		if in.MyDOK != nil {
+			if myDOKPut, err = normalizeMyDOK(*in.MyDOK); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
 		if err := s.store.UpdateContest(id, in.Name, in.StationCall, putQTH, in.Status, in.Bands, in.Objective, in.StationID, in.CustomFields, in.QSOLayout, in.LogColumns, in.ADIFMapping, in.CabrilloMapping, nrPaddedPut, stashExpiryPut, putFreqUnit, startDatePut, endDatePut); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if in.EDIHeader != nil {
 			if err := s.store.SetContestEDIHeader(id, ediHeaderPut); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		if in.MyDOK != nil {
+			if err := s.store.SetContestMyDOK(id, myDOKPut); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
@@ -4149,6 +4178,7 @@ func (s *Server) handleExportCabrillo(w http.ResponseWriter, r *http.Request) {
 	if c, err := s.store.GetContest(contestID); err == nil {
 		cbrOpts.CustomFieldsJSON = c.CustomFields
 		cbrOpts.MappingJSON = c.CabrilloMapping
+		cbrOpts.MyDOK = c.MyDOK
 	}
 	s.audit(r, store.AuditInfo, AuditExport, sess.Username, contestName, "format: Cabrillo")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")

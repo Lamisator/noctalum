@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -48,6 +49,10 @@ var cabrilloExchangeFields = []cabrilloExchangeField{
 	{Key: "itu", Width: 6},
 	{Key: "cq", Width: 6},
 	{Key: "dok", Width: 6},
+	{Key: "my_dok", Width: 6},
+	// The WAG exchange in one column: German stations give a DOK, everyone
+	// else a serial number.
+	{Key: "dok_or_nr", Width: 6},
 	{Key: "locator", Width: 6},
 	{Key: "my_locator", Width: 6},
 	{Key: "name", Width: 10},
@@ -135,7 +140,7 @@ func cabrilloFieldWidth(key string) int {
 // upper-cased and stripped of whitespace: Cabrillo is a whitespace-delimited
 // format, so a value containing a space would silently become two columns and
 // shift the rest of the line.
-func cabrilloExchangeValue(key string, q store.QSO, myGridsquare string, extras map[string]string) string {
+func cabrilloExchangeValue(key string, q store.QSO, myGridsquare, myDOK string, extras map[string]string) string {
 	var v string
 	if name, ok := strings.CutPrefix(key, cabrilloCustomKeyPrefix); ok {
 		v = extras[name]
@@ -159,6 +164,15 @@ func cabrilloExchangeValue(key string, q store.QSO, myGridsquare string, extras 
 			v = q.CQZone
 		case "dok":
 			v = q.DOK
+		case "my_dok":
+			v = myDOK
+		case "dok_or_nr":
+			// A logged DOK wins; "NM" is a DOK value like any other and is
+			// never filled in on the operator's behalf.
+			v = q.DOK
+			if strings.TrimSpace(v) == "" && q.NrReceived > 0 {
+				v = strconv.Itoa(q.NrReceived)
+			}
 		case "locator":
 			v = q.Locator
 		case "my_locator":
@@ -201,4 +215,21 @@ func cabrilloToken(s string) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "-")
+}
+
+// normalizeMyDOK validates the station's own DOK as entered in the contest
+// settings: trimmed, upper-cased, letters and digits only. Special DOKs run
+// longer than the usual letter + two digits ("50JDARC"), so only the length
+// is capped rather than the shape enforced.
+func normalizeMyDOK(s string) (string, error) {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	if len(s) > 12 {
+		return "", errors.New("my DOK is too long (max 12 characters)")
+	}
+	for _, r := range s {
+		if (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
+			return "", errors.New("my DOK may only contain letters and digits")
+		}
+	}
+	return s, nil
 }
