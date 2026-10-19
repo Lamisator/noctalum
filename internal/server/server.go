@@ -37,7 +37,7 @@ const (
 	// Bumped with every release; mirror the top entry of the CHANGELOG array
 	// in internal/server/web/app.js so server-side artefacts (ADIF header,
 	// PDF footer) carry the same version the UI advertises.
-	programVersion = "0.88"
+	programVersion = "0.89"
 	dupWindow      = 10 * time.Minute
 )
 

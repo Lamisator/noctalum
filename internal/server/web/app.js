@@ -11132,6 +11132,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.89',
+      date: '2026-10-19',
+      en: 'v0.89: Cleaner Cabrillo numbers — three-digit serials and an optional 000 for missing received numbers.\n- Serial numbers in Cabrillo always have three digits (007 instead of 7)\n- New option: write 000 when a QSO has no received number\n- Logged serials and DOKs are never overwritten, NM is never filled in\n- The WAG template has the 000 option switched on',
+      de: 'v0.89: Sauberere Cabrillo-Nummern — dreistellige Seriennummern und optional 000 bei fehlender empfangener Nummer.\n- Seriennummern im Cabrillo-Log haben immer drei Stellen (007 statt 7)\n- Neue Option: 000 schreiben, wenn bei einem QSO keine empfangene Nummer eingetragen ist\n- Eingetragene Nummern und DOKs werden nie überschrieben, NM wird nie eingetragen\n- Bei der WAG-Vorlage ist die 000-Option schon eingeschaltet',
+    },
+    {
       version: '0.88',
       date: '2026-10-19',
       en: 'v0.88: Worked All Germany ready to go — your DOK and the exchange land correctly in the Cabrillo log.\n- New "My DOK" field in the contest settings\n- Cabrillo exchange: new fields "Own DOK" and "DOK, else Nr. rcvd"\n- German stations export with their DOK, foreign stations with their serial in the same column\n- New "Worked All Germany (WAG)" template with everything preset\n- NM is never filled in automatically; type it yourself when needed',
