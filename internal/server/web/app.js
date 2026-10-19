@@ -11127,6 +11127,12 @@
   // ----- Changelog -----
   const CHANGELOG = [
     {
+      version: '0.88',
+      date: '2026-10-19',
+      en: 'v0.88: Worked All Germany ready to go — your DOK and the exchange land correctly in the Cabrillo log.\n- New "My DOK" field in the contest settings\n- Cabrillo exchange: new fields "Own DOK" and "DOK, else Nr. rcvd"\n- German stations export with their DOK, foreign stations with their serial in the same column\n- New "Worked All Germany (WAG)" template with everything preset\n- NM is never filled in automatically; type it yourself when needed',
+      de: 'v0.88: Worked All Germany startklar — dein DOK und der Austausch landen korrekt im Cabrillo-Log.\n- Neues Feld „Eigener DOK“ in den Contest-Einstellungen\n- Cabrillo-Austausch: neue Felder „Eigener DOK“ und „DOK, sonst Nr. empf.“\n- Deutsche Stationen werden mit DOK, ausländische mit ihrer Nummer in derselben Spalte exportiert\n- Neue Vorlage „Worked All Germany (WAG)“ mit allem voreingestellt\n- NM wird nie automatisch eingetragen – tipp es bei Bedarf selbst ein',
+    },
+    {
       version: '0.87',
       date: '2026-10-19',
       en: 'v0.87: Switch between operators, time-limited admin rights, a complete EDI header, and safer QSO handling.\n- "Switch/Logout" button: several operators stay signed in on one PC and switch without a password\n- Admin permissions must be activated (password, passkey or another admin device) and lock after inactivity\n- Contest settings: fill in the full EDI header; EDI exports SINGLE or MULTI depending on the operators\n- Changing contest now clears the New QSO mask and shows the correct next number\n- Cabrillo: QSOs without a frequency get the band\'s standard frequency\n- Deleting a QSO asks "Are you sure?", also in an undocked history window',
