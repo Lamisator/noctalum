@@ -5065,7 +5065,8 @@
     // hidden by the last renderQsos()).
     const row = qsos.find(q => q.id === id);
     if (!canEditQSO(row)) return;
-    if (!await showConfirm(t('qso.deleteConfirm'), { ok: t('common.delete') })) return;
+    const msg = t('qso.deleteConfirmCall', { call: fmtCall(row.callsign), band: fmtBand(row.band) || '–', time: row.time ? new Date(row.time).toISOString().substring(11, 16) : '–' });
+    if (!await showConfirm(msg, { ok: t('common.delete'), doc: btn.ownerDocument })) return;
     const res = await api('/api/qsos/' + id, { method: 'DELETE' });
     if (res.ok) { qsos = qsos.filter(q => q.id !== id); renderQsos(); }
   });
@@ -8585,6 +8586,13 @@
   function showConfirm(msg, opts = {}) {
     return new Promise(resolve => {
       const root = $('confirm-root');
+      // opts.doc: show the dialog in another document, e.g. an undocked
+      // panel's popup window, so it appears where the operator clicked
+      // instead of behind it in the main window. The node is lent to that
+      // document and handed back on close.
+      const doc = opts.doc && opts.doc !== root.ownerDocument && opts.doc.body ? opts.doc : root.ownerDocument;
+      const home = root.parentNode, homeNext = root.nextSibling;
+      if (doc !== root.ownerDocument) doc.body.appendChild(root);
       $('confirm-msg').textContent = msg;
       const okBtn = $('confirm-ok');
       okBtn.textContent = opts.ok || t('common.confirm');
@@ -8600,11 +8608,12 @@
         else if (e.key === 'Enter' && opts.safe && !e.isComposing) { e.preventDefault(); finish(true); }
       };
       const finish = (result) => {
-        document.removeEventListener('keydown', onKey, true);
+        doc.removeEventListener('keydown', onKey, true);
         root.classList.add('hidden');
+        if (root.parentNode !== home) home.insertBefore(root, homeNext);
         resolve(result);
       };
-      document.addEventListener('keydown', onKey, true);
+      doc.addEventListener('keydown', onKey, true);
       $('confirm-cancel').onclick = () => finish(false);
       $('confirm-ok').onclick = () => finish(true);
       if (opts.safe) { try { okBtn.focus(); } catch {} }
