@@ -7475,6 +7475,7 @@
         sent: Array.isArray(o.sent) ? o.sent.filter(k => typeof k === 'string') : [],
         received: Array.isArray(o.received) ? o.received.filter(k => typeof k === 'string') : [],
         emptyNrZero: o.empty_nr_zero === true,
+        contest: typeof o.contest === 'string' ? o.contest : '',
       };
     } catch { return null; }
   }
@@ -7635,6 +7636,8 @@
     return `
       <div class="cbr-map-editor" id="cbr-map-editor" data-readonly="${readOnly ? '1' : '0'}">
         <div class="cbr-map-intro muted small">${escHtml(t('contestScreen.cbrMapIntro'))}</div>
+        <label class="cbr-map-contest-label" for="cbr-map-contest">${escHtml(t('contestScreen.cbrContestName'))} <span class="muted small">${escHtml(t('contestScreen.cbrContestNameHint'))}</span></label>
+        <input type="text" id="cbr-map-contest" maxlength="40" autocapitalize="characters" spellcheck="false" style="text-transform:uppercase" value="${escHtml(m.contest || '')}" placeholder="${escHtml(t('contestScreen.cbrContestNamePlaceholder'))}"${readOnly ? ' disabled' : ''} />
         <div class="cbr-map-preview" id="cbr-map-preview"></div>
         ${cabrilloGroupHTML('sent', m.sent, customFields, readOnly)}
         ${cabrilloGroupHTML('received', m.received, customFields, readOnly)}
@@ -7719,6 +7722,8 @@
       }
       const zero = document.getElementById('cbr-map-empty-nr-zero');
       if (zero) zero.checked = false;
+      const cname = document.getElementById('cbr-map-contest');
+      if (cname) cname.value = '';
       redraw();
     });
     // A custom field removed or renamed in the custom-fields editor must not
@@ -7752,9 +7757,11 @@
     if (!document.getElementById('cbr-map-editor')) return '';
     const out = { sent: cabrilloGroupKeys('sent'), received: cabrilloGroupKeys('received') };
     if (document.getElementById('cbr-map-empty-nr-zero')?.checked) out.empty_nr_zero = true;
+    const contestName = (document.getElementById('cbr-map-contest')?.value || '').trim().toUpperCase();
+    if (contestName) out.contest = contestName;
     const same = g => out[g].length === CABRILLO_DEFAULT[g].length
       && out[g].every((k, i) => k === CABRILLO_DEFAULT[g][i]);
-    if (same('sent') && same('received') && !out.empty_nr_zero) return '';
+    if (same('sent') && same('received') && !out.empty_nr_zero && !out.contest) return '';
     return JSON.stringify(out);
   }
 

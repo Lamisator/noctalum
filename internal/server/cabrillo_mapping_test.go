@@ -280,3 +280,23 @@ func TestExportCabrilloEmptyReceivedNumberAsZeros(t *testing.T) {
 		t.Errorf("logged DOK overwritten: %q", line)
 	}
 }
+
+func TestExportCabrilloContestHeaderName(t *testing.T) {
+	for _, c := range []struct {
+		mapping, want string
+	}{
+		{"", "CONTEST: WSA 2026\n"},
+		{`{"sent":["rst_sent"],"received":["rst_received"]}`, "CONTEST: WSA 2026\n"},
+		{`{"sent":["rst_sent"],"received":["rst_received"],"contest":"DARC-WAG"}`, "CONTEST: DARC-WAG\n"},
+		{`{"sent":["rst_sent"],"received":["rst_received"],"contest":" darc wag "}`, "CONTEST: DARC-WAG\n"},
+		{`{"sent":["rst_sent"],"received":["rst_received"],"contest":"   "}`, "CONTEST: WSA 2026\n"},
+	} {
+		var buf bytes.Buffer
+		if err := ExportCabrillo(&buf, []store.QSO{sampleQSO()}, cabrilloOpts(c.mapping, "")); err != nil {
+			t.Fatalf("ExportCabrillo: %v", err)
+		}
+		if !strings.Contains(buf.String(), c.want) {
+			t.Errorf("mapping %s: want %q in\n%s", c.mapping, c.want, buf.String())
+		}
+	}
+}

@@ -520,7 +520,7 @@ func ExportCabrillo(w io.Writer, qsos []store.QSO, opts CabrilloExportOptions) e
 	header := []string{
 		"START-OF-LOG: 3.0",
 		"CREATED-BY: Noctalum",
-		fmt.Sprintf("CONTEST: %s", strings.ToUpper(opts.ContestName)),
+		fmt.Sprintf("CONTEST: %s", cabrilloHeaderContest(opts.MappingJSON, opts.ContestName)),
 		fmt.Sprintf("CALLSIGN: %s", strings.ToUpper(opts.StationCall)),
 		"CATEGORY-OPERATOR: MULTI-OP",
 		"CATEGORY-STATION: FIXED",

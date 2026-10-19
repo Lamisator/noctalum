@@ -3274,6 +3274,13 @@ button.cf-picker-item:focus-visible {
   margin-top: 6px;
   font-size: 12px;
 }
+.cbr-map-contest-label {
+  display: block;
+  margin-top: 8px;
+}
+#cbr-map-contest {
+  margin-bottom: 8px;
+}
 .cbr-map-option {
   display: flex;
   align-items: center;

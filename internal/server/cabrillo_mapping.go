@@ -80,6 +80,24 @@ type cabrilloMapping struct {
 	// dok_or_nr without a DOK) when the QSO has no received number, for
 	// contest robots that reject a line with a missing column.
 	EmptyNrZero bool `json:"empty_nr_zero,omitempty"`
+	// Contest is the value for the CONTEST: header line, i.e. the name the
+	// sponsor's log robot expects ("DARC-WAG"). Empty means the contest's
+	// own name, as Noctalum has always written.
+	Contest string `json:"contest,omitempty"`
+}
+
+// cabrilloHeaderContest returns the CONTEST: header value: the mapping's
+// explicit name when set, otherwise the upper-cased contest name exactly as
+// before. The explicit name goes through cabrilloToken, so one typed with
+// spaces or umlauts still yields a single ASCII word ("darc wag" ->
+// "DARC-WAG"); the fallback is left untouched so existing exports do not
+// change.
+func cabrilloHeaderContest(mappingJSON, contestName string) string {
+	var m cabrilloMapping
+	if json.Unmarshal([]byte(mappingJSON), &m) == nil && strings.TrimSpace(m.Contest) != "" {
+		return cabrilloToken(m.Contest)
+	}
+	return strings.ToUpper(contestName)
 }
 
 // cabrilloEmptyNrZero reports whether the contest's mapping asks for "000" in
