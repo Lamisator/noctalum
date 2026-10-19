@@ -535,7 +535,7 @@ func ExportCabrillo(w io.Writer, qsos []store.QSO, opts CabrilloExportOptions) e
 		extras := parseExtras(q.Extras)
 		var b strings.Builder
 		t := q.Time.UTC()
-		fmt.Fprintf(&b, "QSO: %5d %2s %s %04s", q.FreqHz/1000, cabrilloMode(q.Mode),
+		fmt.Fprintf(&b, "QSO: %5s %2s %s %04s", cabrilloFreq(q), cabrilloMode(q.Mode),
 			t.Format("2006-01-02"), t.Format("1504"))
 		group := func(call string, keys []string) {
 			fmt.Fprintf(&b, " %-13s", call)
@@ -555,6 +555,54 @@ func ExportCabrillo(w io.Writer, qsos []store.QSO, opts CabrilloExportOptions) e
 	}
 	_, err := fmt.Fprintln(w, "END-OF-LOG:")
 	return err
+}
+
+// cabrilloBandFreqs is the frequency column written for a QSO that has a
+// band but no QRG (typed in by hand without a rig). Below 50 MHz Cabrillo
+// wants kHz, so the band's lower edge stands in; from 50 MHz up the spec's
+// own band designators are the standard spelling.
+var cabrilloBandFreqs = map[string]string{
+	"2200m":  "136",
+	"630m":   "472",
+	"160m":   "1800",
+	"80m":    "3500",
+	"60m":    "5351",
+	"40m":    "7000",
+	"30m":    "10100",
+	"20m":    "14000",
+	"17m":    "18068",
+	"15m":    "21000",
+	"12m":    "24890",
+	"10m":    "28000",
+	"6m":     "50",
+	"4m":     "70",
+	"2m":     "144",
+	"1.25m":  "222",
+	"70cm":   "432",
+	"33cm":   "902",
+	"23cm":   "1.2G",
+	"13cm":   "2.3G",
+	"9cm":    "3.4G",
+	"6cm":    "5.7G",
+	"3cm":    "10G",
+	"1.25cm": "24G",
+	"6mm":    "47G",
+	"4mm":    "75G",
+	"2.5mm":  "122G",
+	"2mm":    "134G",
+	"1mm":    "241G",
+}
+
+// cabrilloFreq is the QSO line's frequency column: the logged QRG in kHz,
+// or the band's standard frequency when no QRG was recorded.
+func cabrilloFreq(q store.QSO) string {
+	if q.FreqHz > 0 {
+		return strconv.FormatInt(q.FreqHz/1000, 10)
+	}
+	if f, ok := cabrilloBandFreqs[strings.ToLower(strings.TrimSpace(q.Band))]; ok {
+		return f
+	}
+	return "0"
 }
 
 func cabrilloMode(mode string) string {

@@ -162,3 +162,27 @@ func qsoLine(t *testing.T, out string) string {
 	}
 	return found[0]
 }
+
+func TestExportCabrilloFallsBackToBandFrequencyWithoutQRG(t *testing.T) {
+	cases := []struct {
+		band, want string
+	}{
+		{"40m", "QSO:  7000 PH "},
+		{"20m", "QSO: 14000 PH "},
+		{"2m", "QSO:   144 PH "},
+		{"23cm", "QSO:  1.2G PH "},
+		{"", "QSO:     0 PH "},
+	}
+	for _, c := range cases {
+		q := sampleQSO()
+		q.FreqHz = 0
+		q.Band = c.band
+		var buf bytes.Buffer
+		if err := ExportCabrillo(&buf, []store.QSO{q}, cabrilloOpts("", "")); err != nil {
+			t.Fatalf("ExportCabrillo: %v", err)
+		}
+		if !strings.Contains(buf.String(), "\n"+c.want) {
+			t.Errorf("band %q: want a line starting %q, got:\n%s", c.band, c.want, buf.String())
+		}
+	}
+}
