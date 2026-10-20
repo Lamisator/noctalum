@@ -226,10 +226,10 @@
     ['G','UK','GB','EU'],['M','UK','GB','EU'],['2E','UK','GB','EU'],
     // Canada
     ...['VE','VA','VY'].map(p=>[p,'Canada','CA','NA']),
-    // Australia / NZ / Cook Islands
+    // Australia / NZ
     ['VK','Australia','AU','OC'],
     ...['ZL','ZM'].map(p=>[p,'New Zealand','NZ','OC']),
-    ['ZK','Cook Islands','CK','OC'],
+    ['ZK','New Zealand','NZ','OC'],
     // Germany
     ...['DA','DB','DC','DD','DE','DF','DG','DH','DJ','DK','DL','DM','DN','DO','DP'].map(p=>[p,'Germany','DE','EU']),
     // Japan (JA-JS; JT/JU/JV=Mongolia; JW/JX/JD1 handled above)
@@ -238,8 +238,8 @@
     // Mongolia
     ...['JT','JU','JV'].map(p=>[p,'Mongolia','MN','AS']),
     // China / Taiwan
-    ...['BA','BD','BG','BH','BI','BJ','BK','BL','BM','BN','BO','BP','BQ','BR','BS','BT','BY'].map(p=>[p,'China','CN','AS']),
-    ['BV','Taiwan','TW','AS'],
+    ...['BA','BD','BG','BH','BI','BJ','BK','BL','BR','BS','BT','BY'].map(p=>[p,'China','CN','AS']),
+    ...['BM','BN','BO','BP','BQ','BU','BV','BW','BX'].map(p=>[p,'Taiwan','TW','AS']),
     // Korea
     ...['HL','DS','DT','6K','6L','6M','6N'].map(p=>[p,'Korea (South)','KR','AS']),
     ['P5','N.Korea','KP','AS'],
@@ -337,7 +337,7 @@
     ['9V','Singapore','SG','AS'],['VR','Hong Kong','HK','AS'],['V8','Brunei','BN','AS'],
     ['4W','Timor-Leste','TL','AS'],
     // Pacific
-    ['T8','Palau','PW','OC'],['E5','Cook Is.',null,'OC'],
+    ['T8','Palau','PW','OC'],['E5','Cook Islands','CK','OC'],
     // USA (K*/W*/N*/A* after specials above)
     ['W','USA','US','NA'],['K','USA','US','NA'],['N','USA','US','NA'],
     ...['AA','AB','AC','AD','AE','AF','AG','AI','AJ','AK'].map(p=>[p,'USA','US','NA']),
@@ -357,7 +357,7 @@
     ...['CO','CM','T4'].map(p=>[p,'Cuba','CU','NA']),
     ['C6','Bahamas','BS','NA'],['6Y','Jamaica','JM','NA'],
     ['J3','Grenada','GD','NA'],
-    ...['J6','J7','J8'].map(p=>[p,'E.Caribbean',null,'NA']),
+    ['J6','St.Lucia','LC','NA'],['J7','Dominica','DM','NA'],['J8','St.Vincent','VC','NA'],
     ['V2','Antigua','AG','NA'],['V4','St.Kitts','KN','NA'],['8P','Barbados','BB','NA'],
     // South America
     ...['PY','PP','PQ','PR','PS','PT','PU','PV','PW','PX'].map(p=>[p,'Brazil','BR','SA']),
@@ -395,7 +395,7 @@
     ['7P','Lesotho','LS','AF'],['A2','Botswana','BW','AF'],
     ['7Q','Malawi','MW','AF'],['C9','Mozambique','MZ','AF'],
     ['9X','Rwanda','RW','AF'],['9U','Burundi','BI','AF'],
-    ...['TZ','5O'].map(p=>[p,'Mali','ML','AF']),
+    ['TZ','Mali','ML','AF'],['5O','Nigeria','NG','AF'],
     ['5T','Mauritania','MR','AF'],['3B','Mauritius','MU','AF'],
     ['5R','Madagascar','MG','AF'],['6X','Madagascar','MG','AF'],
     ['S7','Seychelles','SC','AF'],
