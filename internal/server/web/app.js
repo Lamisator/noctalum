@@ -412,6 +412,152 @@
     ['YJ','Vanuatu','VU','OC'],['T2','Tuvalu','TV','OC'],['T3','Kiribati','KI','OC'],
   ].sort((a, b) => b[0].length - a[0].length);
 
+  // ----- ITU call sign series (RR Appendix 42) -----
+  // Fallback for callsigns the DXCC table above does not know — special
+  // event and contest calls (DR1A, R3AAA, SJ9WL, …) use prefixes from a
+  // country's full ITU block that ordinary calls never do. Each entry:
+  // [series, country_name, iso2_or_null, continent]; a series is a single
+  // prefix ('B', 'HB0') or a same-length range whose last character runs
+  // ('AA-AL', '3DA-3DM'). Single-letter series also cover letter+digit
+  // (R2…, K1…). Names match the DXCC table so the statistics don't split
+  // one country in two. Continent is '' for the international
+  // organisations (C7, 4U, 4Y) — their stations sit on several continents.
+  const _ITU_SERIES = [
+    ['AA-AL','USA','US','NA'], ['AM-AO','Spain','ES','EU'], ['AP-AS','Pakistan','PK','AS'],
+    ['AT-AW','India','IN','AS'], ['AX','Australia','AU','OC'], ['AY-AZ','Argentina','AR','SA'],
+    ['A2','Botswana','BW','AF'], ['A3','Tonga','TO','OC'], ['A4','Oman','OM','AS'], ['A5','Bhutan','BT','AS'],
+    ['A6','UAE','AE','AS'], ['A7','Qatar','QA','AS'], ['A8','Liberia','LR','AF'], ['A9','Bahrain','BH','AS'],
+    ['B','China','CN','AS'], ['BM-BQ','Taiwan','TW','AS'], ['BU-BX','Taiwan','TW','AS'],
+    ['CA-CE','Chile','CL','SA'], ['CF-CK','Canada','CA','NA'], ['CL-CM','Cuba','CU','NA'],
+    ['CN','Morocco','MA','AF'], ['CO','Cuba','CU','NA'], ['CP','Bolivia','BO','SA'],
+    ['CQ-CU','Portugal','PT','EU'], ['CV-CX','Uruguay','UY','SA'], ['CY-CZ','Canada','CA','NA'],
+    ['C2','Nauru','NR','OC'], ['C3','Andorra','AD','EU'], ['C4','Cyprus','CY','AS'], ['C5','Gambia','GM','AF'],
+    ['C6','Bahamas','BS','NA'], ['C7','WMO',null,''], ['C8-C9','Mozambique','MZ','AF'],
+    ['DA-DR','Germany','DE','EU'], ['DS-DT','Korea (South)','KR','AS'], ['DU-DZ','Philippines','PH','AS'],
+    ['D2-D3','Angola','AO','AF'], ['D4','Cape Verde','CV','AF'], ['D5','Liberia','LR','AF'],
+    ['D6','Comoros','KM','AF'], ['D7-D9','Korea (South)','KR','AS'],
+    ['EA-EH','Spain','ES','EU'], ['EI-EJ','Ireland','IE','EU'], ['EK','Armenia','AM','AS'],
+    ['EL','Liberia','LR','AF'], ['EM-EO','Ukraine','UA','EU'], ['EP-EQ','Iran','IR','AS'],
+    ['ER','Moldova','MD','EU'], ['ES','Estonia','EE','EU'], ['ET','Ethiopia','ET','AF'],
+    ['EU-EW','Belarus','BY','EU'], ['EX','Kyrgyzstan','KG','AS'], ['EY','Tajikistan','TJ','AS'],
+    ['EZ','Turkmenistan','TM','AS'], ['E2','Thailand','TH','AS'], ['E3','Eritrea','ER','AF'],
+    ['E4','Palestine','PS','AS'], ['E5','Cook Islands','CK','OC'], ['E6','Niue','NU','OC'],
+    ['E7','Bosnia-Herzeg.','BA','EU'],
+    ['F','France','FR','EU'],
+    ['G','UK','GB','EU'],
+    ['HA','Hungary','HU','EU'], ['HB','Switzerland','CH','EU'], ['HB0','Liechtenstein','LI','EU'],
+    ['HB3Y','Liechtenstein','LI','EU'], ['HBL','Liechtenstein','LI','EU'], ['HC-HD','Ecuador','EC','SA'],
+    ['HE','Switzerland','CH','EU'], ['HF','Poland','PL','EU'], ['HG','Hungary','HU','EU'],
+    ['HH','Haiti','HT','NA'], ['HI','Dominican Rep.','DO','NA'], ['HJ-HK','Colombia','CO','SA'],
+    ['HL','Korea (South)','KR','AS'], ['HM','N.Korea','KP','AS'], ['HN','Iraq','IQ','AS'],
+    ['HO-HP','Panama','PA','NA'], ['HQ-HR','Honduras','HN','NA'], ['HS','Thailand','TH','AS'],
+    ['HT','Nicaragua','NI','NA'], ['HU','El Salvador','SV','NA'], ['HV','Vatican',null,'EU'],
+    ['HW-HY','France','FR','EU'], ['HZ','Saudi Arabia','SA','AS'], ['H2','Cyprus','CY','AS'],
+    ['H3','Panama','PA','NA'], ['H4','Solomon Is.','SB','OC'], ['H6-H7','Nicaragua','NI','NA'],
+    ['H8-H9','Panama','PA','NA'],
+    ['I','Italy','IT','EU'],
+    ['JA-JS','Japan','JP','AS'], ['JT-JV','Mongolia','MN','AS'], ['JW-JX','Norway','NO','EU'],
+    ['JY','Jordan','JO','AS'], ['JZ','Indonesia','ID','AS'], ['J2','Djibouti','DJ','AF'],
+    ['J3','Grenada','GD','NA'], ['J4','Greece','GR','EU'], ['J5','Guinea-Bissau','GW','AF'],
+    ['J6','St.Lucia','LC','NA'], ['J7','Dominica','DM','NA'], ['J8','St.Vincent','VC','NA'],
+    ['K','USA','US','NA'],
+    ['LA-LN','Norway','NO','EU'], ['LO-LW','Argentina','AR','SA'], ['LX','Luxembourg','LU','EU'],
+    ['LY','Lithuania','LT','EU'], ['LZ','Bulgaria','BG','EU'], ['L2-L9','Argentina','AR','SA'],
+    ['M','UK','GB','EU'],
+    ['N','USA','US','NA'],
+    ['OA-OC','Peru','PE','SA'], ['OD','Lebanon','LB','AS'], ['OE','Austria','AT','EU'],
+    ['OF-OJ','Finland','FI','EU'], ['OK-OL','Czech Rep.','CZ','EU'], ['OM','Slovakia','SK','EU'],
+    ['ON-OT','Belgium','BE','EU'], ['OU-OZ','Denmark','DK','EU'],
+    ['PA-PI','Netherlands','NL','EU'], ['PJ','Caribbean Netherlands','BQ','NA'],
+    ['PK-PO','Indonesia','ID','AS'], ['PP-PY','Brazil','BR','SA'], ['PZ','Suriname','SR','SA'],
+    ['P2','Papua New Guinea','PG','OC'], ['P3','Cyprus','CY','AS'], ['P4','Aruba','AW','NA'],
+    ['P5-P9','N.Korea','KP','AS'],
+    ['R','Russia','RU','EU'],
+    ['SA-SM','Sweden','SE','EU'], ['SN-SR','Poland','PL','EU'], ['SSA-SSM','Egypt','EG','AF'],
+    ['SSN-SSZ','Sudan','SD','AF'], ['ST','Sudan','SD','AF'], ['SU','Egypt','EG','AF'],
+    ['SV-SZ','Greece','GR','EU'], ['S2-S3','Bangladesh','BD','AS'], ['S5','Slovenia','SI','EU'],
+    ['S6','Singapore','SG','AS'], ['S7','Seychelles','SC','AF'], ['S8','South Africa','ZA','AF'],
+    ['S9','Sao Tome','ST','AF'],
+    ['TA-TC','Turkey','TR','AS'], ['TD','Guatemala','GT','NA'], ['TE','Costa Rica','CR','NA'],
+    ['TF','Iceland','IS','EU'], ['TG','Guatemala','GT','NA'], ['TH','France','FR','EU'],
+    ['TI','Costa Rica','CR','NA'], ['TJ','Cameroon','CM','AF'], ['TK','France','FR','EU'],
+    ['TL','C.African Rep.','CF','AF'], ['TM','France','FR','EU'], ['TN','Congo Rep.','CG','AF'],
+    ['TO-TQ','France','FR','EU'], ['TR','Gabon','GA','AF'], ['TS','Tunisia','TN','AF'],
+    ['TT','Chad','TD','AF'], ['TU','Ivory Coast','CI','AF'], ['TV-TX','France','FR','EU'],
+    ['TY','Benin','BJ','AF'], ['TZ','Mali','ML','AF'], ['T2','Tuvalu','TV','OC'], ['T3','Kiribati','KI','OC'],
+    ['T4','Cuba','CU','NA'], ['T5','Somalia','SO','AF'], ['T6','Afghanistan','AF','AS'],
+    ['T7','San Marino','SM','EU'], ['T8','Palau','PW','OC'],
+    ['UA-UI','Russia','RU','EU'], ['UJ-UM','Uzbekistan','UZ','AS'], ['UN-UQ','Kazakhstan','KZ','AS'],
+    ['UR-UZ','Ukraine','UA','EU'],
+    ['VA-VG','Canada','CA','NA'], ['VH-VN','Australia','AU','OC'], ['VO','Canada','CA','NA'],
+    ['VP-VQ','UK','GB','EU'], ['VR','Hong Kong','HK','AS'], ['VS','UK','GB','EU'], ['VT-VW','India','IN','AS'],
+    ['VX-VY','Canada','CA','NA'], ['VZ','Australia','AU','OC'], ['V2','Antigua','AG','NA'],
+    ['V3','Belize','BZ','NA'], ['V4','St.Kitts','KN','NA'], ['V5','Namibia','NA','AF'],
+    ['V6','Micronesia','FM','OC'], ['V7','Marshall Is.','MH','OC'], ['V8','Brunei','BN','AS'],
+    ['W','USA','US','NA'],
+    ['XA-XI','Mexico','MX','NA'], ['XJ-XO','Canada','CA','NA'], ['XP','Denmark','DK','EU'],
+    ['XQ-XR','Chile','CL','SA'], ['XS','China','CN','AS'], ['XT','Burkina Faso','BF','AF'],
+    ['XU','Cambodia','KH','AS'], ['XV','Vietnam','VN','AS'], ['XW','Laos','LA','AS'], ['XX','Macao','MO','AS'],
+    ['XY-XZ','Myanmar','MM','AS'],
+    ['YA','Afghanistan','AF','AS'], ['YB-YH','Indonesia','ID','AS'], ['YI','Iraq','IQ','AS'],
+    ['YJ','Vanuatu','VU','OC'], ['YK','Syria','SY','AS'], ['YL','Latvia','LV','EU'], ['YM','Turkey','TR','AS'],
+    ['YN','Nicaragua','NI','NA'], ['YO-YR','Romania','RO','EU'], ['YS','El Salvador','SV','NA'],
+    ['YT-YU','Serbia','RS','EU'], ['YV-YY','Venezuela','VE','SA'], ['Y2-Y9','Germany','DE','EU'],
+    ['ZA','Albania','AL','EU'], ['ZB-ZJ','UK','GB','EU'], ['ZK-ZM','New Zealand','NZ','OC'],
+    ['ZN-ZO','UK','GB','EU'], ['ZP','Paraguay','PY','SA'], ['ZQ','UK','GB','EU'],
+    ['ZR-ZU','South Africa','ZA','AF'], ['ZV-ZZ','Brazil','BR','SA'], ['Z2','Zimbabwe','ZW','AF'],
+    ['Z3','N.Macedonia','MK','EU'], ['Z8','South Sudan','SS','AF'],
+    ['2','UK','GB','EU'],
+    ['3A','Monaco','MC','EU'], ['3B','Mauritius','MU','AF'], ['3C','Eq.Guinea','GQ','AF'],
+    ['3DA-3DM','Eswatini','SZ','AF'], ['3DN-3DZ','Fiji','FJ','OC'], ['3E-3F','Panama','PA','NA'],
+    ['3G','Chile','CL','SA'], ['3H-3U','China','CN','AS'], ['3V','Tunisia','TN','AF'],
+    ['3W','Vietnam','VN','AS'], ['3X','Guinea','GN','AF'], ['3Y','Norway','NO','EU'],
+    ['3Z','Poland','PL','EU'],
+    ['4A-4C','Mexico','MX','NA'], ['4D-4I','Philippines','PH','AS'], ['4J-4K','Azerbaijan','AZ','AS'],
+    ['4L','Georgia','GE','AS'], ['4M','Venezuela','VE','SA'], ['4O','Montenegro','ME','EU'],
+    ['4P-4S','Sri Lanka','LK','AS'], ['4T','Peru','PE','SA'], ['4U','United Nations',null,''],
+    ['4V','Haiti','HT','NA'], ['4W','Timor-Leste','TL','AS'], ['4X','Israel','IL','AS'], ['4Y','ICAO',null,''],
+    ['4Z','Israel','IL','AS'],
+    ['5A','Libya','LY','AF'], ['5B','Cyprus','CY','AS'], ['5C-5G','Morocco','MA','AF'],
+    ['5H-5I','Tanzania','TZ','AF'], ['5J-5K','Colombia','CO','SA'], ['5L-5M','Liberia','LR','AF'],
+    ['5N-5O','Nigeria','NG','AF'], ['5P-5Q','Denmark','DK','EU'], ['5R-5S','Madagascar','MG','AF'],
+    ['5T','Mauritania','MR','AF'], ['5U','Niger','NE','AF'], ['5V','Togo','TG','AF'], ['5W','Samoa','WS','OC'],
+    ['5X','Uganda','UG','AF'], ['5Y-5Z','Kenya','KE','AF'],
+    ['6A-6B','Egypt','EG','AF'], ['6C','Syria','SY','AS'], ['6D-6J','Mexico','MX','NA'],
+    ['6K-6N','Korea (South)','KR','AS'], ['6O','Somalia','SO','AF'], ['6P-6S','Pakistan','PK','AS'],
+    ['6T-6U','Sudan','SD','AF'], ['6V-6W','Senegal','SN','AF'], ['6X','Madagascar','MG','AF'],
+    ['6Y','Jamaica','JM','NA'], ['6Z','Liberia','LR','AF'],
+    ['7A-7I','Indonesia','ID','AS'], ['7J-7N','Japan','JP','AS'], ['7O','Yemen','YE','AS'],
+    ['7P','Lesotho','LS','AF'], ['7Q','Malawi','MW','AF'], ['7R','Algeria','DZ','AF'],
+    ['7S','Sweden','SE','EU'], ['7T-7Y','Algeria','DZ','AF'], ['7Z','Saudi Arabia','SA','AS'],
+    ['8A-8I','Indonesia','ID','AS'], ['8J-8N','Japan','JP','AS'], ['8O','Botswana','BW','AF'],
+    ['8P','Barbados','BB','NA'], ['8Q','Maldives','MV','AS'], ['8R','Guyana','GY','SA'],
+    ['8S','Sweden','SE','EU'], ['8T-8Y','India','IN','AS'], ['8Z','Saudi Arabia','SA','AS'],
+    ['9A','Croatia','HR','EU'], ['9B-9D','Iran','IR','AS'], ['9E-9F','Ethiopia','ET','AF'],
+    ['9G','Ghana','GH','AF'], ['9H','Malta','MT','EU'], ['9I-9J','Zambia','ZM','AF'],
+    ['9K','Kuwait','KW','AS'], ['9L','Sierra Leone','SL','AF'], ['9M','Malaysia','MY','AS'],
+    ['9N','Nepal','NP','AS'], ['9O-9T','Congo (DRC)','CD','AF'], ['9U','Burundi','BI','AF'],
+    ['9V','Singapore','SG','AS'], ['9W','Malaysia','MY','AS'], ['9X','Rwanda','RW','AF'],
+    ['9Y-9Z','Trinidad & Tobago','TT','SA'],
+  ];
+
+  const _PREFIX_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  function _ituExpand([series, name, iso2, cont]) {
+    const [from, to = from] = series.split('-');
+    const head = from.slice(0, -1);
+    const a = _PREFIX_CHARS.indexOf(from.slice(-1));
+    const b = _PREFIX_CHARS.indexOf(to.slice(-1));
+    const out = [];
+    for (let i = a; i <= b; i++) out.push([head + _PREFIX_CHARS[i], name, iso2, cont]);
+    return out;
+  }
+
+  // Longest prefix wins; on equal length the DXCC entry comes first (sort
+  // is stable), so entities like Azores (CU) or Svalbard (JW) beat the
+  // plain ITU owner of the same series.
+  const _PREFIXES = _DXCC.concat(_ITU_SERIES.flatMap(_ituExpand))
+    .sort((a, b) => b[0].length - a[0].length);
+
   function _callsignNormalize(raw) {
     let c = raw.toUpperCase().trim();
     if (!c.includes('/')) return c;
@@ -430,7 +576,7 @@
   function callsignToInfo(raw) {
     if (!raw) return { country: '', flag: '🏴', continent: '' };
     const call = _callsignNormalize(raw);
-    for (const [pfx, name, iso2, cont] of _DXCC) {
+    for (const [pfx, name, iso2, cont] of _PREFIXES) {
       if (call.startsWith(pfx)) return { country: name, flag: _iso2Flag(iso2), continent: cont };
     }
     return { country: '', flag: '🏴', continent: '' };
