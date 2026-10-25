@@ -384,10 +384,11 @@ func adifContestID(name string) (string, bool) {
 }
 
 // adifModeSubmode maps our internal mode string to the (MODE, SUBMODE) pair
-// required by ADIF 3.1.5. In ADIF, PSK31/PSK63 are SUBMODEs of PSK, FT8/FT4
-// are SUBMODEs of MFSK, and JT65A/JT9A are SUBMODEs of the JT65/JT9 modes.
-// When we emit MODE=FT8 directly, strict importers (DXKeeper, LotW) reject
-// the record because FT8 is not a legal MODE enum value.
+// required by ADIF 3.1.5. In ADIF, PSK31/PSK63 are SUBMODEs of PSK and
+// JT65A/JT9A are SUBMODEs of the JT65/JT9 modes. FT8 is a top-level MODE
+// (since ADIF 3.0.6) and is written as MODE=FT8 without SUBMODE. FT4 is
+// formally MFSK/FT4 in the spec, but the operator wants it declared as
+// MODE=FT4 the same way, so FT8 and FT4 never end up as MFSK.
 //
 // Anything not in this table falls through as MODE=<uppercased input> with
 // no SUBMODE — the safe default for CW/SSB/AM/FM/RTTY etc. which are legal
@@ -395,9 +396,9 @@ func adifContestID(name string) (string, bool) {
 func adifModeSubmode(m string) (mode, submode string) {
 	switch strings.ToUpper(m) {
 	case "FT8":
-		return "MFSK", "FT8"
+		return "FT8", ""
 	case "FT4":
-		return "MFSK", "FT4"
+		return "FT4", ""
 	case "PSK31":
 		return "PSK", "PSK31"
 	case "PSK63":

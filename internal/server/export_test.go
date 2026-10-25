@@ -164,8 +164,8 @@ func TestExportADIFLighthouseUsesSIG(t *testing.T) {
 	}
 }
 
-// FR #67: FT8/FT4 are SUBMODEs of MFSK per ADIF 3.1.5, PSK31 is a SUBMODE
-// of PSK. Emitting MODE=FT8 directly makes strict validators reject.
+// FR #67: PSK31 is a SUBMODE of PSK. FT8 and FT4 are declared as MODEs of
+// their own and must not be wrapped in MFSK.
 func TestExportADIFModeSubmodeSplit(t *testing.T) {
 	cases := []struct {
 		in           string
@@ -173,8 +173,8 @@ func TestExportADIFModeSubmodeSplit(t *testing.T) {
 		wantSubmode  string
 		wantNoSubmod bool
 	}{
-		{"FT8", "MFSK", "FT8", false},
-		{"FT4", "MFSK", "FT4", false},
+		{"FT8", "FT8", "", true},
+		{"FT4", "FT4", "", true},
 		{"PSK31", "PSK", "PSK31", false},
 		{"PSK63", "PSK", "PSK63", false},
 		{"CW", "CW", "", true},
